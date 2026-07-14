@@ -57,6 +57,7 @@ flags:
   -idle-timeout duration  空闲超时，双向无数据则断开，0 表示不启用（仅 go 模式）
   -log-level string       日志级别：info 或 debug（仅 go 模式，默认 "info"）
   -quiet                  安静模式，抑制每连接的常规日志（仅 go 模式）
+  -config string          YAML 配置文件路径
   -version                打印版本信息后退出
 ```
 
@@ -94,6 +95,43 @@ UDP 转发（如 DNS）：
 ```
 
 按 `Ctrl+C` 优雅退出，会等待在途连接处理完成。
+
+## 配置文件
+
+除命令行 flag 外，还可通过 `-config <path>` 从 YAML 文件读取配置：
+
+```bash
+./portmap -config config.yaml
+```
+
+- **优先级**：命令行显式设置的 flag > 配置文件 > 内置默认值。
+  即：只有在配置文件中出现、且命令行未显式设置的字段，才会覆盖默认值。
+- `dial_timeout` / `idle_timeout` 在 YAML 中用字符串（如 `"10s"`、`"5m"`），经 `time.ParseDuration` 解析。
+- 配置文件中出现未知字段会直接报错，便于及早发现拼写错误。
+- 启动时会打印一行「生效配置」摘要，便于确认合并后的实际参数。
+
+完整示例见 [config.example.yaml](config.example.yaml)：
+
+```yaml
+listen_port: 22
+listen_host: ""
+target: 127.0.0.1:2222
+mode: go
+proto: tcp
+reuseaddr: true
+sudo: false
+dial_timeout: 10s
+max_conns: 0
+idle_timeout: 0s
+log_level: info
+quiet: false
+```
+
+命令行覆盖配置文件示例（配置文件里 `listen_port` 为 22，此处显式指定 8022 生效）：
+
+```bash
+./portmap -config config.yaml -listen-port 8022
+```
 
 ## 模式差异（go vs socat）
 
@@ -160,6 +198,9 @@ CI 见 `.github/workflows/ci.yml`：在 linux/macOS/windows 上运行 `go vet` �
 .
 ├── main.go                          # 命令行入口与参数解析
 ├── main_test.go                     # 命令行入口测试
+├── config.go                        # YAML 配置文件加载与合并
+├── config_test.go                   # 配置文件加载/合并测试
+├── config.example.yaml              # 配置文件示例
 ├── signals_unix.go                  # 类 Unix 平台 SIGUSR1 状态打印
 ├── signals_windows.go               # Windows 平台 no-op（无 SIGUSR1）
 ├── Makefile                         # 构建/测试/发布

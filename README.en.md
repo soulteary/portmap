@@ -57,6 +57,7 @@ flags:
   -idle-timeout duration  idle timeout; disconnect if no data in both directions, 0 to disable (go mode only)
   -log-level string       log level: info or debug (go mode only, default "info")
   -quiet                  quiet mode, suppress per-connection routine logs (go mode only)
+  -config string          path to a YAML config file
   -version                print version information and exit
 ```
 
@@ -94,6 +95,43 @@ Check the version:
 ```
 
 Press `Ctrl+C` to exit gracefully; it waits for in-flight connections to finish.
+
+## Config File
+
+Besides command-line flags, you can also read configuration from a YAML file via `-config <path>`:
+
+```bash
+./portmap -config config.yaml
+```
+
+- **Priority**: explicitly set command-line flags > config file > built-in defaults.
+  That is, only fields present in the config file and not explicitly set on the command line override the defaults.
+- `dial_timeout` / `idle_timeout` are strings in YAML (e.g. `"10s"`, `"5m"`), parsed via `time.ParseDuration`.
+- Unknown fields in the config file cause an error, helping catch typos early.
+- On startup a one-line "effective config" summary is printed to confirm the merged parameters.
+
+See the full example in [config.example.yaml](config.example.yaml):
+
+```yaml
+listen_port: 22
+listen_host: ""
+target: 127.0.0.1:2222
+mode: go
+proto: tcp
+reuseaddr: true
+sudo: false
+dial_timeout: 10s
+max_conns: 0
+idle_timeout: 0s
+log_level: info
+quiet: false
+```
+
+Example of command-line overriding the config file (config has `listen_port: 22`, here 8022 takes effect):
+
+```bash
+./portmap -config config.yaml -listen-port 8022
+```
 
 ## Mode Differences (go vs socat)
 
@@ -160,6 +198,9 @@ and runs `golangci-lint` independently.
 .
 ├── main.go                          # command-line entry point and flag parsing
 ├── main_test.go                     # command-line entry point tests
+├── config.go                        # YAML config file loading and merging
+├── config_test.go                   # config file loading/merging tests
+├── config.example.yaml              # config file example
 ├── signals_unix.go                  # SIGUSR1 status print on Unix-like platforms
 ├── signals_windows.go               # Windows no-op (no SIGUSR1)
 ├── Makefile                         # build/test/release

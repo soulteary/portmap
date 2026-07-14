@@ -59,6 +59,16 @@ type options struct {
 	logLevel    string
 	quiet       bool
 	showVersion bool
+	configPath  string
+}
+
+// String 返回最终生效配置的可读摘要，用于启动时打印，便于确认合并后的实际参数。
+func (o options) String() string {
+	listen := net.JoinHostPort(o.listenHost, strconv.Itoa(o.listenPort))
+	return fmt.Sprintf(
+		"mode=%s proto=%s listen=%s target=%s reuseaddr=%t dial-timeout=%s max-conns=%d idle-timeout=%s log-level=%s quiet=%t sudo=%t",
+		o.mode, o.proto, listen, o.target, o.reuseAddr, o.dialTimeout, o.maxConns, o.idleTimeout, o.logLevel, o.quiet, o.useSudo,
+	)
 }
 
 func main() {
@@ -84,6 +94,7 @@ func run(argv []string) error {
 	fs.StringVar(&opt.logLevel, "log-level", "info", "日志级别：info 或 debug（仅 go 模式）")
 	fs.BoolVar(&opt.quiet, "quiet", false, "安静模式，抑制每连接的常规日志（仅 go 模式）")
 	fs.BoolVar(&opt.showVersion, "version", false, "打印版本信息后退出")
+	fs.StringVar(&opt.configPath, "config", "", "YAML 配置文件路径")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "portmap - TCP/UDP 端口转发 (socat 等价实现)\n\n")
@@ -105,6 +116,23 @@ func run(argv []string) error {
 	if opt.showVersion {
 		fmt.Printf("portmap %s (commit %s, built %s)\n", version, commit, date)
 		return nil
+	}
+
+	// 记录用户显式设置过哪些 flag：既用于配置文件合并（flag 优先），
+	// 也用于 socat 模式判断是否使用了仅 go 模式支持的选项。
+	setFlags := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) { setFlags[f.Name] = true })
+
+	// 加载配置文件并合并：仅对配置文件中出现、且命令行未显式设置的字段生效。
+	// 优先级：命令行显式 flag > 配置文件 > 内置默认值。
+	if opt.configPath != "" {
+		cfg, err := loadConfig(opt.configPath)
+		if err != nil {
+			return err
+		}
+		if err := mergeConfig(&opt, cfg, setFlags); err != nil {
+			return err
+		}
 	}
 
 	if opt.listenPort <= 0 || opt.listenPort > 65535 {
@@ -137,10 +165,6 @@ func run(argv []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 记录用户显式设置过哪些 flag，供 socat 模式判断是否使用了仅 go 模式支持的选项。
-	setFlags := make(map[string]bool)
-	fs.Visit(func(f *flag.Flag) { setFlags[f.Name] = true })
-
 	switch opt.mode {
 	case "go":
 		return runGo(ctx, opt)
@@ -152,6 +176,7 @@ func run(argv []string) error {
 }
 
 func runGo(ctx context.Context, opt options) error {
+	log.Printf("生效配置: %s", opt)
 	listen := net.JoinHostPort(opt.listenHost, strconv.Itoa(opt.listenPort))
 	srv := forward.New(forward.Config{
 		Listen:      listen,
@@ -172,6 +197,7 @@ func runGo(ctx context.Context, opt options) error {
 }
 
 func runSocat(ctx context.Context, opt options, setFlags map[string]bool) error {
+	log.Printf("生效配置: %s", opt)
 	// socat 模式仅复用系统 socat，以下仅 go 模式支持的 flag 若被显式设置则提示忽略。
 	goOnly := []string{"idle-timeout", "max-conns", "log-level", "quiet"}
 	var ignored []string

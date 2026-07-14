@@ -1,0 +1,43 @@
+# portmap 配置文件示例
+#
+# 优先级：命令行显式设置的 flag > 配置文件 > 内置默认值。
+# 仅在此文件中出现、且命令行未显式设置的字段才会覆盖默认值。
+# 用法：portmap -config config.yaml
+#
+# 下列字段均为可选，未出现的字段将沿用内置默认值。
+
+# 本地监听端口（默认 22）
+listen_port: 22
+
+# 本地监听地址，留空表示所有网卡（默认空）
+listen_host: ""
+
+# 转发目标地址 host:port（默认 127.0.0.1:2222）
+target: 127.0.0.1:2222
+
+# 转发模式：go（纯 Go 实现）或 socat（调用系统 socat），默认 go
+mode: go
+
+# 转发协议：tcp 或 udp（默认 tcp）
+proto: tcp
+
+# 是否启用 SO_REUSEADDR（默认 true）
+reuseaddr: true
+
+# socat 模式下是否以 sudo 运行（默认 false）
+sudo: false
+
+# 拨号到目标的超时时间，字符串写法（如 10s、1m），默认 10s
+dial_timeout: 10s
+
+# 最大并发连接数，0 表示不限制（仅 go 模式；UDP 下限制并发会话数），默认 0
+max_conns: 0
+
+# 空闲超时，双向无数据则断开，0 表示不启用（仅 go 模式；UDP 下 0 表示默认 60s），默认 0
+idle_timeout: 0s
+
+# 日志级别：info 或 debug（仅 go 模式，默认 info）
+log_level: info
+
+# 安静模式，抑制每连接的常规日志（仅 go 模式，默认 false）
+quiet: false
