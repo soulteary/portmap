@@ -1,8 +1,24 @@
 # portmap
 
-[English](README.en.md) | 中文
+[![CI](https://github.com/soulteary/portmap/actions/workflows/ci.yml/badge.svg)](https://github.com/soulteary/portmap/actions/workflows/ci.yml) [![Go Report Card](https://goreportcard.com/badge/github.com/soulteary/portmap)](https://goreportcard.com/report/github.com/soulteary/portmap) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-一个用 Go 实现的通用 TCP/UDP 端口转发小工具，等价于：
+<p align="center">
+  <a href="README.en.md">ENGLISH</a> | <a href="README.md" target="_blank">中文文档</a>
+</p>
+
+<p align="center">
+  <img src=".github/workflows/assets/portmap-logo.png" alt="portmap Logo" width="160"/>
+</p>
+
+> 一个轻量的 **TCP/UDP 端口转发小工具** —— 用 Go 实现，无需依赖系统 `socat`。
+
+<p align="center">
+  <img src=".github/workflows/assets/portmap-banner.jpg" alt="portmap Banner" width="720"/>
+</p>
+
+## 概览
+
+`portmap` 是一个用 Go 实现的通用 TCP/UDP 端口转发小工具，等价于：
 
 ```bash
 sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222
