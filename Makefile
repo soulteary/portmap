@@ -10,7 +10,7 @@ LDFLAGS := -s -w \
 	-X main.commit=$(COMMIT) \
 	-X main.date=$(DATE)
 
-.PHONY: all build test vet lint clean release
+.PHONY: all build test vet lint clean release snapshot
 
 all: build
 
@@ -42,3 +42,7 @@ release:
 		GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "$(LDFLAGS)" \
 			-o dist/$(BINARY)-$$os-$$arch$$ext . ; \
 	done
+
+# snapshot 使用 GoReleaser 在本地试跑发布流程（不推送、不发布）。
+snapshot:
+	goreleaser release --snapshot --clean

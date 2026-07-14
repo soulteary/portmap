@@ -55,6 +55,25 @@ go build -o portmap .
 make build
 ```
 
+## Container Image
+
+Prebuilt multi-arch images (`linux/amd64` + `linux/arm64`) are published to ghcr.io and Docker Hub:
+
+```bash
+# pull from ghcr.io
+docker pull ghcr.io/soulteary/portmap:latest
+# or pull from Docker Hub
+docker pull soulteary/portmap:latest
+```
+
+The image is based on `scratch` and contains only the single static binary. Use host networking so port forwarding works:
+
+```bash
+# forward host port 22 to the container listening on 2222 (low ports need privileges)
+docker run --rm --network host ghcr.io/soulteary/portmap:latest \
+  -listen-port 22 -target 127.0.0.1:2222
+```
+
 ## Usage
 
 ```text
@@ -203,10 +222,32 @@ make test      # go test ./... -race
 make vet       # go vet
 make lint      # golangci-lint (must be installed)
 make release   # cross-compile artifacts for multiple platforms into dist/
+make snapshot  # dry-run the release flow locally via GoReleaser (no push, no publish)
 ```
 
 See CI at `.github/workflows/ci.yml`: it runs `go vet` and `go test -race` on linux/macOS/windows,
 and runs `golangci-lint` independently.
+
+## Release
+
+Releases are driven by GoReleaser, see `.github/workflows/release.yml`:
+
+- **Trigger**: pushing a `v*` tag (e.g. `v1.0.0`) publishes automatically, or trigger
+  manually via `workflow_dispatch` in the Actions tab.
+- **Binaries**: `linux`/`darwin`/`windows` x `amd64`/`arm64` (except windows/arm64),
+  uploaded to the GitHub Release together with `checksums.txt`.
+- **Container images**: multi-arch (`linux/amd64` + `linux/arm64`) images are built and
+  pushed to `ghcr.io/soulteary/portmap` and `docker.io/soulteary/portmap`, tagged with
+  both `:latest` and `:<version>`.
+
+Prerequisites:
+
+- ghcr.io uses the built-in `GITHUB_TOKEN` (the workflow grants `packages: write`), no
+  extra config needed.
+- Docker Hub requires `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets configured under
+  the repository Settings → Secrets.
+- Locally you can validate the config with `make snapshot`
+  (equivalent to `goreleaser release --snapshot --clean`) or `goreleaser check`; neither pushes anything.
 
 ## Project Structure
 
@@ -222,7 +263,11 @@ and runs `golangci-lint` independently.
 ├── Makefile                         # build/test/release
 ├── LICENSE                          # Apache 2.0 license
 ├── .golangci.yml                    # golangci-lint configuration
+├── .goreleaser.yaml                 # GoReleaser release config (binaries + images)
+├── Dockerfile                       # scratch base image
+├── .dockerignore                    # container build context ignore rules
 ├── .github/workflows/ci.yml         # CI workflow
+├── .github/workflows/release.yml    # release workflow (GoReleaser)
 └── internal
     ├── forward                      # pure Go TCP/UDP forwarder
     │   ├── forward.go               # TCP forwarding, limiting, idle timeout, logging

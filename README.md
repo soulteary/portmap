@@ -55,6 +55,25 @@ go build -o portmap .
 make build
 ```
 
+## 容器镜像
+
+预构建的多架构镜像（`linux/amd64` + `linux/arm64`）发布在 ghcr.io 与 Docker Hub：
+
+```bash
+# 从 ghcr.io 拉取
+docker pull ghcr.io/soulteary/portmap:latest
+# 或从 Docker Hub 拉取
+docker pull soulteary/portmap:latest
+```
+
+容器基于 `scratch`，仅包含单个静态二进制。运行时需使用 host 网络才能完成端口转发：
+
+```bash
+# 把宿主机 22 转发到容器监听的 2222（低位端口需特权）
+docker run --rm --network host ghcr.io/soulteary/portmap:latest \
+  -listen-port 22 -target 127.0.0.1:2222
+```
+
 ## 用法
 
 ```text
@@ -203,10 +222,31 @@ make test      # go test ./... -race
 make vet       # go vet
 make lint      # golangci-lint（需已安装）
 make release   # 交叉编译多平台产物到 dist/
+make snapshot  # 用 GoReleaser 本地试跑发布流程（不推送、不发布）
 ```
 
 CI 见 `.github/workflows/ci.yml`：在 linux/macOS/windows 上运行 `go vet` 与
 `go test -race`，并独立运行 `golangci-lint`。
+
+## 发布
+
+发布见 `.github/workflows/release.yml`，由 GoReleaser 驱动：
+
+- **触发**：推送 `v*` 形式的 tag（如 `v1.0.0`）自动发布，或在 Actions 页手动
+  `workflow_dispatch`。
+- **二进制产物**：`linux`/`darwin`/`windows` × `amd64`/`arm64`（windows/arm64 除外）
+  连同 `checksums.txt` 一并上传到 GitHub Release。
+- **容器镜像**：构建多架构（`linux/amd64` + `linux/arm64`）镜像并推送到
+  `ghcr.io/soulteary/portmap` 与 `docker.io/soulteary/portmap`，
+  同时打 `:latest` 与 `:<version>` 标签。
+
+发布前置条件：
+
+- ghcr.io 使用内置 `GITHUB_TOKEN`（工作流已授予 `packages: write`），无需额外配置。
+- Docker Hub 需在仓库 Settings → Secrets 中配置 `DOCKERHUB_USERNAME` 与
+  `DOCKERHUB_TOKEN` 两个 secret。
+- 本地可用 `make snapshot`（等价 `goreleaser release --snapshot --clean`）或
+  `goreleaser check` 校验配置，均不会推送。
 
 ## 项目结构
 
@@ -222,7 +262,11 @@ CI 见 `.github/workflows/ci.yml`：在 linux/macOS/windows 上运行 `go vet` �
 ├── Makefile                         # 构建/测试/发布
 ├── LICENSE                          # Apache 2.0 许可证
 ├── .golangci.yml                    # golangci-lint 配置
+├── .goreleaser.yaml                 # GoReleaser 发布配置（二进制 + 镜像）
+├── Dockerfile                       # scratch 基础镜像
+├── .dockerignore                    # 容器构建上下文忽略规则
 ├── .github/workflows/ci.yml         # CI 工作流
+├── .github/workflows/release.yml    # 发布工作流（GoReleaser）
 └── internal
     ├── forward                      # 纯 Go TCP/UDP 转发器
     │   ├── forward.go               # TCP 转发、限流、空闲超时、日志

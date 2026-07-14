@@ -1,0 +1,155 @@
+version: 2
+
+project_name: portmap
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: portmap
+    main: .
+    binary: portmap
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.date={{ .Date }}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: portmap
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - README.en.md
+      - LICENSE
+      - config.example.yaml
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  use: git
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+
+dockers:
+  - id: portmap-ghcr-amd64
+    use: buildx
+    goos: linux
+    goarch: amd64
+    dockerfile: Dockerfile
+    image_templates:
+      - "ghcr.io/soulteary/portmap:{{ .Version }}-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.source=https://github.com/soulteary/portmap"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+
+  - id: portmap-ghcr-arm64
+    use: buildx
+    goos: linux
+    goarch: arm64
+    dockerfile: Dockerfile
+    image_templates:
+      - "ghcr.io/soulteary/portmap:{{ .Version }}-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.source=https://github.com/soulteary/portmap"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+
+  - id: portmap-dockerhub-amd64
+    use: buildx
+    goos: linux
+    goarch: amd64
+    dockerfile: Dockerfile
+    image_templates:
+      - "docker.io/soulteary/portmap:{{ .Version }}-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.source=https://github.com/soulteary/portmap"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+
+  - id: portmap-dockerhub-arm64
+    use: buildx
+    goos: linux
+    goarch: arm64
+    dockerfile: Dockerfile
+    image_templates:
+      - "docker.io/soulteary/portmap:{{ .Version }}-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.source=https://github.com/soulteary/portmap"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+
+docker_manifests:
+  - name_template: "ghcr.io/soulteary/portmap:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/soulteary/portmap:{{ .Version }}-amd64"
+      - "ghcr.io/soulteary/portmap:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/soulteary/portmap:latest"
+    image_templates:
+      - "ghcr.io/soulteary/portmap:{{ .Version }}-amd64"
+      - "ghcr.io/soulteary/portmap:{{ .Version }}-arm64"
+  - name_template: "docker.io/soulteary/portmap:{{ .Version }}"
+    image_templates:
+      - "docker.io/soulteary/portmap:{{ .Version }}-amd64"
+      - "docker.io/soulteary/portmap:{{ .Version }}-arm64"
+  - name_template: "docker.io/soulteary/portmap:latest"
+    image_templates:
+      - "docker.io/soulteary/portmap:{{ .Version }}-amd64"
+      - "docker.io/soulteary/portmap:{{ .Version }}-arm64"
+
+release:
+  draft: false
+  prerelease: auto

@@ -1,0 +1,20 @@
+# 构建产物
+/portmap
+/dist/
+*.exe
+
+# 测试与覆盖率
+*.out
+coverage.*
+
+# 版本控制与文档
+.git
+.github
+*.md
+!README.md
+!README.en.md
+
+# 编辑器/系统
+.DS_Store
+.idea/
+.vscode/
