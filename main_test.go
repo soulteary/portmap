@@ -27,6 +27,8 @@ func TestRunValidation(t *testing.T) {
 	}{
 		{name: "version 提前返回 nil", argv: []string{"-version"}, wantErr: false},
 
+		{name: "无参数展示 help 返回 nil", argv: []string{}, wantErr: false},
+
 		{name: "端口为 0 非法", argv: []string{"-listen-port", "0"}, wantErr: true},
 		{name: "端口超范围非法", argv: []string{"-listen-port", "70000"}, wantErr: true},
 		{name: "端口为负非法", argv: []string{"-listen-port", "-1"}, wantErr: true},

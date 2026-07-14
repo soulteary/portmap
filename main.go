@@ -22,6 +22,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -90,7 +91,15 @@ func run(argv []string) error {
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(argv); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
+	}
+
+	if len(argv) == 0 {
+		fs.Usage()
+		return nil
 	}
 
 	if opt.showVersion {
