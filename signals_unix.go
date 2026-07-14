@@ -24,6 +24,7 @@ import (
 	"syscall"
 
 	"github.com/soulteary/portmap/internal/forward"
+	"github.com/soulteary/portmap/internal/i18n"
 )
 
 // watchStatusSignal 在类 Unix 平台监听 SIGUSR1，收到后打印活跃/累计连接快照。
@@ -38,7 +39,7 @@ func watchStatusSignal(ctx context.Context, srv *forward.Server) {
 			case <-ctx.Done():
 				return
 			case <-ch:
-				log.Printf("status: active=%d total=%d", srv.ActiveConns(), srv.TotalConns())
+				log.Printf(i18n.T(i18n.KeyLogStatus), srv.ActiveConns(), srv.TotalConns())
 			}
 		}
 	}()

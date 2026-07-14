@@ -18,10 +18,13 @@ package socat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/soulteary/portmap/internal/i18n"
 )
 
 // Options 描述生成 socat 命令所需的参数。
@@ -52,7 +55,7 @@ func (o Options) proto() (string, error) {
 	case "udp":
 		return "udp", nil
 	default:
-		return "", fmt.Errorf("invalid proto: %q", o.Proto)
+		return "", errors.New(i18n.T(i18n.KeyErrSocatProto, o.Proto))
 	}
 }
 
@@ -63,10 +66,10 @@ func (o Options) proto() (string, error) {
 //	["TCP-LISTEN:22,fork,reuseaddr", "TCP:127.0.0.1:2222"]
 func (o Options) Args() ([]string, error) {
 	if o.ListenPort <= 0 || o.ListenPort > 65535 {
-		return nil, fmt.Errorf("invalid listen port: %d", o.ListenPort)
+		return nil, errors.New(i18n.T(i18n.KeyErrSocatPort, o.ListenPort))
 	}
 	if strings.TrimSpace(o.Target) == "" {
-		return nil, fmt.Errorf("empty target")
+		return nil, errors.New(i18n.T(i18n.KeyErrSocatTarget))
 	}
 	proto, err := o.proto()
 	if err != nil {
@@ -103,7 +106,7 @@ func (o Options) Command(ctx context.Context) (*exec.Cmd, error) {
 	}
 
 	if _, err := exec.LookPath(name); err != nil {
-		return nil, fmt.Errorf("%q not found in PATH: %w", name, err)
+		return nil, fmt.Errorf(i18n.T(i18n.KeyErrSocatNotFound), name, err)
 	}
 
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -118,7 +121,7 @@ func (o Options) Command(ctx context.Context) (*exec.Cmd, error) {
 func (o Options) String() string {
 	args, err := o.Args()
 	if err != nil {
-		return "<invalid socat options>"
+		return i18n.T(i18n.KeyErrSocatInvalidStr)
 	}
 	prefix := "socat"
 	if o.Sudo {

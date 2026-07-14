@@ -14,7 +14,11 @@
 
 package socat
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/soulteary/portmap/internal/i18n"
+)
 
 func TestArgsTCP(t *testing.T) {
 	o := Options{ListenPort: 22, Target: "127.0.0.1:2222", Fork: true, ReuseAddr: true}
@@ -124,6 +128,7 @@ func TestStringReusesArgs(t *testing.T) {
 }
 
 func TestStringInvalid(t *testing.T) {
+	i18n.SetLang(i18n.English)
 	o := Options{ListenPort: -1, Target: "x"}
 	if got := o.String(); got != "<invalid socat options>" {
 		t.Fatalf("String()=%q, want invalid marker", got)

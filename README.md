@@ -93,6 +93,7 @@ flags:
   -log-level string       日志级别：info 或 debug（仅 go 模式，默认 "info"）
   -quiet                  安静模式，抑制每连接的常规日志（仅 go 模式）
   -config string          YAML 配置文件路径
+  -lang string            界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
   -version                打印版本信息后退出
 ```
 
@@ -130,6 +131,17 @@ UDP 转发（如 DNS）：
 ```
 
 按 `Ctrl+C` 优雅退出，会等待在途连接处理完成。
+
+## 界面语言
+
+帮助文本、日志与错误消息支持多语言：`en`（英文）、`zh`（简体中文）、`ja`（日文）、`ko`（韩文）、`fr`（法文）、`de`（德文），无法识别时回退英文。
+
+默认按系统区域自动检测，检测优先级为：`PORTMAP_LANG` > `LC_ALL` > `LC_MESSAGES` > `LANG` > `LANGUAGE` > 系统区域（Windows 平台）。也可显式覆盖：
+
+```bash
+./portmap -lang zh -version          # 命令行显式指定
+PORTMAP_LANG=ja ./portmap -version   # 环境变量指定
+```
 
 ## 配置文件
 
@@ -274,11 +286,18 @@ CI 见 `.github/workflows/ci.yml`：在 linux/macOS/windows 上运行 `go vet` �
     │   ├── udp.go                   # UDP 会话转发
     │   ├── reuseaddr_unix.go        # 类 Unix 平台 SO_REUSEADDR
     │   └── reuseaddr_windows.go     # Windows 平台 SO_REUSEADDR
-    └── socat                        # 调用系统 socat 的 fallback
+    ├── socat                        # 调用系统 socat 的 fallback
         ├── socat.go                 # 构造并执行 socat 命令
         ├── socat_test.go            # socat 单元测试
         ├── socat_cancel_unix.go     # 类 Unix 平台 SIGTERM 优雅取消
         └── socat_cancel_windows.go  # Windows 平台 no-op（无 SIGTERM）
+    └── i18n                         # 多语言（i18n）支持
+        ├── i18n.go                  # 语言检测、解析与查表
+        ├── i18n_test.go             # i18n 单元测试
+        ├── keys.go                  # 消息 key 常量与语言表
+        ├── locale_unix.go           # 类 Unix 平台区域探测（no-op）
+        ├── locale_windows.go        # Windows 平台区域探测
+        └── messages_*.go            # 各语言消息（en/zh/ja/ko/fr/de）
 ```
 
 ## 测试

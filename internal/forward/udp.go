@@ -21,6 +21,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/soulteary/portmap/internal/i18n"
 )
 
 // serveUDP 处理 UDP 监听与转发。UDP 无连接，这里以客户端地址为键维护
@@ -34,7 +36,7 @@ func (s *Server) serveUDP(ctx context.Context) error {
 	}
 	conn := pc.(*net.UDPConn)
 
-	s.infof("listening on %s (udp), forwarding to %s (reuseaddr=%v, max-conns=%d, idle=%s)",
+	s.infof(i18n.T(i18n.KeyLogUDPListening),
 		conn.LocalAddr(), s.cfg.Target, s.cfg.ReuseAddr, s.cfg.MaxConns, s.cfg.IdleTimeout)
 
 	go func() {
@@ -77,9 +79,9 @@ func (s *Server) serveUDP(ctx context.Context) error {
 		sess, err := sessions.get(ctx, client)
 		if err != nil {
 			if errors.Is(err, errSessionLimit) {
-				s.debugf("udp session limit reached, drop packet from %s", client)
+				s.debugf(i18n.T(i18n.KeyLogUDPLimit), client)
 			} else {
-				s.warnf("udp dial %s failed: %v", s.cfg.Target, err)
+				s.warnf(i18n.T(i18n.KeyLogUDPDialFailed), s.cfg.Target, err)
 			}
 			continue
 		}
@@ -99,14 +101,14 @@ func (s *Server) serveUDP(ctx context.Context) error {
 			sess, err = sessions.get(ctx, client)
 			if err != nil {
 				if errors.Is(err, errSessionLimit) {
-					s.debugf("udp session limit reached, drop packet from %s", client)
+					s.debugf(i18n.T(i18n.KeyLogUDPLimit), client)
 				} else {
-					s.warnf("udp dial %s failed: %v", s.cfg.Target, err)
+					s.warnf(i18n.T(i18n.KeyLogUDPDialFailed), s.cfg.Target, err)
 				}
 				continue
 			}
 			if _, err := sess.dst.Write(buf[:n]); err != nil {
-				s.debugf("udp write to target failed: %v", err)
+				s.debugf(i18n.T(i18n.KeyLogUDPWriteTarget), err)
 				continue
 			}
 		}
@@ -187,7 +189,7 @@ func (m *udpSessions) get(ctx context.Context, client *net.UDPAddr) (*udpSession
 	active := m.server.active.Add(1)
 	m.mu.Unlock()
 
-	m.server.infof("[#%d] udp session %s <-> %s (active=%d)", connID, client, m.target, active)
+	m.server.infof(i18n.T(i18n.KeyLogUDPSessionOpen), connID, client, m.target, active)
 
 	m.server.wg.Add(1)
 	go func() {
@@ -208,7 +210,7 @@ func (m *udpSessions) relay(ctx context.Context, ss *udpSession) {
 		}
 		_ = ss.dst.Close()
 		close(ss.done)
-		m.server.infof("[#%d] udp session closed %s", ss.connID, ss.client)
+		m.server.infof(i18n.T(i18n.KeyLogUDPSessionClose), ss.connID, ss.client)
 	}()
 
 	buf := make([]byte, 64*1024)
@@ -234,7 +236,7 @@ func (m *udpSessions) relay(ctx context.Context, ss *udpSession) {
 		}
 		ss.touch()
 		if _, err := m.conn.WriteToUDP(buf[:n], ss.client); err != nil {
-			m.server.debugf("udp write to client failed: %v", err)
+			m.server.debugf(i18n.T(i18n.KeyLogUDPWriteClient), err)
 			return
 		}
 	}

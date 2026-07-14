@@ -93,6 +93,7 @@ flags:
   -log-level string       log level: info or debug (go mode only, default "info")
   -quiet                  quiet mode, suppress per-connection routine logs (go mode only)
   -config string          path to a YAML config file
+  -lang string            interface language: en/zh/ja/ko/fr/de (auto-detected from the system by default)
   -version                print version information and exit
 ```
 
@@ -130,6 +131,17 @@ Check the version:
 ```
 
 Press `Ctrl+C` to exit gracefully; it waits for in-flight connections to finish.
+
+## Interface Language
+
+Help text, logs, and error messages are localized: `en` (English), `zh` (Simplified Chinese), `ja` (Japanese), `ko` (Korean), `fr` (French), `de` (German), falling back to English when unrecognized.
+
+The language is auto-detected from the system locale by default, with the following precedence: `PORTMAP_LANG` > `LC_ALL` > `LC_MESSAGES` > `LANG` > `LANGUAGE` > system locale (on Windows). You can also override it explicitly:
+
+```bash
+./portmap -lang zh -version          # via command-line flag
+PORTMAP_LANG=ja ./portmap -version   # via environment variable
+```
 
 ## Config File
 
@@ -275,11 +287,18 @@ Prerequisites:
     │   ├── udp.go                   # UDP session forwarding
     │   ├── reuseaddr_unix.go        # SO_REUSEADDR on Unix-like platforms
     │   └── reuseaddr_windows.go     # SO_REUSEADDR on Windows
-    └── socat                        # fallback that invokes the system socat
+    ├── socat                        # fallback that invokes the system socat
         ├── socat.go                 # construct and execute the socat command
         ├── socat_test.go            # socat unit tests
         ├── socat_cancel_unix.go     # graceful SIGTERM cancellation on Unix-like platforms
         └── socat_cancel_windows.go  # Windows no-op (no SIGTERM)
+    └── i18n                         # internationalization (i18n) support
+        ├── i18n.go                  # language detection, parsing, and lookup
+        ├── i18n_test.go             # i18n unit tests
+        ├── keys.go                  # message key constants and language tables
+        ├── locale_unix.go           # locale probing on Unix-like platforms (no-op)
+        ├── locale_windows.go        # locale probing on Windows
+        └── messages_*.go            # per-language messages (en/zh/ja/ko/fr/de)
 ```
 
 ## Testing

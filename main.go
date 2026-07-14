@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/soulteary/portmap/internal/forward"
+	"github.com/soulteary/portmap/internal/i18n"
 	"github.com/soulteary/portmap/internal/socat"
 )
 
@@ -60,6 +61,7 @@ type options struct {
 	quiet       bool
 	showVersion bool
 	configPath  string
+	lang        string
 }
 
 // String 返回最终生效配置的可读摘要，用于启动时打印，便于确认合并后的实际参数。
@@ -80,25 +82,35 @@ func main() {
 func run(argv []string) error {
 	var opt options
 
+	// 语言在首次调用 T() 时按系统环境自动检测（见 i18n.Detect）。
+	// 若命令行显式指定 -lang，则预扫描一次并覆盖，使 --help 与 flag
+	// 描述也使用指定语言。
+	if code := preScanLang(argv); code != "" {
+		if l, ok := i18n.ParseLang(code); ok {
+			i18n.SetLang(l)
+		}
+	}
+
 	fs := flag.NewFlagSet("portmap", flag.ContinueOnError)
-	fs.IntVar(&opt.listenPort, "listen-port", 22, "本地监听端口")
-	fs.StringVar(&opt.listenHost, "listen-host", "", "本地监听地址（默认所有网卡）")
-	fs.StringVar(&opt.target, "target", "127.0.0.1:2222", "转发目标地址 host:port")
-	fs.StringVar(&opt.mode, "mode", "go", "转发模式：go（纯 Go 实现）或 socat（调用系统 socat）")
-	fs.StringVar(&opt.proto, "proto", "tcp", "转发协议：tcp 或 udp")
-	fs.BoolVar(&opt.reuseAddr, "reuseaddr", true, "启用 SO_REUSEADDR")
-	fs.BoolVar(&opt.useSudo, "sudo", false, "socat 模式下是否以 sudo 运行")
-	fs.DurationVar(&opt.dialTimeout, "dial-timeout", 10*time.Second, "拨号到目标的超时时间")
-	fs.IntVar(&opt.maxConns, "max-conns", 0, "最大并发连接数，0 表示不限制（仅 go 模式；UDP 下限制并发会话数）")
-	fs.DurationVar(&opt.idleTimeout, "idle-timeout", 0, "空闲超时，双向无数据则断开，0 表示不启用（仅 go 模式；UDP 下 0 表示默认 60s 回收空闲会话）")
-	fs.StringVar(&opt.logLevel, "log-level", "info", "日志级别：info 或 debug（仅 go 模式）")
-	fs.BoolVar(&opt.quiet, "quiet", false, "安静模式，抑制每连接的常规日志（仅 go 模式）")
-	fs.BoolVar(&opt.showVersion, "version", false, "打印版本信息后退出")
-	fs.StringVar(&opt.configPath, "config", "", "YAML 配置文件路径")
+	fs.IntVar(&opt.listenPort, "listen-port", 22, i18n.T(i18n.KeyFlagListenPort))
+	fs.StringVar(&opt.listenHost, "listen-host", "", i18n.T(i18n.KeyFlagListenHost))
+	fs.StringVar(&opt.target, "target", "127.0.0.1:2222", i18n.T(i18n.KeyFlagTarget))
+	fs.StringVar(&opt.mode, "mode", "go", i18n.T(i18n.KeyFlagMode))
+	fs.StringVar(&opt.proto, "proto", "tcp", i18n.T(i18n.KeyFlagProto))
+	fs.BoolVar(&opt.reuseAddr, "reuseaddr", true, i18n.T(i18n.KeyFlagReuseAddr))
+	fs.BoolVar(&opt.useSudo, "sudo", false, i18n.T(i18n.KeyFlagSudo))
+	fs.DurationVar(&opt.dialTimeout, "dial-timeout", 10*time.Second, i18n.T(i18n.KeyFlagDialTimeout))
+	fs.IntVar(&opt.maxConns, "max-conns", 0, i18n.T(i18n.KeyFlagMaxConns))
+	fs.DurationVar(&opt.idleTimeout, "idle-timeout", 0, i18n.T(i18n.KeyFlagIdleTimeout))
+	fs.StringVar(&opt.logLevel, "log-level", "info", i18n.T(i18n.KeyFlagLogLevel))
+	fs.BoolVar(&opt.quiet, "quiet", false, i18n.T(i18n.KeyFlagQuiet))
+	fs.BoolVar(&opt.showVersion, "version", false, i18n.T(i18n.KeyFlagVersion))
+	fs.StringVar(&opt.configPath, "config", "", i18n.T(i18n.KeyFlagConfig))
+	fs.StringVar(&opt.lang, "lang", "", i18n.T(i18n.KeyFlagLang, strings.Join(i18n.Codes(), "/")))
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "portmap - TCP/UDP 端口转发 (socat 等价实现)\n\n")
-		fmt.Fprintf(os.Stderr, "用法: %s [flags]\n\n等价于: sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222\n\nflags:\n", "portmap")
+		fmt.Fprintf(os.Stderr, "%s\n\n", i18n.T(i18n.KeyUsageTitle))
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.KeyUsageLine, "portmap"))
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(argv); err != nil {
@@ -113,8 +125,10 @@ func run(argv []string) error {
 		return nil
 	}
 
+	// -lang 已在 preScanLang 中生效；此处不再重复处理。
+
 	if opt.showVersion {
-		fmt.Printf("portmap %s (commit %s, built %s)\n", version, commit, date)
+		fmt.Println(i18n.T(i18n.KeyVersionLine, version, commit, date))
 		return nil
 	}
 
@@ -136,29 +150,29 @@ func run(argv []string) error {
 	}
 
 	if opt.listenPort <= 0 || opt.listenPort > 65535 {
-		return fmt.Errorf("非法监听端口: %d", opt.listenPort)
+		return errors.New(i18n.T(i18n.KeyErrListenPort, opt.listenPort))
 	}
 	if strings.TrimSpace(opt.target) == "" {
-		return fmt.Errorf("target 不能为空")
+		return errors.New(i18n.T(i18n.KeyErrTargetEmpty))
 	}
 	proto := strings.ToLower(strings.TrimSpace(opt.proto))
 	if proto != "tcp" && proto != "udp" {
-		return fmt.Errorf("未知 proto: %q（可选 tcp 或 udp）", opt.proto)
+		return errors.New(i18n.T(i18n.KeyErrProto, opt.proto))
 	}
 	opt.proto = proto
 
 	if opt.idleTimeout < 0 {
-		return fmt.Errorf("idle-timeout 不能为负: %s", opt.idleTimeout)
+		return errors.New(i18n.T(i18n.KeyErrIdleNeg, opt.idleTimeout))
 	}
 	if opt.maxConns < 0 {
-		return fmt.Errorf("max-conns 不能为负: %d", opt.maxConns)
+		return errors.New(i18n.T(i18n.KeyErrMaxConnsNeg, opt.maxConns))
 	}
 	if opt.dialTimeout < 0 {
-		return fmt.Errorf("dial-timeout 不能为负: %s", opt.dialTimeout)
+		return errors.New(i18n.T(i18n.KeyErrDialNeg, opt.dialTimeout))
 	}
 	logLevel := strings.ToLower(strings.TrimSpace(opt.logLevel))
 	if logLevel != "info" && logLevel != "debug" {
-		return fmt.Errorf("未知 log-level: %q（可选 info 或 debug）", opt.logLevel)
+		return errors.New(i18n.T(i18n.KeyErrLogLevel, opt.logLevel))
 	}
 	opt.logLevel = logLevel
 
@@ -171,12 +185,35 @@ func run(argv []string) error {
 	case "socat":
 		return runSocat(ctx, opt, setFlags)
 	default:
-		return fmt.Errorf("未知 mode: %q（可选 go 或 socat）", opt.mode)
+		return errors.New(i18n.T(i18n.KeyErrMode, opt.mode))
 	}
 }
 
+// preScanLang 在正式解析 flag 前，从 argv 里粗略读取 -lang/--lang 的值，
+// 以便 --help 与 flag 描述也能使用用户指定的语言。支持 "-lang zh" 与
+// "-lang=zh" 两种写法。未找到时返回空串。
+func preScanLang(argv []string) string {
+	for i := 0; i < len(argv); i++ {
+		a := argv[i]
+		if a == "--" {
+			break
+		}
+		name := strings.TrimLeft(a, "-")
+		if name == "lang" {
+			if i+1 < len(argv) {
+				return argv[i+1]
+			}
+			return ""
+		}
+		if v, ok := strings.CutPrefix(name, "lang="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
 func runGo(ctx context.Context, opt options) error {
-	log.Printf("生效配置: %s", opt)
+	log.Print(i18n.T(i18n.KeyLogEffectiveConfig, opt))
 	listen := net.JoinHostPort(opt.listenHost, strconv.Itoa(opt.listenPort))
 	srv := forward.New(forward.Config{
 		Listen:      listen,
@@ -191,13 +228,13 @@ func runGo(ctx context.Context, opt options) error {
 	})
 	watchStatusSignal(ctx, srv)
 	if err := srv.ListenAndServe(ctx); err != nil {
-		return fmt.Errorf("转发服务退出: %w", err)
+		return fmt.Errorf(i18n.T(i18n.KeyErrServeExit), err)
 	}
 	return nil
 }
 
 func runSocat(ctx context.Context, opt options, setFlags map[string]bool) error {
-	log.Printf("生效配置: %s", opt)
+	log.Print(i18n.T(i18n.KeyLogEffectiveConfig, opt))
 	// socat 模式仅复用系统 socat，以下仅 go 模式支持的 flag 若被显式设置则提示忽略。
 	goOnly := []string{"idle-timeout", "max-conns", "log-level", "quiet"}
 	var ignored []string
@@ -207,7 +244,7 @@ func runSocat(ctx context.Context, opt options, setFlags map[string]bool) error 
 		}
 	}
 	if len(ignored) > 0 {
-		log.Printf("提示: socat 模式忽略以下仅 go 模式支持的参数: %s", strings.Join(ignored, " "))
+		log.Print(i18n.T(i18n.KeyLogSocatIgnore, strings.Join(ignored, " ")))
 	}
 
 	socatOpt := socat.Options{
@@ -219,9 +256,9 @@ func runSocat(ctx context.Context, opt options, setFlags map[string]bool) error 
 		ListenHost: opt.listenHost,
 		Sudo:       opt.useSudo,
 	}
-	log.Printf("执行: %s", socatOpt.String())
+	log.Print(i18n.T(i18n.KeyLogSocatExec, socatOpt.String()))
 	if err := socatOpt.Run(ctx); err != nil {
-		return fmt.Errorf("socat 执行失败: %w", err)
+		return fmt.Errorf(i18n.T(i18n.KeyErrSocatFailed), err)
 	}
 	return nil
 }

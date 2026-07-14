@@ -29,6 +29,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/soulteary/portmap/internal/i18n"
 )
 
 // Config 描述一次转发服务的配置。
@@ -143,7 +145,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	case "udp":
 		return s.serveUDP(ctx)
 	default:
-		return fmt.Errorf("unsupported network: %q", s.cfg.Network)
+		return fmt.Errorf(i18n.T(i18n.KeyErrUnsupportedNet), s.cfg.Network)
 	}
 }
 
@@ -154,7 +156,7 @@ func (s *Server) serveTCP(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	s.infof("listening on %s (tcp), forwarding to %s (reuseaddr=%v, max-conns=%d, idle=%s)",
+	s.infof(i18n.T(i18n.KeyLogTCPListening),
 		ln.Addr(), s.cfg.Target, s.cfg.ReuseAddr, s.cfg.MaxConns, s.cfg.IdleTimeout)
 
 	// ctx 取消时关闭 listener，使 Accept 立即返回。
@@ -210,7 +212,7 @@ func (s *Server) handle(ctx context.Context, src net.Conn) {
 	dialer := net.Dialer{Timeout: s.cfg.DialTimeout}
 	dst, err := dialer.DialContext(ctx, "tcp", s.cfg.Target)
 	if err != nil {
-		s.warnf("dial %s failed: %v", s.cfg.Target, err)
+		s.warnf(i18n.T(i18n.KeyLogDialFailed), s.cfg.Target, err)
 		return
 	}
 	defer func() { _ = dst.Close() }()
@@ -220,7 +222,7 @@ func (s *Server) handle(ctx context.Context, src net.Conn) {
 	defer s.active.Add(-1)
 
 	start := time.Now()
-	s.infof("[#%d] open %s <-> %s (active=%d)", connID, src.RemoteAddr(), dst.RemoteAddr(), active)
+	s.infof(i18n.T(i18n.KeyLogConnOpen), connID, src.RemoteAddr(), dst.RemoteAddr(), active)
 
 	// 可取消的子 ctx：ctx.Done 或转发结束时主动关闭两端。
 	cctx, cancel := context.WithCancel(ctx)
@@ -246,7 +248,7 @@ func (s *Server) handle(ctx context.Context, src net.Conn) {
 	}()
 	wg.Wait()
 
-	s.infof("[#%d] close %s <-> %s (up=%dB down=%dB dur=%s)",
+	s.infof(i18n.T(i18n.KeyLogConnClose),
 		connID, src.RemoteAddr(), dst.RemoteAddr(),
 		atomic.LoadInt64(&upBytes), atomic.LoadInt64(&downBytes), time.Since(start).Round(time.Millisecond))
 }
@@ -261,7 +263,7 @@ func (s *Server) pipe(connID int64, dir string, dst, src net.Conn) int64 {
 	}
 	n, err := io.Copy(dst, reader)
 	if err != nil && !isNormalClose(err) {
-		s.debugf("[#%d] pipe %s error: %v", connID, dir, err)
+		s.debugf(i18n.T(i18n.KeyLogPipeError), connID, dir, err)
 	}
 	if cw, ok := dst.(interface{ CloseWrite() error }); ok {
 		_ = cw.CloseWrite()

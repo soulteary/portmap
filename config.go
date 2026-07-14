@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/soulteary/portmap/internal/i18n"
 )
 
 // fileConfig 与命令行 flag 一一对应，字段均为指针类型：
@@ -48,7 +50,7 @@ type fileConfig struct {
 func loadConfig(path string) (*fileConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("读取配置文件失败: %w", err)
+		return nil, fmt.Errorf(i18n.T(i18n.KeyErrConfigRead), err)
 	}
 
 	var cfg fileConfig
@@ -60,7 +62,7 @@ func loadConfig(path string) (*fileConfig, error) {
 		if errors.Is(err, io.EOF) {
 			return &fileConfig{}, nil
 		}
-		return nil, fmt.Errorf("解析配置文件失败: %w", err)
+		return nil, fmt.Errorf(i18n.T(i18n.KeyErrConfigParse), err)
 	}
 	return &cfg, nil
 }
@@ -107,14 +109,14 @@ func mergeConfig(opt *options, cfg *fileConfig, setFlags map[string]bool) error 
 	if cfg.DialTimeout != nil && !setFlags["dial-timeout"] {
 		d, err := time.ParseDuration(*cfg.DialTimeout)
 		if err != nil {
-			return fmt.Errorf("配置文件 dial_timeout 非法: %w", err)
+			return fmt.Errorf(i18n.T(i18n.KeyErrConfigDial), err)
 		}
 		opt.dialTimeout = d
 	}
 	if cfg.IdleTimeout != nil && !setFlags["idle-timeout"] {
 		d, err := time.ParseDuration(*cfg.IdleTimeout)
 		if err != nil {
-			return fmt.Errorf("配置文件 idle_timeout 非法: %w", err)
+			return fmt.Errorf(i18n.T(i18n.KeyErrConfigIdle), err)
 		}
 		opt.idleTimeout = d
 	}
