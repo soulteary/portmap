@@ -1,0 +1,13 @@
+# 构建产物
+/portmap
+/dist/
+*.exe
+
+# 测试与覆盖率
+*.out
+coverage.*
+
+# 编辑器/系统
+.DS_Store
+.idea/
+.vscode/
