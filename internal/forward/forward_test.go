@@ -32,7 +32,7 @@ func freePort(t *testing.T) int {
 	if err != nil {
 		t.Fatalf("free port: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
@@ -50,7 +50,7 @@ func startEchoServer(t *testing.T) (addr string, closeFn func()) {
 				return
 			}
 			go func(c net.Conn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				_, _ = io.Copy(c, c)
 			}(c)
 		}
@@ -127,7 +127,7 @@ func TestForward(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial forwarder: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	want := []byte("hello-socat")
 	if _, err := conn.Write(want); err != nil {
@@ -181,7 +181,7 @@ func TestUnreachableTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial forwarder: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// 目标不可达，转发器应关闭连接：读取应返回 EOF/错误而非挂起。
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
@@ -212,7 +212,7 @@ func TestConcurrentConnections(t *testing.T) {
 				atomic.AddInt64(&failures, 1)
 				return
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 			msg := []byte(fmt.Sprintf("payload-%d", i))
 			if _, err := conn.Write(msg); err != nil {
 				atomic.AddInt64(&failures, 1)
@@ -251,7 +251,7 @@ func TestMaxConns(t *testing.T) {
 				atomic.AddInt64(&failures, 1)
 				return
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 			msg := []byte(fmt.Sprintf("m-%d", i))
 			if _, err := conn.Write(msg); err != nil {
 				atomic.AddInt64(&failures, 1)
@@ -282,7 +282,7 @@ func TestIdleTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial forwarder: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// 不发送任何数据，等待超过空闲超时后连接应被断开。
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
@@ -300,7 +300,7 @@ func TestUDPForward(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen udp target: %v", err)
 	}
-	defer targetConn.Close()
+	defer func() { _ = targetConn.Close() }()
 	go func() {
 		buf := make([]byte, 2048)
 		for {
@@ -326,7 +326,7 @@ func TestUDPForward(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial udp forwarder: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	want := []byte("udp-hello")
 	if _, err := conn.Write(want); err != nil {
@@ -379,7 +379,7 @@ func TestUDPSessionReuse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial udp forwarder: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	const rounds = 10
 	got := make([]byte, 2048)
@@ -418,7 +418,7 @@ func TestUDPMaxConns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial c1: %v", err)
 	}
-	defer c1.Close()
+	defer func() { _ = c1.Close() }()
 
 	want1 := []byte("client-1")
 	if _, err := c1.Write(want1); err != nil {
@@ -439,7 +439,7 @@ func TestUDPMaxConns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial c2: %v", err)
 	}
-	defer c2.Close()
+	defer func() { _ = c2.Close() }()
 
 	if _, err := c2.Write([]byte("client-2")); err != nil {
 		t.Fatalf("c2 write: %v", err)
@@ -468,10 +468,8 @@ func TestUDPMaxConns(t *testing.T) {
 // 随后关闭底层 socket，使转发器后续对该目标的写入失败，从而触发
 // serveUDP 的重建路径。restart 用于在同一地址上重新拉起回显。
 type closingUDPEcho struct {
-	addr    string
-	conn    *net.UDPConn
-	mu      sync.Mutex
-	replied bool
+	addr string
+	conn *net.UDPConn
 }
 
 func startClosingUDPEcho(t *testing.T) *closingUDPEcho {
@@ -531,7 +529,7 @@ func TestUDPRebuildUnderMaxConns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial udp forwarder: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// 第一轮：建立会话并确认回显可用。
 	want := []byte("round-1")
@@ -591,7 +589,7 @@ func TestUDPIdleRecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial udp forwarder: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	want := []byte("idle-me")
 	if _, err := conn.Write(want); err != nil {
@@ -624,7 +622,7 @@ func TestIdleTimeoutClosesBothDirections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen target: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go func() {
 		for {
 			c, err := ln.Accept()
@@ -632,7 +630,7 @@ func TestIdleTimeoutClosesBothDirections(t *testing.T) {
 				return
 			}
 			go func(c net.Conn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				buf := make([]byte, 1024)
 				// 读取一次并回显，然后不再发送，等待被空闲超时关闭。
 				n, err := c.Read(buf)
@@ -653,7 +651,7 @@ func TestIdleTimeoutClosesBothDirections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial forwarder: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// 发送一次数据并读回，之后两个方向都空闲。
 	want := []byte("ping")

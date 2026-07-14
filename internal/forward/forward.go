@@ -205,7 +205,7 @@ func (s *Server) serveTCP(ctx context.Context) error {
 
 // handle 处理单个入站 TCP 连接：拨号到目标并双向转发。
 func (s *Server) handle(ctx context.Context, src net.Conn) {
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	dialer := net.Dialer{Timeout: s.cfg.DialTimeout}
 	dst, err := dialer.DialContext(ctx, "tcp", s.cfg.Target)
@@ -213,7 +213,7 @@ func (s *Server) handle(ctx context.Context, src net.Conn) {
 		s.warnf("dial %s failed: %v", s.cfg.Target, err)
 		return
 	}
-	defer dst.Close()
+	defer func() { _ = dst.Close() }()
 
 	connID := s.total.Add(1)
 	active := s.active.Add(1)
@@ -277,7 +277,7 @@ type idleConn struct {
 }
 
 func (c *idleConn) Read(p []byte) (int, error) {
-	if err := c.Conn.SetReadDeadline(time.Now().Add(c.timeout)); err != nil {
+	if err := c.SetReadDeadline(time.Now().Add(c.timeout)); err != nil {
 		return 0, err
 	}
 	return c.Conn.Read(p)
