@@ -230,6 +230,74 @@ kill -USR1 <pid>
 
 - `-quiet` 抑制常规日志；`-log-level debug` 输出更详细信息（如 `pipe` 层异常）。
 
+## 性能压测
+
+仓库自带一个独立、自包含的压测工具 [`cmd/loadtest`](cmd/loadtest/main.go)，用于评估 portmap 转发的**可靠性**与**吞吐量**，并输出当前**主机环境**信息。
+
+默认自包含模式下，工具会在进程内启动一个 echo 目标服务，再用 `forward.New(...)` 起一个转发服务，然后由压测客户端对转发端口发压，形成 `client -> portmap -> echo` 的完整链路，无需任何额外准备即可运行。也可用 `-external <addr>` 直接压测外部已运行的 portmap（此时需自备目标服务）。
+
+```bash
+# TCP 吞吐模式（长连接持续收发）
+go run ./cmd/loadtest -proto tcp -mode throughput -conns 100 -duration 10s
+
+# TCP 连接速率模式（短连接建立/关闭循环）
+go run ./cmd/loadtest -proto tcp -mode connrate -conns 100 -duration 10s
+
+# UDP 吞吐模式
+go run ./cmd/loadtest -proto udp -mode throughput -conns 50 -duration 10s -payload 512
+
+# 按每连接请求数而非时长跑；并测试限流/超时路径
+go run ./cmd/loadtest -proto tcp -conns 20 -requests 1000 -max-conns 200 -idle-timeout 5m
+
+# 压测外部已运行的 portmap（需自备目标服务）
+go run ./cmd/loadtest -external 127.0.0.1:13000 -proto tcp -duration 10s
+```
+
+参数说明：
+
+```text
+loadtest [flags]
+
+flags:
+  -proto tcp|udp            转发协议 (默认 tcp)
+  -conns int                并发连接/会话数 (默认 50)
+  -duration duration        压测时长，与 -requests 二选一 (默认 10s)
+  -requests int             每连接请求数，0 表示按 duration 持续跑 (默认 0)
+  -payload int              单次请求负载字节数 (默认 1024)
+  -mode throughput|connrate 吞吐模式（长连接持续收发）或连接速率模式（短连接循环） (默认 throughput)
+  -external string          外部 portmap 地址；为空则自建链路
+  -max-conns int            内建转发服务最大并发连接数，0 表示不限制
+  -idle-timeout duration    内建转发服务空闲超时，0 表示不启用
+  -warmup duration          预热时间，预热期数据不计入统计 (默认 1s)
+```
+
+报告包含三块：**主机环境**（GOOS/GOARCH、CPU 数、Go 版本、主机名、内存分配）、**配置**、**结果**（吞吐 MB/s 与 Gbps、req/s、connrate 模式下的 conns/s、延迟 min/p50/p95/p99/max、错误率与分类计数，以及压测后 `ActiveConns()` 是否归零的可靠性校验）。所有输出走标准库，不引入新依赖。
+
+样例输出（节选）：
+
+```text
+==================== portmap loadtest report ====================
+[ Host / Runtime ]
+  hostname     : example
+  os/arch      : linux/amd64
+  num cpu      : 8
+  go version   : go1.26.x
+  ...
+[ Results ]
+  throughput   : 75.35 MB/s | 0.632 Gbps
+  req/s        : 77159.59
+[ Latency (RTT) ]
+  min          : 26µs
+  p50          : 240µs
+  p95          : 387µs
+  p99          : 553µs
+  max          : 19.973ms
+[ Reliability ]
+  errors       : 0 (rate 0.0000%)
+  active conns : 0 (returned to zero) OK
+=================================================================
+```
+
 ## 工程化
 
 ```bash
@@ -276,6 +344,9 @@ CI 见 `.github/workflows/ci.yml`：在 linux/macOS/windows 上运行 `go vet` �
 ├── config.example.yaml              # 配置文件示例
 ├── signals_unix.go                  # 类 Unix 平台 SIGUSR1 状态打印
 ├── signals_windows.go               # Windows 平台 no-op（无 SIGUSR1）
+├── cmd
+│   └── loadtest                     # 独立压测工具（自包含链路 + TCP/UDP 压测）
+│       └── main.go
 ├── Makefile                         # 构建/测试/发布
 ├── LICENSE                          # Apache 2.0 许可证
 ├── .golangci.yml                    # golangci-lint 配置
