@@ -173,4 +173,27 @@ func TestMergeConfig(t *testing.T) {
 			t.Error("reuseAddr 应被配置文件覆盖为 false")
 		}
 	})
+
+	t.Run("配置文件的 lang 在命令行未设置时生效", func(t *testing.T) {
+		opt := options{}
+		cfg := &fileConfig{Lang: strPtr("zh")}
+		if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
+			t.Fatalf("mergeConfig 返回错误: %v", err)
+		}
+		if opt.lang != "zh" {
+			t.Errorf("lang 期望 zh，实际 %s", opt.lang)
+		}
+	})
+
+	t.Run("命令行显式 lang 优先于配置文件", func(t *testing.T) {
+		opt := options{lang: "en"}
+		cfg := &fileConfig{Lang: strPtr("zh")}
+		setFlags := map[string]bool{"lang": true}
+		if err := mergeConfig(&opt, cfg, setFlags); err != nil {
+			t.Fatalf("mergeConfig 返回错误: %v", err)
+		}
+		if opt.lang != "en" {
+			t.Errorf("命令行应优先，lang 期望 en，实际 %s", opt.lang)
+		}
+	})
 }

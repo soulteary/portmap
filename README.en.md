@@ -49,6 +49,8 @@ sudo portmap -listen-port 22 -target 127.0.0.1:2222
 
 ## Build
 
+Requires Go 1.26+ (the version in `go.mod` is the source of truth).
+
 ```bash
 go build -o portmap .
 # or use the Makefile (injects version information automatically)
@@ -89,7 +91,7 @@ flags:
   -sudo                   run socat with sudo in socat mode
   -dial-timeout duration  dial target timeout (default 10s)
   -max-conns int          max concurrent connections, 0 for unlimited (go mode only)
-  -idle-timeout duration  idle timeout; disconnect if no data in both directions, 0 to disable (go mode only)
+  -idle-timeout duration  idle timeout; reclaim a direction once it stays idle past the threshold, 0 to disable (go mode only)
   -log-level string       log level: info or debug (go mode only, default "info")
   -quiet                  quiet mode, suppress per-connection routine logs (go mode only)
   -config string          path to a YAML config file
@@ -155,6 +157,7 @@ Besides command-line flags, you can also read configuration from a YAML file via
   That is, only fields present in the config file and not explicitly set on the command line override the defaults.
 - `dial_timeout` / `idle_timeout` are strings in YAML (e.g. `"10s"`, `"5m"`), parsed via `time.ParseDuration`.
 - Unknown fields in the config file cause an error, helping catch typos early.
+- The `lang` field only affects runtime messages (logs/errors); it does **not** change the language of `--help` or flag descriptions, because `--help` is finalized before the config file is loaded. Use the command-line `-lang` if you need to change the `--help` language.
 - On startup a one-line "effective config" summary is printed to confirm the merged parameters.
 
 See the full example in [config.example.yaml](config.example.yaml):
@@ -172,6 +175,7 @@ max_conns: 0
 idle_timeout: 0s
 log_level: info
 quiet: false
+lang: en
 ```
 
 Example of command-line overriding the config file (config has `listen_port: 22`, here 8022 takes effect):
@@ -257,7 +261,9 @@ Prerequisites:
 - ghcr.io uses the built-in `GITHUB_TOKEN` (the workflow grants `packages: write`), no
   extra config needed.
 - Docker Hub requires `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets configured under
-  the repository Settings → Secrets.
+  the repository Settings → Secrets. If `DOCKERHUB_USERNAME` is not set, the workflow
+  automatically skips the Docker Hub login step (images are pushed to ghcr.io only) and
+  the release will not fail because of it.
 - Locally you can validate the config with `make snapshot`
   (equivalent to `goreleaser release --snapshot --clean`) or `goreleaser check`; neither pushes anything.
 

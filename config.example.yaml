@@ -33,7 +33,7 @@ dial_timeout: 10s
 # 最大并发连接数，0 表示不限制（仅 go 模式；UDP 下限制并发会话数），默认 0
 max_conns: 0
 
-# 空闲超时，双向无数据则断开，0 表示不启用（仅 go 模式；UDP 下 0 表示默认 60s），默认 0
+# 空闲超时，TCP 下任一方向空闲超过阈值即回收该方向连接，0 表示不启用（仅 go 模式；UDP 下 0 表示默认 60s），默认 0
 idle_timeout: 0s
 
 # 日志级别：info 或 debug（仅 go 模式，默认 info）
@@ -41,3 +41,8 @@ log_level: info
 
 # 安静模式，抑制每连接的常规日志（仅 go 模式，默认 false）
 quiet: false
+
+# 界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
+# 注意：该字段仅影响运行期消息（日志/错误），不影响 --help 与 flag 描述的语言
+# （因为 --help 在配置文件加载前就已定稿）。若需改变 --help 语言，请用命令行 -lang。
+lang: en

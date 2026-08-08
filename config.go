@@ -43,6 +43,7 @@ type fileConfig struct {
 	IdleTimeout *string `yaml:"idle_timeout"`
 	LogLevel    *string `yaml:"log_level"`
 	Quiet       *bool   `yaml:"quiet"`
+	Lang        *string `yaml:"lang"`
 }
 
 // loadConfig 读取并解析 YAML 配置文件。
@@ -105,6 +106,9 @@ func mergeConfig(opt *options, cfg *fileConfig, setFlags map[string]bool) error 
 	}
 	if cfg.Quiet != nil && !setFlags["quiet"] {
 		opt.quiet = *cfg.Quiet
+	}
+	if cfg.Lang != nil && !setFlags["lang"] {
+		opt.lang = *cfg.Lang
 	}
 	if cfg.DialTimeout != nil && !setFlags["dial-timeout"] {
 		d, err := time.ParseDuration(*cfg.DialTimeout)

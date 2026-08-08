@@ -25,6 +25,18 @@ import (
 	"github.com/soulteary/portmap/internal/i18n"
 )
 
+// udpBufferSize 是 UDP 读缓冲区大小，足以容纳最大 UDP 数据报。
+const udpBufferSize = 64 * 1024
+
+// udpBufPool 复用 relay 的读缓冲，降低高会话数下的内存分配与占用。
+// 存放 *[]byte 以避免每次 Get/Put 产生额外分配。
+var udpBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, udpBufferSize)
+		return &b
+	},
+}
+
 // serveUDP 处理 UDP 监听与转发。UDP 无连接，这里以客户端地址为键维护
 // 一张会话表：每个客户端对应一条到目标的 UDP 连接，目标的回包按会话
 // 转发回对应客户端。空闲超时（或默认 60s）后回收会话。
@@ -62,7 +74,7 @@ func (s *Server) serveUDP(ctx context.Context) error {
 		idle:   idle,
 	}
 
-	buf := make([]byte, 64*1024)
+	buf := make([]byte, udpBufferSize)
 	for {
 		n, client, err := conn.ReadFromUDP(buf)
 		if err != nil {
@@ -213,7 +225,9 @@ func (m *udpSessions) relay(ctx context.Context, ss *udpSession) {
 		m.server.infof(i18n.T(i18n.KeyLogUDPSessionClose), ss.connID, ss.client)
 	}()
 
-	buf := make([]byte, 64*1024)
+	bufp := udpBufPool.Get().(*[]byte)
+	defer udpBufPool.Put(bufp)
+	buf := *bufp
 	for {
 		select {
 		case <-ctx.Done():

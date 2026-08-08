@@ -147,6 +147,14 @@ func run(argv []string) error {
 		if err := mergeConfig(&opt, cfg, setFlags); err != nil {
 			return err
 		}
+		// 若语言来自配置文件（命令行未显式 -lang，但配置文件提供了 lang），
+		// 在此补一次 SetLang，使运行期消息（日志/错误）使用该语言。
+		// 注意：--help 与 flag 描述在 flag 解析前已定稿，配置文件无法改变其语言。
+		if !setFlags["lang"] && opt.lang != "" {
+			if l, ok := i18n.ParseLang(opt.lang); ok {
+				i18n.SetLang(l)
+			}
+		}
 	}
 
 	if opt.listenPort <= 0 || opt.listenPort > 65535 {

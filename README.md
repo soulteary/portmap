@@ -49,6 +49,8 @@ sudo portmap -listen-port 22 -target 127.0.0.1:2222
 
 ## 构建
 
+需要 Go 1.26+（版本以 `go.mod` 为准）。
+
 ```bash
 go build -o portmap .
 # 或使用 Makefile（自动注入版本信息）
@@ -89,7 +91,7 @@ flags:
   -sudo                   socat 模式下以 sudo 运行
   -dial-timeout duration  拨号目标超时 (默认 10s)
   -max-conns int          最大并发连接数，0 表示不限制（仅 go 模式）
-  -idle-timeout duration  空闲超时，双向无数据则断开，0 表示不启用（仅 go 模式）
+  -idle-timeout duration  空闲超时，任一方向空闲超过阈值即回收该方向连接，0 表示不启用（仅 go 模式）
   -log-level string       日志级别：info 或 debug（仅 go 模式，默认 "info"）
   -quiet                  安静模式，抑制每连接的常规日志（仅 go 模式）
   -config string          YAML 配置文件路径
@@ -155,6 +157,7 @@ PORTMAP_LANG=ja ./portmap -version   # 环境变量指定
   即：只有在配置文件中出现、且命令行未显式设置的字段，才会覆盖默认值。
 - `dial_timeout` / `idle_timeout` 在 YAML 中用字符串（如 `"10s"`、`"5m"`），经 `time.ParseDuration` 解析。
 - 配置文件中出现未知字段会直接报错，便于及早发现拼写错误。
+- `lang` 字段仅影响运行期消息（日志/错误），**不影响** `--help` 与 flag 描述的语言：`--help` 在配置文件加载前就已定稿，如需改变其语言请用命令行 `-lang`。
 - 启动时会打印一行「生效配置」摘要，便于确认合并后的实际参数。
 
 完整示例见 [config.example.yaml](config.example.yaml)：
@@ -172,6 +175,7 @@ max_conns: 0
 idle_timeout: 0s
 log_level: info
 quiet: false
+lang: en
 ```
 
 命令行覆盖配置文件示例（配置文件里 `listen_port` 为 22，此处显式指定 8022 生效）：
@@ -256,7 +260,8 @@ CI 见 `.github/workflows/ci.yml`：在 linux/macOS/windows 上运行 `go vet` �
 
 - ghcr.io 使用内置 `GITHUB_TOKEN`（工作流已授予 `packages: write`），无需额外配置。
 - Docker Hub 需在仓库 Settings → Secrets 中配置 `DOCKERHUB_USERNAME` 与
-  `DOCKERHUB_TOKEN` 两个 secret。
+  `DOCKERHUB_TOKEN` 两个 secret。若未配置 `DOCKERHUB_USERNAME`，工作流会自动跳过
+  Docker Hub 登录步骤（镜像仅推送到 ghcr.io），发布流程不会因此失败。
 - 本地可用 `make snapshot`（等价 `goreleaser release --snapshot --clean`）或
   `goreleaser check` 校验配置，均不会推送。
 

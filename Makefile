@@ -30,6 +30,9 @@ clean:
 	rm -rf $(BINARY) dist/
 
 # release 交叉编译多平台产物到 dist/。
+# 注意：下面手写的平台矩阵需与 .goreleaser.yaml 中的 builds 保持同步。
+# 正式发布以 GoReleaser 为准（见 make snapshot 与 .github/workflows/release.yml），
+# 此目标仅用于本地快速交叉编译，不作为发布事实来源。
 release:
 	@mkdir -p dist
 	@for target in \
