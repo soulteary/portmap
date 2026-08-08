@@ -651,73 +651,77 @@ func printReport(w io.Writer, o *options, hi hostInfo, res result, activeZero bo
 		errRate = float64(res.errors) / float64(total) * 100
 	}
 
-	fmt.Fprintln(w, "==================== portmap loadtest report ====================")
-	fmt.Fprintln(w, "[ Host / Runtime ]")
-	fmt.Fprintf(w, "  hostname     : %s\n", hi.Hostname)
-	fmt.Fprintf(w, "  os/arch      : %s/%s\n", hi.GOOS, hi.GOARCH)
-	fmt.Fprintf(w, "  num cpu      : %d\n", hi.NumCPU)
-	fmt.Fprintf(w, "  go version   : %s\n", hi.GoVersion)
-	fmt.Fprintf(w, "  mem alloc    : %.2f MiB (sys %.2f MiB)\n",
+	// p / pf 将报告写入 w，忽略写标准输出时不可恢复的错误。
+	p := func(s string) { _, _ = fmt.Fprintln(w, s) }
+	pf := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
+
+	p("==================== portmap loadtest report ====================")
+	p("[ Host / Runtime ]")
+	pf("  hostname     : %s\n", hi.Hostname)
+	pf("  os/arch      : %s/%s\n", hi.GOOS, hi.GOARCH)
+	pf("  num cpu      : %d\n", hi.NumCPU)
+	pf("  go version   : %s\n", hi.GoVersion)
+	pf("  mem alloc    : %.2f MiB (sys %.2f MiB)\n",
 		float64(hi.Mem.Alloc)/(1024*1024), float64(hi.Mem.Sys)/(1024*1024))
 
-	fmt.Fprintln(w, "[ Config ]")
+	p("[ Config ]")
 	mode := "external"
 	target := o.external
 	if builtin {
 		mode = "built-in chain (echo <- portmap <- client)"
 		target = "(built-in echo)"
 	}
-	fmt.Fprintf(w, "  chain        : %s\n", mode)
-	fmt.Fprintf(w, "  target       : %s\n", target)
-	fmt.Fprintf(w, "  proto        : %s\n", o.proto)
-	fmt.Fprintf(w, "  test mode    : %s\n", o.mode)
-	fmt.Fprintf(w, "  conns        : %d\n", o.conns)
+	pf("  chain        : %s\n", mode)
+	pf("  target       : %s\n", target)
+	pf("  proto        : %s\n", o.proto)
+	pf("  test mode    : %s\n", o.mode)
+	pf("  conns        : %d\n", o.conns)
 	if o.requests > 0 {
-		fmt.Fprintf(w, "  requests     : %d per conn\n", o.requests)
+		pf("  requests     : %d per conn\n", o.requests)
 	} else {
-		fmt.Fprintf(w, "  duration     : %s\n", o.duration)
+		pf("  duration     : %s\n", o.duration)
 	}
-	fmt.Fprintf(w, "  payload      : %d bytes\n", o.payload)
-	fmt.Fprintf(w, "  warmup       : %s\n", o.warmup)
-	fmt.Fprintf(w, "  max-conns    : %d\n", o.maxConns)
-	fmt.Fprintf(w, "  idle-timeout : %s\n", o.idleTimeout)
+	pf("  payload      : %d bytes\n", o.payload)
+	pf("  warmup       : %s\n", o.warmup)
+	pf("  max-conns    : %d\n", o.maxConns)
+	pf("  idle-timeout : %s\n", o.idleTimeout)
 
-	fmt.Fprintln(w, "[ Results ]")
-	fmt.Fprintf(w, "  elapsed      : %s\n", res.elapsed.Round(time.Millisecond))
-	fmt.Fprintf(w, "  requests ok  : %d\n", res.requests)
-	fmt.Fprintf(w, "  new conns    : %d\n", res.newConns)
-	fmt.Fprintf(w, "  bytes echoed : %d (%.2f MiB)\n", res.bytes, float64(res.bytes)/(1024*1024))
-	fmt.Fprintf(w, "  throughput   : %.2f MB/s | %.3f Gbps\n", mbps, gbps)
-	fmt.Fprintf(w, "  req/s        : %.2f\n", reqps)
+	p("[ Results ]")
+	pf("  elapsed      : %s\n", res.elapsed.Round(time.Millisecond))
+	pf("  requests ok  : %d\n", res.requests)
+	pf("  new conns    : %d\n", res.newConns)
+	pf("  bytes echoed : %d (%.2f MiB)\n", res.bytes, float64(res.bytes)/(1024*1024))
+	pf("  throughput   : %.2f MB/s | %.3f Gbps\n", mbps, gbps)
+	pf("  req/s        : %.2f\n", reqps)
 	if o.mode == "connrate" {
-		fmt.Fprintf(w, "  conns/s      : %.2f\n", connps)
+		pf("  conns/s      : %.2f\n", connps)
 	}
 
-	fmt.Fprintln(w, "[ Latency (RTT) ]")
+	p("[ Latency (RTT) ]")
 	if len(res.lat) == 0 {
-		fmt.Fprintln(w, "  (no successful samples)")
+		p("  (no successful samples)")
 	} else {
-		fmt.Fprintf(w, "  min          : %s\n", percentile(res.lat, 0).Round(time.Microsecond))
-		fmt.Fprintf(w, "  p50          : %s\n", percentile(res.lat, 50).Round(time.Microsecond))
-		fmt.Fprintf(w, "  p95          : %s\n", percentile(res.lat, 95).Round(time.Microsecond))
-		fmt.Fprintf(w, "  p99          : %s\n", percentile(res.lat, 99).Round(time.Microsecond))
-		fmt.Fprintf(w, "  max          : %s\n", percentile(res.lat, 100).Round(time.Microsecond))
+		pf("  min          : %s\n", percentile(res.lat, 0).Round(time.Microsecond))
+		pf("  p50          : %s\n", percentile(res.lat, 50).Round(time.Microsecond))
+		pf("  p95          : %s\n", percentile(res.lat, 95).Round(time.Microsecond))
+		pf("  p99          : %s\n", percentile(res.lat, 99).Round(time.Microsecond))
+		pf("  max          : %s\n", percentile(res.lat, 100).Round(time.Microsecond))
 	}
 
-	fmt.Fprintln(w, "[ Reliability ]")
-	fmt.Fprintf(w, "  errors       : %d (rate %.4f%%)\n", res.errors, errRate)
-	fmt.Fprintf(w, "    dial       : %d\n", res.errDial)
-	fmt.Fprintf(w, "    write      : %d\n", res.errWrite)
-	fmt.Fprintf(w, "    read/timeout: %d\n", res.errRead)
-	fmt.Fprintf(w, "    mismatch   : %d\n", res.errMismat)
+	p("[ Reliability ]")
+	pf("  errors       : %d (rate %.4f%%)\n", res.errors, errRate)
+	pf("    dial       : %d\n", res.errDial)
+	pf("    write      : %d\n", res.errWrite)
+	pf("    read/timeout: %d\n", res.errRead)
+	pf("    mismatch   : %d\n", res.errMismat)
 	if builtin {
 		if activeZero {
-			fmt.Fprintln(w, "  active conns : 0 (returned to zero) OK")
+			p("  active conns : 0 (returned to zero) OK")
 		} else {
-			fmt.Fprintf(w, "  active conns : %d (DID NOT return to zero) FAIL\n", activeAfter)
+			pf("  active conns : %d (DID NOT return to zero) FAIL\n", activeAfter)
 		}
 	} else {
-		fmt.Fprintln(w, "  active conns : n/a (external chain)")
+		p("  active conns : n/a (external chain)")
 	}
-	fmt.Fprintln(w, "=================================================================")
+	p("=================================================================")
 }
