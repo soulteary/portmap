@@ -57,6 +57,22 @@ go build -o portmap .
 make build
 ```
 
+## Homebrew 安装
+
+macOS / Linux 可通过 [Homebrew Tap](https://github.com/soulteary/homebrew-tap) 安装：
+
+```bash
+brew tap soulteary/tap
+brew install soulteary/tap/portmap
+```
+
+验证：
+
+```bash
+portmap --version
+# portmap 1.1.0 (commit 85fc65e, built 2026-08-08T10:26:23Z)
+```
+
 ## 容器镜像
 
 预构建的多架构镜像（`linux/amd64` + `linux/arm64`）发布在 ghcr.io 与 Docker Hub：

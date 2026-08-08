@@ -57,6 +57,22 @@ go build -o portmap .
 make build
 ```
 
+## Homebrew
+
+On macOS / Linux you can install via the author's [Homebrew Tap](https://github.com/soulteary/homebrew-tap):
+
+```bash
+brew tap soulteary/tap
+brew install soulteary/tap/portmap
+```
+
+Verify:
+
+```bash
+portmap --version
+# portmap 1.1.0 (commit 85fc65e, built 2026-08-08T10:26:23Z)
+```
+
 ## Container Image
 
 Prebuilt multi-arch images (`linux/amd64` + `linux/arm64`) are published to ghcr.io and Docker Hub:
