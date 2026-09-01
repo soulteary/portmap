@@ -1,6 +1,6 @@
 # portmap
 
-[![CI](https://github.com/soulteary/portmap/actions/workflows/ci.yml/badge.svg)](https://github.com/soulteary/portmap/actions/workflows/ci.yml) ![Go Report Card](./.github/goreportcard.svg) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/soulteary/portmap/actions/workflows/ci.yml/badge.svg)](https://github.com/soulteary/portmap/actions/workflows/ci.yml) [![Go Report Card](./.github/goreportcard.svg)](.github/goreportcard-report.md) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 <p align="center">
   <a href="README.en.md">ENGLISH</a> | <a href="README.md" target="_blank">中文文档</a>
@@ -49,7 +49,7 @@ sudo portmap -listen-port 22 -target 127.0.0.1:2222
 
 ## Build
 
-Requires Go 1.26+ (the version in `go.mod` is the source of truth).
+Requires Go 1.27+ (the exact version in `go.mod` is the source of truth).
 
 ```bash
 go build -o portmap .
@@ -297,7 +297,7 @@ Sample output (excerpt):
   hostname     : example
   os/arch      : linux/amd64
   num cpu      : 8
-  go version   : go1.26.x
+  go version   : go1.27.x
   ...
 [ Results ]
   throughput   : 75.35 MB/s | 0.632 Gbps
@@ -321,33 +321,38 @@ make build     # compile with version information injected
 make test      # go test ./... -race
 make vet       # go vet
 make lint      # golangci-lint (must be installed)
+make security  # govulncheck
+make check     # module hygiene, vet, race test, vulnerability scan, and build
 make release   # cross-compile artifacts for multiple platforms into dist/
 make snapshot  # dry-run the release flow locally via GoReleaser (no push, no publish)
 ```
 
-See CI at `.github/workflows/ci.yml`: it runs `go vet` and `go test -race` on linux/macOS/windows,
-and runs `golangci-lint` independently.
+See CI at `.github/workflows/ci.yml`: it runs `go vet` and `go test -race` on
+linux/macOS/windows, cross-builds every release target, and independently runs
+`golangci-lint`, `go mod tidy -diff`, and `govulncheck`.
 
 ## Release
 
 Releases are driven by GoReleaser, see `.github/workflows/release.yml`:
 
-- **Trigger**: pushing a `v*` tag (e.g. `v1.0.0`) publishes automatically, or trigger
-  manually via `workflow_dispatch` in the Actions tab.
-- **Binaries**: `linux`/`darwin`/`windows` x `amd64`/`arm64` (except windows/arm64),
+- **Trigger**: pushing a `v*` tag (e.g. `v1.0.0`) publishes automatically; a manual
+  `workflow_dispatch` must also be run from a `v*` tag.
+- **Release gate**: race tests, module hygiene, and `govulncheck` run again before publishing.
+- **Binaries**: `linux`/`darwin`/`windows` x `amd64`/`arm64`,
   uploaded to the GitHub Release together with `checksums.txt`.
 - **Container images**: multi-arch (`linux/amd64` + `linux/arm64`) images are built and
   pushed to `ghcr.io/soulteary/portmap` and `docker.io/soulteary/portmap`, tagged with
   both `:latest` and `:<version>`.
+- **Provenance**: GitHub generates Sigstore build attestations for release archives and
+  `checksums.txt`, verifiable with `gh attestation verify`.
 
 Prerequisites:
 
 - ghcr.io uses the built-in `GITHUB_TOKEN` (the workflow grants `packages: write`), no
   extra config needed.
 - Docker Hub requires `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets configured under
-  the repository Settings → Secrets. If `DOCKERHUB_USERNAME` is not set, the workflow
-  automatically skips the Docker Hub login step (images are pushed to ghcr.io only) and
-  the release will not fail because of it.
+  the repository Settings → Secrets. The release config always builds Docker Hub images,
+  so a missing secret now fails clearly before publishing instead of producing a partial release.
 - Locally you can validate the config with `make snapshot`
   (equivalent to `goreleaser release --snapshot --clean`) or `goreleaser check`; neither pushes anything.
 

@@ -8,13 +8,18 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: go-report-card-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   report-card:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: grc
-        uses: soulteary/goreportcard-action@v1.1.0
+        uses: soulteary/goreportcard-action@9480215498804c431e4561b4d3e50d925e16b9bd # v1.1.0
         with:
           directory: "."
           output: ".github/goreportcard.svg"
