@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net"
 	"testing"
@@ -99,4 +100,73 @@ func TestFixedRequestModeStopsAtDurationWhenTargetFails(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRoundTripDeadlineFailuresAreRecorded(t *testing.T) {
+	t.Run("tcp", func(t *testing.T) {
+		serverConn, clientConn := net.Pipe()
+		defer func() { _ = serverConn.Close() }()
+		defer func() { _ = clientConn.Close() }()
+		payload := makePayload(32)
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		received := make(chan struct{})
+		go func() {
+			buf := make([]byte, len(payload))
+			_, _ = io.ReadFull(serverConn, buf)
+			close(received)
+			<-ctx.Done()
+		}()
+
+		s := &stats{}
+		if _, ok := tcpRoundTrip(ctx, clientConn, payload, make([]byte, len(payload)), s); ok {
+			t.Fatal("静默 TCP 目标不应返回成功")
+		}
+		if got := s.errRead.Load(); got != 1 {
+			t.Fatalf("截止时间触发的 TCP 读取失败数=%d，期望 1", got)
+		}
+		select {
+		case <-received:
+		case <-time.After(time.Second):
+			t.Fatal("TCP 请求未实际发送到目标")
+		}
+	})
+
+	t.Run("udp", func(t *testing.T) {
+		serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+		if err != nil {
+			t.Fatalf("监听 UDP 失败: %v", err)
+		}
+		defer func() { _ = serverConn.Close() }()
+		clientConn, err := net.DialUDP("udp", nil, serverConn.LocalAddr().(*net.UDPAddr))
+		if err != nil {
+			t.Fatalf("连接 UDP 目标失败: %v", err)
+		}
+		defer func() { _ = clientConn.Close() }()
+		payload := makePayload(32)
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		received := make(chan struct{})
+		go func() {
+			buf := make([]byte, len(payload))
+			_, _, _ = serverConn.ReadFromUDP(buf)
+			close(received)
+			<-ctx.Done()
+		}()
+
+		s := &stats{}
+		if _, ok := udpRoundTrip(ctx, clientConn, payload, make([]byte, len(payload)+64), s); ok {
+			t.Fatal("静默 UDP 目标不应返回成功")
+		}
+		if got := s.errRead.Load(); got != 1 {
+			t.Fatalf("截止时间触发的 UDP 读取失败数=%d，期望 1", got)
+		}
+		select {
+		case <-received:
+		case <-time.After(time.Second):
+			t.Fatal("UDP 请求未实际发送到目标")
+		}
+	})
 }

@@ -514,10 +514,9 @@ func (w *worker) runTCP(ctx context.Context) []time.Duration {
 		start := time.Now()
 		conn, err := dialer.DialContext(ctx, "tcp", w.addr)
 		if err != nil {
-			// ctx 取消导致的拨号失败属于正常收尾，不计入错误。
-			if ctx.Err() == nil {
-				w.s.errDial.Add(1)
-			}
+			// 本次拨号已在截止时间前开始；即使返回时全局上下文刚好
+			// 到期，也必须记录该次失败，避免报告出现 0 请求、0 错误。
+			w.s.errDial.Add(1)
 			if !waitBeforeRetry(ctx) {
 				break
 			}
@@ -546,15 +545,13 @@ func tcpRoundTrip(ctx context.Context, conn net.Conn, payload, buf []byte, s *st
 	_ = conn.SetDeadline(operationDeadline(ctx, 10*time.Second))
 	start := time.Now()
 	if _, err := conn.Write(payload); err != nil {
-		if ctx.Err() == nil {
-			s.errWrite.Add(1)
-		}
+		// 一旦 RoundTrip 已开始，其结果就属于本次压测统计；全局截止
+		// 时间只阻止新请求，不应吞掉正在执行的失败。
+		s.errWrite.Add(1)
 		return 0, false
 	}
 	if _, err := io.ReadFull(conn, buf); err != nil {
-		if ctx.Err() == nil {
-			s.errRead.Add(1)
-		}
+		s.errRead.Add(1)
 		return 0, false
 	}
 	rtt := time.Since(start)
@@ -579,17 +576,13 @@ func (w *worker) runUDP(ctx context.Context) []time.Duration {
 	dial := func() *net.UDPConn {
 		raw, derr := dialer.DialContext(ctx, "udp", w.addr)
 		if derr != nil {
-			if ctx.Err() == nil {
-				w.s.errDial.Add(1)
-			}
+			w.s.errDial.Add(1)
 			return nil
 		}
 		c, ok := raw.(*net.UDPConn)
 		if !ok {
 			_ = raw.Close()
-			if ctx.Err() == nil {
-				w.s.errDial.Add(1)
-			}
+			w.s.errDial.Add(1)
 			return nil
 		}
 		w.s.newConns.Add(1)
@@ -640,17 +633,13 @@ func udpRoundTrip(ctx context.Context, conn *net.UDPConn, payload, buf []byte, s
 	_ = conn.SetDeadline(operationDeadline(ctx, 2*time.Second))
 	start := time.Now()
 	if _, err := conn.Write(payload); err != nil {
-		if ctx.Err() == nil {
-			s.errWrite.Add(1)
-		}
+		s.errWrite.Add(1)
 		return 0, false
 	}
 	n, err := conn.Read(buf)
 	if err != nil {
 		// UDP 丢包/超时：按读取错误统计而非致命。
-		if ctx.Err() == nil {
-			s.errRead.Add(1)
-		}
+		s.errRead.Add(1)
 		return 0, false
 	}
 	rtt := time.Since(start)
