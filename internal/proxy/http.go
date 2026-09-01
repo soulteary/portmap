@@ -91,7 +91,9 @@ func (s *Server) handlePlainHTTP(conn net.Conn, reader *bufio.Reader, req *http.
 
 	// 改写为源站可识别的相对路径请求，并清理逐跳首部。
 	req.RequestURI = ""
+	requestConnectionOptions := connectionOptionNames(req.Header)
 	stripHopByHopHeaders(req.Header)
+	req.Body = filterTrailers(req.Body, req.Trailer, requestConnectionOptions)
 	appendVia(req.Header, req.ProtoMajor, req.ProtoMinor)
 	req.Close = true
 	req.Header.Set("Connection", "close")
@@ -114,7 +116,7 @@ func (s *Server) handlePlainHTTP(conn net.Conn, reader *bufio.Reader, req *http.
 			resp.Header.Del(key)
 		}
 		stripHopByHopHeaders(resp.Header)
-		filterResponseTrailers(resp, connectionOptions)
+		resp.Body = filterTrailers(resp.Body, resp.Trailer, connectionOptions)
 		appendVia(resp.Header, resp.ProtoMajor, resp.ProtoMinor)
 		informational := resp.StatusCode >= 100 && resp.StatusCode < 200 && resp.StatusCode != http.StatusSwitchingProtocols
 		if informational {
@@ -262,20 +264,21 @@ func readResponseHead(reader *bufio.Reader) ([]byte, error) {
 	}
 }
 
-func filterResponseTrailers(resp *http.Response, connectionOptions []string) {
+func filterTrailers(body io.ReadCloser, trailer http.Header, connectionOptions []string) io.ReadCloser {
 	filter := func() {
 		for _, key := range connectionOptions {
-			resp.Trailer.Del(key)
+			trailer.Del(key)
 		}
-		stripHopByHopHeaders(resp.Trailer)
+		stripHopByHopHeaders(trailer)
 	}
 
 	// Remove declarations before Response.Write emits its header, then repeat
 	// after EOF because net/http repopulates Trailer while consuming the body.
 	filter()
-	if resp.Body != nil && resp.Body != http.NoBody {
-		resp.Body = &trailerFilteringBody{ReadCloser: resp.Body, filter: filter}
+	if body != nil && body != http.NoBody {
+		return &trailerFilteringBody{ReadCloser: body, filter: filter}
 	}
+	return body
 }
 
 // hopByHopHeaders 是 RFC 7230 定义的逐跳首部，转发时应当移除。

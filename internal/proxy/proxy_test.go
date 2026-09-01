@@ -418,6 +418,70 @@ func TestHTTPProxyStripsConnectionNominatedResponseTrailers(t *testing.T) {
 	}
 }
 
+func TestHTTPProxyStripsConnectionNominatedRequestTrailers(t *testing.T) {
+	proxyAddr, stopProxy := startTestProxy(t)
+	defer stopProxy()
+
+	requestTrailers := make(chan http.Header, 1)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("监听后端失败: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		backendConn, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = backendConn.Close() }()
+		req, readErr := http.ReadRequest(bufio.NewReader(backendConn))
+		if readErr != nil {
+			return
+		}
+		if _, readErr = io.ReadAll(req.Body); readErr != nil {
+			return
+		}
+		requestTrailers <- req.Trailer.Clone()
+		_, _ = io.WriteString(backendConn, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+	}()
+
+	conn, err := net.DialTimeout("tcp", proxyAddr, time.Second)
+	if err != nil {
+		t.Fatalf("连接代理失败: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := fmt.Fprintf(conn,
+		"POST http://%s/ HTTP/1.1\r\n"+
+			"Host: %s\r\n"+
+			"Transfer-Encoding: chunked\r\n"+
+			"Connection: X-Hop\r\n"+
+			"Trailer: X-Hop, X-End-Trailer\r\n\r\n"+
+			"2\r\nok\r\n"+
+			"0\r\n"+
+			"X-Hop: must-not-leak\r\n"+
+			"X-End-Trailer: kept\r\n\r\n",
+		ln.Addr(), ln.Addr()); err != nil {
+		t.Fatalf("发送请求失败: %v", err)
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("读取代理响应失败: %v", err)
+	}
+	_ = resp.Body.Close()
+	select {
+	case trailer := <-requestTrailers:
+		if _, exists := trailer["X-Hop"]; exists {
+			t.Fatalf("Connection 点名的请求 trailer 泄漏: %v", trailer)
+		}
+		if got := trailer.Get("X-End-Trailer"); got != "kept" {
+			t.Fatalf("请求端到端 trailer=%q，期望 kept", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("后端未收到请求 trailer")
+	}
+}
+
 func TestProxyResponseReaderReusesBufferAcrossManyInformationalResponses(t *testing.T) {
 	const informationalResponses = 1024
 	var upstream strings.Builder
