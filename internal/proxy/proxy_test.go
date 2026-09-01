@@ -317,7 +317,7 @@ func TestHTTPProxyForwardsInformationalResponses(t *testing.T) {
 			return
 		}
 		_, _ = io.WriteString(backendConn,
-			"HTTP/1.1 103 Early Hints\r\nLink: </style.css>; rel=preload\r\n\r\n"+
+			"HTTP/1.1 103 Early Hints\r\nLink: </style.css>; rel=preload\r\nConnection: close, X-Info-Hop\r\nX-Info-Hop: must-not-leak\r\n\r\n"+
 				"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
 	}()
 
@@ -341,6 +341,12 @@ func TestHTTPProxyForwardsInformationalResponses(t *testing.T) {
 	}
 	if early.Close {
 		t.Fatal("信息响应不应要求关闭连接")
+	}
+	if got := early.Header.Get("Connection"); got != "" {
+		t.Fatalf("103 响应泄漏 Connection 首部: %q", got)
+	}
+	if got := early.Header.Get("X-Info-Hop"); got != "" {
+		t.Fatalf("103 响应泄漏 Connection 命名首部: %q", got)
 	}
 
 	final, err := http.ReadResponse(reader, nil)

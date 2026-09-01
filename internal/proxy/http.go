@@ -16,6 +16,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -105,14 +106,22 @@ func (s *Server) handlePlainHTTP(conn net.Conn, reader *bufio.Reader, req *http.
 	// 响应之前出现，因此需要逐个转发。
 	remoteReader := bufio.NewReader(remote)
 	for {
-		resp, err := http.ReadResponse(remoteReader, req)
+		resp, connectionOptions, err := readProxyResponse(&remoteReader, req)
 		if err != nil {
 			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), err)
+		}
+		for _, key := range connectionOptions {
+			resp.Header.Del(key)
 		}
 		stripHopByHopHeaders(resp.Header)
 		appendVia(resp.Header, resp.ProtoMajor, resp.ProtoMinor)
 		informational := resp.StatusCode >= 100 && resp.StatusCode < 200 && resp.StatusCode != http.StatusSwitchingProtocols
-		if !informational {
+		if informational {
+			// ReadResponse 会把上游 Connection: close 保存到 Close 字段；即使
+			// 已删除原始首部，Response.Write 仍会据此重新生成该逐跳首部。
+			// 1xx 后还要在同一连接上传递最终响应，因此必须显式清除。
+			resp.Close = false
+		} else {
 			resp.Close = true
 			resp.Header.Set("Connection", "close")
 		}
@@ -126,6 +135,62 @@ func (s *Server) handlePlainHTTP(conn net.Conn, reader *bufio.Reader, req *http.
 		}
 	}
 	return nil
+}
+
+const maxProxyResponseHeaderBytes = 10 << 20
+
+// readProxyResponse 在交给 net/http 解析前保留原始 Connection 选项。
+// http.ReadResponse 遇到 Connection: close 时会删除整个 Connection 首部，
+// 若其中还点名了其他逐跳字段，解析完成后将无法再知道应删除哪些字段。
+func readProxyResponse(reader **bufio.Reader, req *http.Request) (*http.Response, []string, error) {
+	head, err := readResponseHead(*reader)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// 把预读的响应头放回数据流。后续可能被新 reader 预取的正文或下一条 1xx
+	// 仍保存在同一个 reader 中，因此调用方必须继续使用更新后的指针。
+	*reader = bufio.NewReader(io.MultiReader(bytes.NewReader(head), *reader))
+	resp, err := http.ReadResponse(*reader, req)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	tp := textproto.NewReader(bufio.NewReader(bytes.NewReader(head)))
+	if _, err := tp.ReadLine(); err != nil {
+		_ = resp.Body.Close()
+		return nil, nil, err
+	}
+	mimeHeader, err := tp.ReadMIMEHeader()
+	if err != nil {
+		_ = resp.Body.Close()
+		return nil, nil, err
+	}
+	return resp, connectionOptionNames(http.Header(mimeHeader)), nil
+}
+
+func readResponseHead(reader *bufio.Reader) ([]byte, error) {
+	var head bytes.Buffer
+	continuedLine := false
+	for {
+		fragment, err := reader.ReadSlice('\n')
+		if head.Len()+len(fragment) > maxProxyResponseHeaderBytes {
+			return nil, fmt.Errorf("proxy response headers exceed %d bytes", maxProxyResponseHeaderBytes)
+		}
+		_, _ = head.Write(fragment)
+		if err == bufio.ErrBufferFull {
+			continuedLine = true
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		blankLine := !continuedLine && (bytes.Equal(fragment, []byte("\r\n")) || bytes.Equal(fragment, []byte("\n")))
+		continuedLine = false
+		if blankLine {
+			return head.Bytes(), nil
+		}
+	}
 }
 
 // hopByHopHeaders 是 RFC 7230 定义的逐跳首部，转发时应当移除。
@@ -144,16 +209,24 @@ var hopByHopHeaders = []string{
 func stripHopByHopHeaders(h http.Header) {
 	// Connection 可以列出额外的逐跳字段名，必须在删除 Connection 自身前
 	// 逐一删除（RFC 9110 §7.6.1）。
-	for _, value := range h.Values("Connection") {
-		for _, token := range strings.Split(value, ",") {
-			if key := textproto.TrimString(token); key != "" {
-				h.Del(key)
-			}
-		}
+	for _, key := range connectionOptionNames(h) {
+		h.Del(key)
 	}
 	for _, key := range hopByHopHeaders {
 		h.Del(key)
 	}
+}
+
+func connectionOptionNames(h http.Header) []string {
+	var keys []string
+	for _, value := range h.Values("Connection") {
+		for _, token := range strings.Split(value, ",") {
+			if key := textproto.TrimString(token); key != "" {
+				keys = append(keys, key)
+			}
+		}
+	}
+	return keys
 }
 
 func appendVia(h http.Header, major, minor int) {
