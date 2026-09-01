@@ -147,7 +147,12 @@ portmap proxy [flags]
 
 flags:
   -addr string            监听地址，SOCKS5 与 HTTP 共用此端口 (默认 "127.0.0.1:1080")
+  -allow-public           允许监听非回环地址（代理不提供身份认证）
   -dial-timeout duration  出站连接超时时间 (默认 30s)
+  -handshake-timeout duration
+                          协议握手超时，0 表示不限制 (默认 10s)
+  -idle-timeout duration  双向空闲超时，0 表示不限制 (默认 5m0s)
+  -max-conns int          代理最大并发连接数，0 表示不限制 (默认 256)
   -config string          YAML 配置文件路径（读取 proxy: 段）
   -lang string            界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
   -version                打印版本信息后退出
@@ -160,7 +165,11 @@ flags:
 ```
 
 将浏览器/工具的 SOCKS5 或 HTTP 代理指向该地址即可；两种协议共用同一端口。
-按 `Ctrl+C` 优雅退出。
+按 `Ctrl+C` 优雅退出；服务停止接收新连接，并最多等待 10 秒让已有连接结束。
+
+> 安全提示：代理不提供身份认证，默认拒绝监听 `0.0.0.0`、`::` 等非回环地址。
+> 只有在网络访问已由防火墙或其它边界保护时，才应显式添加 `-allow-public`。
+> 指向代理自身监听地址的 HTTP/SOCKS5 请求会被拒绝，以避免递归连接风暴。
 
 ## 示例
 
@@ -250,6 +259,10 @@ forward:
 proxy:
   addr: 127.0.0.1:1080
   dial_timeout: 30s
+  max_conns: 256
+  handshake_timeout: 10s
+  idle_timeout: 5m
+  allow_public: false
 lang: en
 ```
 

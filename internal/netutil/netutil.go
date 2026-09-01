@@ -78,8 +78,8 @@ func Relay(a, b net.Conn) {
 	RelayReader(a, a, b)
 }
 
-// IdleConn 包装 net.Conn，在每次 Read 前刷新读取截止时间，
-// 从而在空闲超过 Timeout 时让 Read 返回超时错误，实现空闲断开。
+// IdleConn 包装 net.Conn，在每次 Read/Write 前刷新对应方向的截止时间，
+// 从而在空闲超过 Timeout 时让 I/O 返回超时错误，实现空闲断开。
 type IdleConn struct {
 	net.Conn
 	// Timeout 是允许的最长空闲时间；<=0 时不启用（等价于裸连接）。
@@ -94,4 +94,22 @@ func (c *IdleConn) Read(p []byte) (int, error) {
 		}
 	}
 	return c.Conn.Read(p)
+}
+
+// Write 在写入前刷新写截止时间，实现滚动的空闲超时。
+func (c *IdleConn) Write(p []byte) (int, error) {
+	if c.Timeout > 0 {
+		if err := c.SetWriteDeadline(time.Now().Add(c.Timeout)); err != nil {
+			return 0, err
+		}
+	}
+	return c.Conn.Write(p)
+}
+
+// CloseWrite 保留底层 TCP 连接的半关闭能力，供 Relay 正确传播 EOF。
+func (c *IdleConn) CloseWrite() error {
+	if hc, ok := c.Conn.(halfCloser); ok {
+		return hc.CloseWrite()
+	}
+	return c.SetReadDeadline(time.Now())
 }

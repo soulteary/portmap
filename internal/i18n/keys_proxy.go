@@ -21,22 +21,31 @@ const (
 	KeyProxyUsageLine  = "proxy.usage.line"
 
 	// proxy flag 描述。
-	KeyFlagProxyAddr        = "flag.proxy-addr"
-	KeyFlagProxyDialTimeout = "flag.proxy-dial-timeout"
+	KeyFlagProxyAddr             = "flag.proxy-addr"
+	KeyFlagProxyDialTimeout      = "flag.proxy-dial-timeout"
+	KeyFlagProxyMaxConns         = "flag.proxy-max-conns"
+	KeyFlagProxyHandshakeTimeout = "flag.proxy-handshake-timeout"
+	KeyFlagProxyIdleTimeout      = "flag.proxy-idle-timeout"
+	KeyFlagProxyAllowPublic      = "flag.proxy-allow-public"
 
 	// proxy 运行时日志（面向用户）。
-	KeyLogProxyStarted      = "proxy.started"
-	KeyLogProxyAcceptFailed = "proxy.accept-failed"
-	KeyLogProxyDetectFailed = "proxy.detect-failed"
-	KeyLogProxySOCKS5Failed = "proxy.socks5-failed"
-	KeyLogProxyHTTPFailed   = "proxy.http-failed"
-	KeyLogProxySOCKS5Relay  = "proxy.socks5-relay"
-	KeyLogProxyHTTPConnect  = "proxy.http-connect"
-	KeyLogProxyHTTPPlain    = "proxy.http-plain"
-	KeyLogProxyShuttingDown = "proxy.shutting-down"
+	KeyLogProxyStarted        = "proxy.started"
+	KeyLogProxyAcceptFailed   = "proxy.accept-failed"
+	KeyLogProxyDetectFailed   = "proxy.detect-failed"
+	KeyLogProxySOCKS5Failed   = "proxy.socks5-failed"
+	KeyLogProxyHTTPFailed     = "proxy.http-failed"
+	KeyLogProxySOCKS5Relay    = "proxy.socks5-relay"
+	KeyLogProxyHTTPConnect    = "proxy.http-connect"
+	KeyLogProxyHTTPPlain      = "proxy.http-plain"
+	KeyLogProxyShuttingDown   = "proxy.shutting-down"
+	KeyLogProxyShutdownFailed = "proxy.shutdown-failed"
+	KeyLogProxyConnLimit      = "proxy.conn-limit"
 
 	// proxy 运行/退出错误（main.go proxy 分支）。
-	KeyErrProxyExit = "err.proxy-exit"
+	KeyErrProxyExit         = "err.proxy-exit"
+	KeyErrProxyHandshakeNeg = "err.proxy-handshake-neg"
+	KeyErrProxyPublicListen = "err.proxy-public-listen"
+	KeyErrProxySelfTarget   = "err.proxy-self-target"
 
 	// proxy 内部处理错误（经日志展示给用户）。
 	// SOCKS5 处理（socks5.go）。

@@ -37,10 +37,11 @@ const (
 	KeyFlagLang    = "flag.lang"
 
 	// 配置文件错误（config.go）。
-	KeyErrConfigRead  = "err.config-read"
-	KeyErrConfigParse = "err.config-parse"
-	KeyErrConfigDial  = "err.config-dial"
-	KeyErrConfigIdle  = "err.config-idle"
+	KeyErrConfigRead      = "err.config-read"
+	KeyErrConfigParse     = "err.config-parse"
+	KeyErrConfigDial      = "err.config-dial"
+	KeyErrConfigIdle      = "err.config-idle"
+	KeyErrConfigHandshake = "err.config-handshake"
 )
 
 // messages 保存每种语言下 key -> 文本 的映射。

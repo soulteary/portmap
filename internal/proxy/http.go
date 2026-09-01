@@ -52,11 +52,21 @@ func (s *Server) handleConnect(conn net.Conn, reader *bufio.Reader, req *http.Re
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.DialTimeout)
 	defer cancel()
+	if s.isSelfTarget(ctx, target) {
+		writeHTTPError(conn, http.StatusLoopDetected)
+		return fmt.Errorf(i18n.T(i18n.KeyErrProxySelfTarget), target)
+	}
 	remote, err := s.dialer.DialContext(ctx, "tcp", target)
 	if err != nil {
 		writeHTTPError(conn, http.StatusBadGateway)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPConnectDial), target, err)
 	}
+	if s.isSelfConn(remote) {
+		_ = remote.Close()
+		writeHTTPError(conn, http.StatusLoopDetected)
+		return fmt.Errorf(i18n.T(i18n.KeyErrProxySelfTarget), target)
+	}
+	remote = s.wrapRemote(remote)
 	defer func() { _ = remote.Close() }()
 
 	if _, err := io.WriteString(conn, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
@@ -64,6 +74,7 @@ func (s *Server) handleConnect(conn net.Conn, reader *bufio.Reader, req *http.Re
 	}
 
 	s.logf(i18n.T(i18n.KeyLogProxyHTTPConnect), conn.RemoteAddr(), target)
+	s.beginRelay(conn)
 	netutil.RelayReader(conn, reader, remote)
 	return nil
 }
@@ -80,12 +91,23 @@ func (s *Server) handlePlainHTTP(conn net.Conn, reader *bufio.Reader, req *http.
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.DialTimeout)
 	defer cancel()
+	if s.isSelfTarget(ctx, host) {
+		writeHTTPError(conn, http.StatusLoopDetected)
+		return fmt.Errorf(i18n.T(i18n.KeyErrProxySelfTarget), host)
+	}
 	remote, err := s.dialer.DialContext(ctx, "tcp", host)
 	if err != nil {
 		writeHTTPError(conn, http.StatusBadGateway)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPDial), host, err)
 	}
+	if s.isSelfConn(remote) {
+		_ = remote.Close()
+		writeHTTPError(conn, http.StatusLoopDetected)
+		return fmt.Errorf(i18n.T(i18n.KeyErrProxySelfTarget), host)
+	}
+	remote = s.wrapRemote(remote)
 	defer func() { _ = remote.Close() }()
+	s.beginRelay(conn)
 
 	// 改写为源站可识别的相对路径请求，并清理逐跳首部。
 	req.RequestURI = ""

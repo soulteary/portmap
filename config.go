@@ -35,6 +35,7 @@ import (
 //	proxy:              # proxy 子命令（SOCKS5/HTTP 代理）
 //	  addr: 127.0.0.1:1080
 //	  dial_timeout: 30s
+//	  max_conns: 256
 //	lang: zh            # 全局界面语言
 //
 // 各段均为指针：nil 表示配置文件未出现该段。
@@ -63,8 +64,12 @@ type ForwardConfig struct {
 
 // ProxyConfig 是 proxy 子命令的配置段，字段与 proxy flag 一一对应。
 type ProxyConfig struct {
-	Addr        *string `yaml:"addr"`
-	DialTimeout *string `yaml:"dial_timeout"`
+	Addr             *string `yaml:"addr"`
+	DialTimeout      *string `yaml:"dial_timeout"`
+	MaxConns         *int    `yaml:"max_conns"`
+	HandshakeTimeout *string `yaml:"handshake_timeout"`
+	IdleTimeout      *string `yaml:"idle_timeout"`
+	AllowPublic      *bool   `yaml:"allow_public"`
 }
 
 // fileConfig 与命令行 flag 一一对应，字段均为指针类型：
@@ -222,6 +227,26 @@ func mergeProxyConfig(opt *proxyOptions, cfg *Config, setFlags map[string]bool) 
 			return fmt.Errorf(i18n.T(i18n.KeyErrConfigDial), err)
 		}
 		opt.dialTimeout = d
+	}
+	if cfg.Proxy.MaxConns != nil && !setFlags["max-conns"] {
+		opt.maxConns = *cfg.Proxy.MaxConns
+	}
+	if cfg.Proxy.HandshakeTimeout != nil && !setFlags["handshake-timeout"] {
+		d, err := time.ParseDuration(*cfg.Proxy.HandshakeTimeout)
+		if err != nil {
+			return fmt.Errorf(i18n.T(i18n.KeyErrConfigHandshake), err)
+		}
+		opt.handshakeTimeout = d
+	}
+	if cfg.Proxy.IdleTimeout != nil && !setFlags["idle-timeout"] {
+		d, err := time.ParseDuration(*cfg.Proxy.IdleTimeout)
+		if err != nil {
+			return fmt.Errorf(i18n.T(i18n.KeyErrConfigIdle), err)
+		}
+		opt.idleTimeout = d
+	}
+	if cfg.Proxy.AllowPublic != nil && !setFlags["allow-public"] {
+		opt.allowPublic = *cfg.Proxy.AllowPublic
 	}
 	return nil
 }

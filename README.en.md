@@ -150,6 +150,28 @@ Check the version:
 
 Press `Ctrl+C` to exit gracefully; it waits for in-flight connections to finish.
 
+## SOCKS5 + HTTP Proxy
+
+The `proxy` subcommand serves SOCKS5 and HTTP/HTTPS proxy clients on one port.
+Outbound connections are direct and ignore environment proxy variables.
+
+```bash
+./portmap proxy -addr 127.0.0.1:1080
+```
+
+Important proxy flags:
+
+- `-max-conns 256`: bound concurrent client connections (`0` disables the limit).
+- `-handshake-timeout 10s`: bound protocol detection and handshake time.
+- `-idle-timeout 5m`: close tunnels that remain idle in either direction.
+- `-allow-public`: explicitly allow a non-loopback listen address.
+
+The proxy has no authentication, so it rejects non-loopback listen addresses by
+default. Only use `-allow-public` behind an appropriate firewall or equivalent
+access boundary. Requests that resolve back to the proxy's own listener are also
+rejected to prevent recursive connection storms. On shutdown, existing connections
+have up to 10 seconds to finish before they are closed.
+
 ## Interface Language
 
 Help text, logs, and error messages are localized: `en` (English), `zh` (Simplified Chinese), `ja` (Japanese), `ko` (Korean), `fr` (French), `de` (German), falling back to English when unrecognized.
