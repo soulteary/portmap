@@ -1,6 +1,6 @@
 # portmap
 
-[![CI](https://github.com/soulteary/portmap/actions/workflows/ci.yml/badge.svg)](https://github.com/soulteary/portmap/actions/workflows/ci.yml) [![Go Report Card](https://goreportcard.com/badge/github.com/soulteary/portmap)](https://goreportcard.com/report/github.com/soulteary/portmap) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/soulteary/portmap/actions/workflows/ci.yml/badge.svg)](https://github.com/soulteary/portmap/actions/workflows/ci.yml) ![Go Report Card](./.github/goreportcard.svg) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 <p align="center">
   <a href="README.en.md">ENGLISH</a> | <a href="README.md" target="_blank">中文文档</a>
