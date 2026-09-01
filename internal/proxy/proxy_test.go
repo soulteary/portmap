@@ -360,6 +360,64 @@ func TestHTTPProxyForwardsInformationalResponses(t *testing.T) {
 	}
 }
 
+func TestHTTPProxyStripsConnectionNominatedResponseTrailers(t *testing.T) {
+	proxyAddr, stopProxy := startTestProxy(t)
+	defer stopProxy()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("监听后端失败: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		backendConn, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = backendConn.Close() }()
+		if _, readErr := http.ReadRequest(bufio.NewReader(backendConn)); readErr != nil {
+			return
+		}
+		_, _ = io.WriteString(backendConn,
+			"HTTP/1.1 200 OK\r\n"+
+				"Transfer-Encoding: chunked\r\n"+
+				"Connection: X-Hop\r\n"+
+				"Trailer: X-Hop, X-End-Trailer\r\n\r\n"+
+				"2\r\nok\r\n"+
+				"0\r\n"+
+				"X-Hop: must-not-leak\r\n"+
+				"X-End-Trailer: kept\r\n\r\n")
+	}()
+
+	conn, err := net.DialTimeout("tcp", proxyAddr, time.Second)
+	if err != nil {
+		t.Fatalf("连接代理失败: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := fmt.Fprintf(conn, "GET http://%s/ HTTP/1.1\r\nHost: %s\r\n\r\n", ln.Addr(), ln.Addr()); err != nil {
+		t.Fatalf("发送请求失败: %v", err)
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("读取代理响应失败: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("读取代理响应正文失败: %v", err)
+	}
+	if string(body) != "ok" {
+		t.Fatalf("响应正文=%q，期望 ok", body)
+	}
+	if _, exists := resp.Trailer["X-Hop"]; exists {
+		t.Fatalf("Connection 点名的 trailer 泄漏: %v", resp.Trailer)
+	}
+	if got := resp.Trailer.Get("X-End-Trailer"); got != "kept" {
+		t.Fatalf("端到端 trailer=%q，期望 kept", got)
+	}
+}
+
 func TestProxyResponseReaderReusesBufferAcrossManyInformationalResponses(t *testing.T) {
 	const informationalResponses = 1024
 	var upstream strings.Builder

@@ -114,6 +114,7 @@ func (s *Server) handlePlainHTTP(conn net.Conn, reader *bufio.Reader, req *http.
 			resp.Header.Del(key)
 		}
 		stripHopByHopHeaders(resp.Header)
+		filterResponseTrailers(resp, connectionOptions)
 		appendVia(resp.Header, resp.ProtoMajor, resp.ProtoMinor)
 		informational := resp.StatusCode >= 100 && resp.StatusCode < 200 && resp.StatusCode != http.StatusSwitchingProtocols
 		if informational {
@@ -172,6 +173,23 @@ func (r *replayReader) prepend(parts ...[]byte) {
 type proxyResponseReader struct {
 	source *replayReader
 	reader *bufio.Reader
+}
+
+// trailerFilteringBody removes hop-by-hop trailers after net/http has consumed
+// the chunked body and populated Response.Trailer, but before Response.Write
+// serializes those trailers downstream.
+type trailerFilteringBody struct {
+	io.ReadCloser
+	filter func()
+}
+
+func (b *trailerFilteringBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err != nil && b.filter != nil {
+		b.filter()
+		b.filter = nil
+	}
+	return n, err
 }
 
 func newProxyResponseReader(source io.Reader) *proxyResponseReader {
@@ -241,6 +259,22 @@ func readResponseHead(reader *bufio.Reader) ([]byte, error) {
 		if blankLine {
 			return head.Bytes(), nil
 		}
+	}
+}
+
+func filterResponseTrailers(resp *http.Response, connectionOptions []string) {
+	filter := func() {
+		for _, key := range connectionOptions {
+			resp.Trailer.Del(key)
+		}
+		stripHopByHopHeaders(resp.Trailer)
+	}
+
+	// Remove declarations before Response.Write emits its header, then repeat
+	// after EOF because net/http repopulates Trailer while consuming the body.
+	filter()
+	if resp.Body != nil && resp.Body != http.NoBody {
+		resp.Body = &trailerFilteringBody{ReadCloser: resp.Body, filter: filter}
 	}
 }
 
