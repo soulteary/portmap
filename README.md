@@ -324,8 +324,8 @@ go run ./cmd/loadtest -proto tcp -mode connrate -conns 100 -duration 10s
 # UDP 吞吐模式
 go run ./cmd/loadtest -proto udp -mode throughput -conns 50 -duration 10s -payload 512
 
-# 按每连接请求数而非时长跑；并测试限流/超时路径
-go run ./cmd/loadtest -proto tcp -conns 20 -requests 1000 -max-conns 200 -idle-timeout 5m
+# 每连接最多完成 1000 个成功请求，并以 30s 为硬截止时间；同时测试限流/超时路径
+go run ./cmd/loadtest -proto tcp -conns 20 -requests 1000 -duration 30s -max-conns 200 -idle-timeout 5m
 
 # 压测外部已运行的 portmap（需自备目标服务）
 go run ./cmd/loadtest -external 127.0.0.1:13000 -proto tcp -duration 10s
@@ -339,8 +339,8 @@ loadtest [flags]
 flags:
   -proto tcp|udp            转发协议 (默认 tcp)
   -conns int                并发连接/会话数 (默认 50)
-  -duration duration        压测时长，与 -requests 二选一 (默认 10s)
-  -requests int             每连接请求数，0 表示按 duration 持续跑 (默认 0)
+  -duration duration        压测最长时长，所有模式的硬截止时间 (默认 10s)
+  -requests int             每连接成功请求数，0 表示仅按 duration 持续跑 (默认 0)
   -payload int              单次请求负载字节数 (默认 1024)
   -mode throughput|connrate 吞吐模式（长连接持续收发）或连接速率模式（短连接循环） (默认 throughput)
   -external string          外部 portmap 地址；为空则自建链路
@@ -348,6 +348,10 @@ flags:
   -idle-timeout duration    内建转发服务空闲超时，0 表示不启用
   -warmup duration          预热时间，预热期数据不计入统计 (默认 1s)
 ```
+
+`-requests` 是成功请求数的提前结束条件，并不会禁用 `-duration`。即使目标持续
+拨号失败、超时或返回错误，压测也会在 `-duration` 到期时结束；连续失败会短暂
+退避，避免不可达目标导致忙循环。
 
 报告包含三块：**主机环境**（GOOS/GOARCH、CPU 数、Go 版本、主机名、内存分配）、**配置**、**结果**（吞吐 MB/s 与 Gbps、req/s、connrate 模式下的 conns/s、延迟 min/p50/p95/p99/max、错误率与分类计数，以及压测后 `ActiveConns()` 是否归零的可靠性校验）。所有输出走标准库，不引入新依赖。
 
