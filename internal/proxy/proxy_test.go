@@ -359,3 +359,54 @@ func TestHTTPProxyForwardsInformationalResponses(t *testing.T) {
 		t.Fatalf("最终响应转发不正确: status=%d body=%q Via=%q", final.StatusCode, body, final.Header.Get("Via"))
 	}
 }
+
+func TestProxyResponseReaderReusesBufferAcrossManyInformationalResponses(t *testing.T) {
+	const informationalResponses = 1024
+	var upstream strings.Builder
+	for range informationalResponses {
+		upstream.WriteString("HTTP/1.1 103 Early Hints\r\nConnection: close, X-Info-Hop\r\nX-Info-Hop: remove\r\n\r\n")
+	}
+	upstream.WriteString("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+
+	responses := newProxyResponseReader(strings.NewReader(upstream.String()))
+	initialReader := responses.reader
+	req := &http.Request{Method: http.MethodGet}
+	for i := range informationalResponses {
+		resp, options, err := responses.read(req)
+		if err != nil {
+			t.Fatalf("读取第 %d 个信息响应失败: %v", i+1, err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusEarlyHints {
+			t.Fatalf("第 %d 个状态码=%d，期望 103", i+1, resp.StatusCode)
+		}
+		if !containsString(options, "X-Info-Hop") {
+			t.Fatalf("第 %d 个响应未保留 Connection 选项: %v", i+1, options)
+		}
+		if responses.reader != initialReader {
+			t.Fatal("信息响应处理替换了 bufio.Reader")
+		}
+	}
+
+	final, _, err := responses.read(req)
+	if err != nil {
+		t.Fatalf("读取最终响应失败: %v", err)
+	}
+	defer func() { _ = final.Body.Close() }()
+	body, err := io.ReadAll(final.Body)
+	if err != nil {
+		t.Fatalf("读取最终响应正文失败: %v", err)
+	}
+	if final.StatusCode != http.StatusOK || string(body) != "ok" {
+		t.Fatalf("最终响应 status=%d body=%q", final.StatusCode, body)
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}

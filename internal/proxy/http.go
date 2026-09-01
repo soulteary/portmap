@@ -104,9 +104,9 @@ func (s *Server) handlePlainHTTP(conn net.Conn, reader *bufio.Reader, req *http.
 
 	// 解析响应后清理响应侧逐跳首部并追加 Via；1xx（101 除外）可能在最终
 	// 响应之前出现，因此需要逐个转发。
-	remoteReader := bufio.NewReader(remote)
+	remoteReader := newProxyResponseReader(remote)
 	for {
-		resp, connectionOptions, err := readProxyResponse(&remoteReader, req)
+		resp, connectionOptions, err := remoteReader.read(req)
 		if err != nil {
 			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), err)
 		}
@@ -139,19 +139,70 @@ func (s *Server) handlePlainHTTP(conn net.Conn, reader *bufio.Reader, req *http.
 
 const maxProxyResponseHeaderBytes = 10 << 20
 
-// readProxyResponse 在交给 net/http 解析前保留原始 Connection 选项。
+// replayReader can prepend bytes without wrapping its previous state in another
+// reader. proxyResponseReader uses it to replay a response head while retaining
+// any bytes that bufio already fetched from the following response or body.
+type replayReader struct {
+	source io.Reader
+	prefix []byte
+}
+
+func (r *replayReader) Read(p []byte) (int, error) {
+	if len(r.prefix) > 0 {
+		n := copy(p, r.prefix)
+		r.prefix = r.prefix[n:]
+		return n, nil
+	}
+	return r.source.Read(p)
+}
+
+func (r *replayReader) prepend(parts ...[]byte) {
+	size := len(r.prefix)
+	for _, part := range parts {
+		size += len(part)
+	}
+	prefix := make([]byte, 0, size)
+	for _, part := range parts {
+		prefix = append(prefix, part...)
+	}
+	prefix = append(prefix, r.prefix...)
+	r.prefix = prefix
+}
+
+type proxyResponseReader struct {
+	source *replayReader
+	reader *bufio.Reader
+}
+
+func newProxyResponseReader(source io.Reader) *proxyResponseReader {
+	replay := &replayReader{source: source}
+	return &proxyResponseReader{
+		source: replay,
+		reader: bufio.NewReader(replay),
+	}
+}
+
+// read 在交给 net/http 解析前保留原始 Connection 选项。
 // http.ReadResponse 遇到 Connection: close 时会删除整个 Connection 首部，
 // 若其中还点名了其他逐跳字段，解析完成后将无法再知道应删除哪些字段。
-func readProxyResponse(reader **bufio.Reader, req *http.Request) (*http.Response, []string, error) {
-	head, err := readResponseHead(*reader)
+func (r *proxyResponseReader) read(req *http.Request) (*http.Response, []string, error) {
+	head, err := readResponseHead(r.reader)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// 把预读的响应头放回数据流。后续可能被新 reader 预取的正文或下一条 1xx
-	// 仍保存在同一个 reader 中，因此调用方必须继续使用更新后的指针。
-	*reader = bufio.NewReader(io.MultiReader(bytes.NewReader(head), *reader))
-	resp, err := http.ReadResponse(*reader, req)
+	// Save bytes already fetched beyond this head, then reset the same bufio
+	// reader over a flat replay buffer. The replay source also contributes any
+	// prefix it has not delivered yet, so no bytes are lost and repeated 1xx
+	// responses cannot build an ever-deeper MultiReader chain.
+	buffered := make([]byte, r.reader.Buffered())
+	if _, err := io.ReadFull(r.reader, buffered); err != nil {
+		return nil, nil, err
+	}
+	r.source.prepend(head, buffered)
+	r.reader.Reset(r.source)
+
+	resp, err := http.ReadResponse(r.reader, req)
 	if err != nil {
 		return nil, nil, err
 	}
