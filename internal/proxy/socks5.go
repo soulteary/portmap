@@ -58,7 +58,7 @@ const (
 //
 // 版本字节已经被探测逻辑消费，握手报文的剩余部分从 reader 读取
 // （reader 可能已缓冲了部分数据，因此不能直接读裸连接）。
-func (s *Server) handleSOCKS5WithReader(conn net.Conn, reader *bufio.Reader) error {
+func (s *Server) handleSOCKS5WithReader(ctx context.Context, conn net.Conn, reader *bufio.Reader) error {
 	// 1. 方法协商：VER(已读) | NMETHODS | METHODS...
 	nMethods, err := reader.ReadByte()
 	if err != nil {
@@ -108,13 +108,13 @@ func (s *Server) handleSOCKS5WithReader(conn net.Conn, reader *bufio.Reader) err
 	}
 
 	// 3. 直连目标（忽略环境代理）。
-	ctx, cancel := context.WithTimeout(context.Background(), s.DialTimeout)
+	dialCtx, cancel := context.WithTimeout(ctx, s.DialTimeout)
 	defer cancel()
-	if s.isSelfTarget(ctx, target) {
+	if s.isSelfTarget(dialCtx, target) {
 		_ = s.sendSOCKSReply(conn, socksRepGeneralFailure)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxySelfTarget), target)
 	}
-	remote, err := s.dialer.DialContext(ctx, "tcp", target)
+	remote, err := s.dialer.DialContext(dialCtx, "tcp", target)
 	if err != nil {
 		_ = s.sendSOCKSReply(conn, socksReplyForDialError(err))
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxySocksDial), target, err)

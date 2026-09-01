@@ -17,12 +17,38 @@ package proxy
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"testing"
 	"time"
 )
+
+type contextBlockingDialer struct {
+	started chan struct{}
+	stopped chan error
+}
+
+func (d *contextBlockingDialer) DialContext(ctx context.Context, _, _ string) (net.Conn, error) {
+	close(d.started)
+	<-ctx.Done()
+	err := ctx.Err()
+	d.stopped <- err
+	return nil, err
+}
+
+type stubbornDialer struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (d *stubbornDialer) DialContext(context.Context, string, string) (net.Conn, error) {
+	close(d.started)
+	<-d.release
+	return nil, context.Canceled
+}
 
 func TestHTTPProxyRejectsSelfTarget(t *testing.T) {
 	proxyAddr, stopProxy := startTestProxy(t)
@@ -76,6 +102,47 @@ func TestHandshakeTimeoutClosesSlowClient(t *testing.T) {
 	}
 }
 
+func TestHandshakeTimeoutCancelsOutboundDial(t *testing.T) {
+	dialer := &contextBlockingDialer{
+		started: make(chan struct{}),
+		stopped: make(chan error, 1),
+	}
+	srv := New("127.0.0.1:0")
+	srv.HandshakeTimeout = 40 * time.Millisecond
+	srv.DialTimeout = time.Second
+	srv.dialer = dialer
+	serverConn, clientConn := net.Pipe()
+	defer func() { _ = clientConn.Close() }()
+
+	done := make(chan struct{})
+	go func() {
+		srv.serveConn(serverConn)
+		close(done)
+	}()
+	if _, err := io.WriteString(clientConn, "CONNECT example.test:443 HTTP/1.1\r\nHost: example.test:443\r\n\r\n"); err != nil {
+		t.Fatalf("发送 CONNECT 请求失败: %v", err)
+	}
+
+	select {
+	case <-dialer.started:
+	case <-time.After(time.Second):
+		t.Fatal("出站拨号没有开始")
+	}
+	select {
+	case err := <-dialer.stopped:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("拨号上下文返回 %v，期望 deadline exceeded", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("出站拨号没有受握手超时约束")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("握手超时后连接处理器没有退出")
+	}
+}
+
 func TestConnectionLimit(t *testing.T) {
 	srv := New("127.0.0.1:0")
 	srv.MaxConns = 1
@@ -124,5 +191,105 @@ func TestShutdownForcesConnectionsAtDeadline(t *testing.T) {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != context.DeadlineExceeded {
 		t.Fatalf("Shutdown 返回 %v，期望 context deadline exceeded", err)
+	}
+}
+
+func TestShutdownCancelsOutboundDial(t *testing.T) {
+	dialer := &contextBlockingDialer{
+		started: make(chan struct{}),
+		stopped: make(chan error, 1),
+	}
+	srv := New("127.0.0.1:0")
+	srv.HandshakeTimeout = 0
+	srv.DialTimeout = time.Hour
+	srv.dialer = dialer
+	serverConn, clientConn := net.Pipe()
+	defer func() { _ = clientConn.Close() }()
+	if !srv.trackConn(serverConn) {
+		t.Fatal("连接注册失败")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer srv.untrackConn(serverConn)
+		srv.serveConn(serverConn)
+		close(done)
+	}()
+	if _, err := io.WriteString(clientConn, "CONNECT example.test:443 HTTP/1.1\r\nHost: example.test:443\r\n\r\n"); err != nil {
+		t.Fatalf("发送 CONNECT 请求失败: %v", err)
+	}
+	select {
+	case <-dialer.started:
+	case <-time.After(time.Second):
+		t.Fatal("出站拨号没有开始")
+	}
+	go func() { _, _ = io.Copy(io.Discard, clientConn) }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown 返回错误: %v", err)
+	}
+	select {
+	case err := <-dialer.stopped:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("拨号上下文返回 %v，期望 canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Shutdown 没有取消出站拨号")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("取消拨号后连接处理器没有退出")
+	}
+}
+
+func TestShutdownReturnsAtDeadlineWhenDialerIgnoresContext(t *testing.T) {
+	dialer := &stubbornDialer{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	srv := New("127.0.0.1:0")
+	srv.HandshakeTimeout = 0
+	srv.DialTimeout = time.Hour
+	srv.dialer = dialer
+	serverConn, clientConn := net.Pipe()
+	defer func() { _ = clientConn.Close() }()
+	if !srv.trackConn(serverConn) {
+		t.Fatal("连接注册失败")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer srv.untrackConn(serverConn)
+		srv.serveConn(serverConn)
+		close(done)
+	}()
+	if _, err := io.WriteString(clientConn, "CONNECT example.test:443 HTTP/1.1\r\nHost: example.test:443\r\n\r\n"); err != nil {
+		t.Fatalf("发送 CONNECT 请求失败: %v", err)
+	}
+	select {
+	case <-dialer.started:
+	case <-time.After(time.Second):
+		t.Fatal("出站拨号没有开始")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	started := time.Now()
+	err := srv.Shutdown(ctx)
+	cancel()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown 返回 %v，期望 deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > 300*time.Millisecond {
+		t.Fatalf("Shutdown 超过截止时间后仍等待处理器: %s", elapsed)
+	}
+
+	close(dialer.release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("释放拨号器后连接处理器没有退出")
 	}
 }

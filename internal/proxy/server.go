@@ -74,11 +74,13 @@ type Server struct {
 
 	dialer Dialer
 
-	mu       sync.Mutex
-	listener net.Listener
-	conns    map[net.Conn]struct{}
-	closing  bool
-	wg       sync.WaitGroup
+	mu              sync.Mutex
+	listener        net.Listener
+	conns           map[net.Conn]struct{}
+	closing         bool
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
+	wg              sync.WaitGroup
 }
 
 // New 创建一个代理服务。所有出站连接均直连，忽略环境代理。
@@ -166,8 +168,8 @@ func (s *Server) Close() error {
 	return err
 }
 
-// Shutdown 停止接受新连接，并等待活动连接自然结束。上下文到期后会强制
-// 关闭剩余连接并返回 ctx.Err()。
+// Shutdown 停止接受新连接，取消尚未完成的握手与拨号，并等待已建立的中继
+// 自然结束。上下文到期后会强制关闭剩余连接并立即返回 ctx.Err()。
 func (s *Server) Shutdown(ctx context.Context) error {
 	err := s.stopAccepting()
 	done := make(chan struct{})
@@ -181,7 +183,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return err
 	case <-ctx.Done():
 		s.closeActiveConns()
-		<-done
 		return ctx.Err()
 	}
 }
@@ -189,8 +190,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // serveConn 处理单个连接：先探测协议，再分发到对应处理器。
 func (s *Server) serveConn(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
+	ctx := s.serverContext()
 	if s.HandshakeTimeout > 0 {
-		if err := conn.SetDeadline(time.Now().Add(s.HandshakeTimeout)); err != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.HandshakeTimeout)
+		defer cancel()
+		deadline, _ := ctx.Deadline()
+		if err := conn.SetDeadline(deadline); err != nil {
 			return
 		}
 	}
@@ -209,15 +215,29 @@ func (s *Server) serveConn(conn net.Conn) {
 		if _, err := reader.ReadByte(); err != nil {
 			return
 		}
-		if err := s.handleSOCKS5WithReader(client, reader); err != nil {
+		if err := s.handleSOCKS5WithReader(ctx, client, reader); err != nil {
 			s.logf(i18n.T(i18n.KeyLogProxySOCKS5Failed), conn.RemoteAddr(), err)
 		}
 		return
 	}
 
-	if err := s.handleHTTP(client, reader); err != nil {
+	if err := s.handleHTTP(ctx, client, reader); err != nil {
 		s.logf(i18n.T(i18n.KeyLogProxyHTTPFailed), conn.RemoteAddr(), err)
 	}
+}
+
+// serverContext 返回所有握手与拨号共享的服务生命周期上下文。Server 仍可
+// 通过零值加字段赋值构造，因此这里采用延迟初始化。
+func (s *Server) serverContext() context.Context {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.lifecycleCtx == nil {
+		s.lifecycleCtx, s.lifecycleCancel = context.WithCancel(context.Background())
+		if s.closing {
+			s.lifecycleCancel()
+		}
+	}
+	return s.lifecycleCtx
 }
 
 func (s *Server) trackConn(conn net.Conn) bool {
@@ -242,7 +262,11 @@ func (s *Server) stopAccepting() error {
 	s.mu.Lock()
 	s.closing = true
 	ln := s.listener
+	cancel := s.lifecycleCancel
 	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	if ln == nil {
 		return nil
 	}
