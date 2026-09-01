@@ -377,7 +377,7 @@ func runWithOutput(o *options, stdout, stderr io.Writer) error {
 	var activeAfter int64 = -1
 	if ch != nil {
 		if err := ch.stop(); err != nil {
-			fmt.Fprintln(stderr, "loadtest: forward server stop:", err)
+			_, _ = fmt.Fprintln(stderr, "loadtest: forward server stop:", err)
 		}
 		activeAfter = ch.srv.ActiveConns()
 		activeZero = activeAfter == 0
