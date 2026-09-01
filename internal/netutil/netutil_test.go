@@ -49,12 +49,12 @@ func TestIdleConnOneWayTrafficKeepsReverseDirectionAlive(t *testing.T) {
 	defer func() { _ = remotePeer.Close() }()
 
 	const idleTimeout = 80 * time.Millisecond
+	clientIdle := &IdleConn{Conn: client, Timeout: idleTimeout}
+	remoteIdle := &IdleConn{Conn: remote, Timeout: idleTimeout}
+	ShareIdleTimeout(clientIdle, remoteIdle, idleTimeout)
 	done := make(chan struct{})
 	go func() {
-		Relay(
-			&IdleConn{Conn: client, Timeout: idleTimeout},
-			&IdleConn{Conn: remote, Timeout: idleTimeout},
-		)
+		Relay(clientIdle, remoteIdle)
 		close(done)
 	}()
 

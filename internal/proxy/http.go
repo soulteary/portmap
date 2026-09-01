@@ -79,7 +79,7 @@ func (s *Server) handleConnect(ctx context.Context, conn net.Conn, reader *bufio
 	}
 
 	s.logf(i18n.T(i18n.KeyLogProxyHTTPConnect), conn.RemoteAddr(), target)
-	s.beginRelay(conn)
+	s.beginRelay(conn, remote)
 	netutil.RelayReader(conn, reader, remote)
 	return nil
 }
@@ -117,7 +117,7 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 	defer s.untrackRemote(remote)
 	remote = s.wrapRemote(remote)
 	defer func() { _ = remote.Close() }()
-	s.beginRelay(conn)
+	s.beginRelay(conn, remote)
 
 	// 改写为源站可识别的相对路径请求，并清理逐跳首部。
 	req.RequestURI = ""

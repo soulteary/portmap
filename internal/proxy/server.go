@@ -319,11 +319,15 @@ func (s *Server) closeActiveConns() {
 	}
 }
 
-// beginRelay 清除握手阶段的绝对截止时间，改用滚动的双向空闲超时。
-func (s *Server) beginRelay(conn net.Conn) {
-	_ = conn.SetDeadline(time.Time{})
-	if idleConn, ok := conn.(*netutil.IdleConn); ok {
-		idleConn.Timeout = s.IdleTimeout
+// beginRelay 清除握手阶段的绝对截止时间，并把两个端点关联为共享的滚动
+// 空闲超时：任一方向有流量都视为隧道仍然活跃。
+func (s *Server) beginRelay(client, remote net.Conn) {
+	_ = client.SetDeadline(time.Time{})
+	_ = remote.SetDeadline(time.Time{})
+	clientIdle, clientOK := client.(*netutil.IdleConn)
+	remoteIdle, remoteOK := remote.(*netutil.IdleConn)
+	if clientOK && remoteOK {
+		netutil.ShareIdleTimeout(clientIdle, remoteIdle, s.IdleTimeout)
 	}
 }
 
