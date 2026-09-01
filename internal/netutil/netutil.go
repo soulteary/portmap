@@ -78,32 +78,48 @@ func Relay(a, b net.Conn) {
 	RelayReader(a, a, b)
 }
 
-// IdleConn 包装 net.Conn，在每次 Read/Write 前刷新对应方向的截止时间，
-// 从而在空闲超过 Timeout 时让 I/O 返回超时错误，实现空闲断开。
+// IdleConn 包装 net.Conn，在每次 Read/Write 前后刷新连接的双向截止时间。
+// Relay 的任一方向有活动时都会同时触及两端的 IdleConn，因此反向读取不会
+// 在单向流量持续传输期间被误判为空闲。
 type IdleConn struct {
 	net.Conn
 	// Timeout 是允许的最长空闲时间；<=0 时不启用（等价于裸连接）。
 	Timeout time.Duration
 }
 
-// Read 在读取前刷新读截止时间，实现滚动的空闲超时。
-func (c *IdleConn) Read(p []byte) (int, error) {
-	if c.Timeout > 0 {
-		if err := c.SetReadDeadline(time.Now().Add(c.Timeout)); err != nil {
-			return 0, err
-		}
+func (c *IdleConn) refreshDeadline() error {
+	if c.Timeout <= 0 {
+		return nil
 	}
-	return c.Conn.Read(p)
+	return c.SetDeadline(time.Now().Add(c.Timeout))
 }
 
-// Write 在写入前刷新写截止时间，实现滚动的空闲超时。
-func (c *IdleConn) Write(p []byte) (int, error) {
-	if c.Timeout > 0 {
-		if err := c.SetWriteDeadline(time.Now().Add(c.Timeout)); err != nil {
-			return 0, err
+// Read 在读取前后刷新双向截止时间，实现滚动的隧道空闲超时。
+func (c *IdleConn) Read(p []byte) (int, error) {
+	if err := c.refreshDeadline(); err != nil {
+		return 0, err
+	}
+	n, err := c.Conn.Read(p)
+	if n > 0 {
+		if refreshErr := c.refreshDeadline(); err == nil && refreshErr != nil {
+			err = refreshErr
 		}
 	}
-	return c.Conn.Write(p)
+	return n, err
+}
+
+// Write 在写入前后刷新双向截止时间，实现滚动的隧道空闲超时。
+func (c *IdleConn) Write(p []byte) (int, error) {
+	if err := c.refreshDeadline(); err != nil {
+		return 0, err
+	}
+	n, err := c.Conn.Write(p)
+	if n > 0 {
+		if refreshErr := c.refreshDeadline(); err == nil && refreshErr != nil {
+			err = refreshErr
+		}
+	}
+	return n, err
 }
 
 // CloseWrite 保留底层 TCP 连接的半关闭能力，供 Relay 正确传播 EOF。

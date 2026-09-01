@@ -77,6 +77,7 @@ type Server struct {
 	mu              sync.Mutex
 	listener        net.Listener
 	conns           map[net.Conn]struct{}
+	remotes         map[net.Conn]struct{}
 	closing         bool
 	lifecycleCtx    context.Context
 	lifecycleCancel context.CancelFunc
@@ -92,6 +93,7 @@ func New(addr string) *Server {
 		HandshakeTimeout: defaultHandshakeTimeout,
 		IdleTimeout:      defaultIdleTimeout,
 		conns:            make(map[net.Conn]struct{}),
+		remotes:          make(map[net.Conn]struct{}),
 	}
 }
 
@@ -127,6 +129,9 @@ func (s *Server) ListenAndServe() error {
 	s.listener = ln
 	if s.conns == nil {
 		s.conns = make(map[net.Conn]struct{})
+	}
+	if s.remotes == nil {
+		s.remotes = make(map[net.Conn]struct{})
 	}
 	s.mu.Unlock()
 
@@ -258,6 +263,28 @@ func (s *Server) untrackConn(conn net.Conn) {
 	s.wg.Done()
 }
 
+// trackRemote registers an outbound connection before it becomes part of a
+// relay. Once shutdown has started, newly completed dials are rejected so no
+// connection can escape the forced-close snapshot.
+func (s *Server) trackRemote(conn net.Conn) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing {
+		return false
+	}
+	if s.remotes == nil {
+		s.remotes = make(map[net.Conn]struct{})
+	}
+	s.remotes[conn] = struct{}{}
+	return true
+}
+
+func (s *Server) untrackRemote(conn net.Conn) {
+	s.mu.Lock()
+	delete(s.remotes, conn)
+	s.mu.Unlock()
+}
+
 func (s *Server) stopAccepting() error {
 	s.mu.Lock()
 	s.closing = true
@@ -279,8 +306,11 @@ func (s *Server) stopAccepting() error {
 
 func (s *Server) closeActiveConns() {
 	s.mu.Lock()
-	conns := make([]net.Conn, 0, len(s.conns))
+	conns := make([]net.Conn, 0, len(s.conns)+len(s.remotes))
 	for conn := range s.conns {
+		conns = append(conns, conn)
+	}
+	for conn := range s.remotes {
 		conns = append(conns, conn)
 	}
 	s.mu.Unlock()
@@ -289,7 +319,7 @@ func (s *Server) closeActiveConns() {
 	}
 }
 
-// beginRelay 清除握手阶段的绝对截止时间，改用滚动空闲超时。
+// beginRelay 清除握手阶段的绝对截止时间，改用滚动的双向空闲超时。
 func (s *Server) beginRelay(conn net.Conn) {
 	_ = conn.SetDeadline(time.Time{})
 	if idleConn, ok := conn.(*netutil.IdleConn); ok {

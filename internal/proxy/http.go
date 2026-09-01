@@ -66,6 +66,11 @@ func (s *Server) handleConnect(ctx context.Context, conn net.Conn, reader *bufio
 		writeHTTPError(conn, http.StatusLoopDetected)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxySelfTarget), target)
 	}
+	if !s.trackRemote(remote) {
+		_ = remote.Close()
+		return context.Canceled
+	}
+	defer s.untrackRemote(remote)
 	remote = s.wrapRemote(remote)
 	defer func() { _ = remote.Close() }()
 
@@ -105,6 +110,11 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 		writeHTTPError(conn, http.StatusLoopDetected)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxySelfTarget), host)
 	}
+	if !s.trackRemote(remote) {
+		_ = remote.Close()
+		return context.Canceled
+	}
+	defer s.untrackRemote(remote)
 	remote = s.wrapRemote(remote)
 	defer func() { _ = remote.Close() }()
 	s.beginRelay(conn)

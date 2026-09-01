@@ -124,6 +124,11 @@ func (s *Server) handleSOCKS5WithReader(ctx context.Context, conn net.Conn, read
 		_ = s.sendSOCKSReply(conn, socksRepGeneralFailure)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxySelfTarget), target)
 	}
+	if !s.trackRemote(remote) {
+		_ = remote.Close()
+		return context.Canceled
+	}
+	defer s.untrackRemote(remote)
 	remote = s.wrapRemote(remote)
 	defer func() { _ = remote.Close() }()
 

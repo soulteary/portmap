@@ -15,6 +15,7 @@
 package netutil
 
 import (
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -36,5 +37,71 @@ func TestIdleConnWriteTimeout(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed < 20*time.Millisecond {
 		t.Fatalf("Write 过早返回: %s", elapsed)
+	}
+}
+
+func TestIdleConnOneWayTrafficKeepsReverseDirectionAlive(t *testing.T) {
+	client, clientPeer := net.Pipe()
+	remote, remotePeer := net.Pipe()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = clientPeer.Close() }()
+	defer func() { _ = remote.Close() }()
+	defer func() { _ = remotePeer.Close() }()
+
+	const idleTimeout = 80 * time.Millisecond
+	done := make(chan struct{})
+	go func() {
+		Relay(
+			&IdleConn{Conn: client, Timeout: idleTimeout},
+			&IdleConn{Conn: remote, Timeout: idleTimeout},
+		)
+		close(done)
+	}()
+
+	// Keep the tunnel active in only the client-to-remote direction for much
+	// longer than the idle timeout.
+	until := time.Now().Add(4 * idleTimeout)
+	for time.Now().Before(until) {
+		if err := clientPeer.SetWriteDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := clientPeer.Write([]byte{'x'}); err != nil {
+			t.Fatalf("持续单向写入失败: %v", err)
+		}
+		if err := remotePeer.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.ReadFull(remotePeer, make([]byte, 1)); err != nil {
+			t.Fatalf("持续单向读取失败: %v", err)
+		}
+		time.Sleep(idleTimeout / 4)
+	}
+
+	// Reverse traffic must still work because the tunnel itself was active.
+	reverseWrite := make(chan error, 1)
+	go func() {
+		_, err := remotePeer.Write([]byte("pong"))
+		reverseWrite <- err
+	}()
+	if err := clientPeer.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]byte, len("pong"))
+	if _, err := io.ReadFull(clientPeer, got); err != nil {
+		t.Fatalf("单向传输后的反向读取失败: %v", err)
+	}
+	if string(got) != "pong" {
+		t.Fatalf("反向读取=%q，期望 pong", got)
+	}
+	if err := <-reverseWrite; err != nil {
+		t.Fatalf("反向写入失败: %v", err)
+	}
+
+	_ = clientPeer.Close()
+	_ = remotePeer.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Relay 未在连接关闭后退出")
 	}
 }

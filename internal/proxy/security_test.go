@@ -44,6 +44,75 @@ type stubbornDialer struct {
 	release chan struct{}
 }
 
+// startHeldOpenConnectRelay creates an established CONNECT tunnel whose target
+// keeps its read side open after receiving FIN. This reproduces the case where
+// closing only the inbound connection leaves the reverse relay blocked.
+func startHeldOpenConnectRelay(t *testing.T) (*Server, net.Conn, net.Conn, <-chan struct{}) {
+	t.Helper()
+	targetListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("目标监听失败: %v", err)
+	}
+	accepted := make(chan net.Conn, 1)
+	acceptErr := make(chan error, 1)
+	go func() {
+		conn, acceptErrValue := targetListener.Accept()
+		if acceptErrValue != nil {
+			acceptErr <- acceptErrValue
+			return
+		}
+		accepted <- conn
+		// Read until the proxy half-closes its write side, but deliberately keep
+		// the connection open so the opposite proxy copy remains blocked.
+		_, _ = io.Copy(io.Discard, conn)
+	}()
+
+	srv := New("127.0.0.1:0")
+	srv.HandshakeTimeout = 0
+	srv.IdleTimeout = 0
+	srv.dialer = NewDirectDialer(time.Second, defaultKeepAlive)
+	serverConn, clientConn := net.Pipe()
+	if !srv.trackConn(serverConn) {
+		t.Fatal("连接注册失败")
+	}
+	handlerDone := make(chan struct{})
+	go func() {
+		defer srv.untrackConn(serverConn)
+		srv.serveConn(serverConn)
+		close(handlerDone)
+	}()
+
+	if _, err := fmt.Fprintf(clientConn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", targetListener.Addr(), targetListener.Addr()); err != nil {
+		t.Fatalf("发送 CONNECT 请求失败: %v", err)
+	}
+	reader := bufio.NewReader(clientConn)
+	status, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("读取 CONNECT 响应失败: %v", err)
+	}
+	if status != "HTTP/1.1 200 Connection Established\r\n" {
+		t.Fatalf("CONNECT 状态行=%q", status)
+	}
+	if line, err := reader.ReadString('\n'); err != nil || line != "\r\n" {
+		t.Fatalf("读取 CONNECT 响应结尾=%q, %v", line, err)
+	}
+
+	var targetConn net.Conn
+	select {
+	case targetConn = <-accepted:
+	case err := <-acceptErr:
+		t.Fatalf("接受目标连接失败: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("代理未连接目标")
+	}
+	_ = targetListener.Close()
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = targetConn.Close()
+	})
+	return srv, clientConn, targetConn, handlerDone
+}
+
 func (d *stubbornDialer) DialContext(context.Context, string, string) (net.Conn, error) {
 	close(d.started)
 	<-d.release
@@ -291,5 +360,41 @@ func TestShutdownReturnsAtDeadlineWhenDialerIgnoresContext(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("释放拨号器后连接处理器没有退出")
+	}
+}
+
+func TestCloseClosesOutboundRelay(t *testing.T) {
+	srv, _, targetConn, handlerDone := startHeldOpenConnectRelay(t)
+	done := make(chan error, 1)
+	go func() { done <- srv.Close() }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Close 返回错误: %v", err)
+		}
+	case <-time.After(time.Second):
+		_ = targetConn.Close()
+		<-done
+		t.Fatal("Close 未关闭出站连接，仍在等待反向中继")
+	}
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("Close 返回后连接处理器仍未退出")
+	}
+}
+
+func TestShutdownDeadlineClosesOutboundRelay(t *testing.T) {
+	srv, _, _, handlerDone := startHeldOpenConnectRelay(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if err := srv.Shutdown(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown 返回 %v，期望 deadline exceeded", err)
+	}
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("Shutdown 截止后未关闭出站连接")
 	}
 }
