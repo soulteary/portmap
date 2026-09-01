@@ -14,15 +14,9 @@
 
 package i18n
 
-// 消息 key 常量。所有面向用户的字符串都通过这些 key 经 T() 输出。
-// 含 %-占位符的文本用于 fmt 格式化，各语言必须保持占位符顺序一致。
+// forward 子命令（端口转发 + socat 回退）相关的消息 key。
 const (
-	// CLI 用法/帮助/版本。
-	KeyUsageTitle  = "usage.title"
-	KeyUsageLine   = "usage.line"
-	KeyVersionLine = "version.line"
-
-	// flag 描述。
+	// forward flag 描述。
 	KeyFlagListenPort  = "flag.listen-port"
 	KeyFlagListenHost  = "flag.listen-host"
 	KeyFlagTarget      = "flag.target"
@@ -35,11 +29,8 @@ const (
 	KeyFlagIdleTimeout = "flag.idle-timeout"
 	KeyFlagLogLevel    = "flag.log-level"
 	KeyFlagQuiet       = "flag.quiet"
-	KeyFlagVersion     = "flag.version"
-	KeyFlagConfig      = "flag.config"
-	KeyFlagLang        = "flag.lang"
 
-	// 校验/运行错误（main.go）。
+	// 校验/运行错误（main.go forward 分支）。
 	KeyErrListenPort  = "err.listen-port"
 	KeyErrTargetEmpty = "err.target-empty"
 	KeyErrProto       = "err.proto"
@@ -56,12 +47,6 @@ const (
 	KeyLogSocatIgnore     = "log.socat-ignore"
 	KeyLogSocatExec       = "log.socat-exec"
 	KeyLogStatus          = "log.status"
-
-	// 配置文件错误（config.go）。
-	KeyErrConfigRead  = "err.config-read"
-	KeyErrConfigParse = "err.config-parse"
-	KeyErrConfigDial  = "err.config-dial"
-	KeyErrConfigIdle  = "err.config-idle"
 
 	// forward 包日志/错误。
 	KeyErrUnsupportedNet  = "err.unsupported-net"
@@ -85,14 +70,3 @@ const (
 	KeyErrSocatNotFound   = "err.socat-not-found"
 	KeyErrSocatInvalidStr = "err.socat-invalid-str"
 )
-
-// messages 保存每种语言下 key -> 文本 的映射。
-// English 为回退语言，必须包含全部 key。
-var messages = map[Lang]map[string]string{
-	English:  messagesEN,
-	Chinese:  messagesZH,
-	Japanese: messagesJA,
-	Korean:   messagesKO,
-	French:   messagesFR,
-	German:   messagesDE,
-}

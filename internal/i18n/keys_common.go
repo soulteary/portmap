@@ -1,0 +1,55 @@
+// Copyright 2026 soulteary
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package i18n
+
+// 本文件汇总跨子命令共享的消息 key，以及语言表 messages 的装配。
+// 含 %-占位符的文本用于 fmt 格式化，各语言必须保持占位符顺序一致。
+//
+// 消息 key 常量按域拆分到多个文件：
+//   - keys_common.go  ：跨命令共享（用法/版本/通用 flag/配置文件）
+//   - keys_forward.go ：forward 子命令（端口转发 + socat）
+//   - keys_proxy.go   ：proxy 子命令（SOCKS5/HTTP 代理）
+const (
+	// CLI 用法/帮助/版本。
+	KeyUsageTitle  = "usage.title"
+	KeyUsageLine   = "usage.line"
+	KeyVersionLine = "version.line"
+
+	// 子命令分发相关（main.go）。
+	KeyUsageSubcommands = "usage.subcommands"
+	KeyErrUnknownSub    = "err.unknown-sub"
+
+	// 通用 flag 描述（各子命令共享）。
+	KeyFlagVersion = "flag.version"
+	KeyFlagConfig  = "flag.config"
+	KeyFlagLang    = "flag.lang"
+
+	// 配置文件错误（config.go）。
+	KeyErrConfigRead  = "err.config-read"
+	KeyErrConfigParse = "err.config-parse"
+	KeyErrConfigDial  = "err.config-dial"
+	KeyErrConfigIdle  = "err.config-idle"
+)
+
+// messages 保存每种语言下 key -> 文本 的映射。
+// English 为回退语言，必须包含全部 key。
+var messages = map[Lang]map[string]string{
+	English:  messagesEN,
+	Chinese:  messagesZH,
+	Japanese: messagesJA,
+	Korean:   messagesKO,
+	French:   messagesFR,
+	German:   messagesDE,
+}

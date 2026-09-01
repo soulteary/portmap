@@ -24,7 +24,11 @@
 sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222
 ```
 
-支持两种模式：
+它采用「子命令」结构，除默认的端口转发（`forward`）外，还内置了一个单端口双协议的
+**SOCKS5 + HTTP 本地代理**（`proxy` 子命令，应用层代理能力）。整个工具仍保持
+**单仓库、单静态二进制、零第三方运行时依赖**的定位。
+
+端口转发支持两种模式：
 
 - **`go`（默认）**：纯 Go 实现，不依赖系统 `socat`，跨平台，对应 `TCP-LISTEN`/`fork`/`reuseaddr`，并扩展了 UDP、并发限流、空闲超时与连接级日志（见下）。
 - **`socat`**：直接调用本机的 `socat` 命令（可选 `-sudo`），生成等价命令行（支持 TCP/UDP）。
@@ -94,8 +98,25 @@ docker run --rm --network host ghcr.io/soulteary/portmap:latest \
 
 ## 用法
 
+`portmap` 采用「子命令」结构，共享同一套 `-config` / `-lang` / `-version` 通用参数：
+
 ```text
-portmap [flags]
+portmap <subcommand> [flags]
+
+subcommands:
+  forward   TCP/UDP 端口转发（默认子命令）
+  proxy     单端口 SOCKS5 + HTTP 代理
+  version   打印版本信息
+```
+
+- **向后兼容**：无子命令时（例如第一个参数以 `-` 开头，或无任何参数）默认走 `forward`，
+  因此 `portmap -listen-port 22 -target 127.0.0.1:2222` 等历史用法完全不变。
+- `-lang` 会在分发前统一处理一次，供所有子命令与 `--help` 共享。
+
+### forward 子命令（端口转发）
+
+```text
+portmap [forward] [flags]
 
 flags:
   -listen-port int        本地监听端口 (默认 22)
@@ -110,10 +131,36 @@ flags:
   -idle-timeout duration  空闲超时，任一方向空闲超过阈值即回收该方向连接，0 表示不启用（仅 go 模式）
   -log-level string       日志级别：info 或 debug（仅 go 模式，默认 "info"）
   -quiet                  安静模式，抑制每连接的常规日志（仅 go 模式）
-  -config string          YAML 配置文件路径
+  -config string          YAML 配置文件路径（读取 forward: 段）
   -lang string            界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
   -version                打印版本信息后退出
 ```
+
+### proxy 子命令（SOCKS5 + HTTP 代理）
+
+在**同一个监听端口**上通过窥探连接首字节自动区分 SOCKS5 与 HTTP/HTTPS 客户端；
+所有出站连接均**直连**目标，忽略 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`
+等环境变量配置的上游代理。
+
+```text
+portmap proxy [flags]
+
+flags:
+  -addr string            监听地址，SOCKS5 与 HTTP 共用此端口 (默认 "127.0.0.1:1080")
+  -dial-timeout duration  出站连接超时时间 (默认 30s)
+  -config string          YAML 配置文件路径（读取 proxy: 段）
+  -lang string            界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
+  -version                打印版本信息后退出
+```
+
+启动一个本地代理（默认监听 `127.0.0.1:1080`）：
+
+```bash
+./portmap proxy -addr 127.0.0.1:1080
+```
+
+将浏览器/工具的 SOCKS5 或 HTTP 代理指向该地址即可；两种协议共用同一端口。
+按 `Ctrl+C` 优雅退出。
 
 ## 示例
 
@@ -146,6 +193,14 @@ UDP 转发（如 DNS）：
 
 ```bash
 ./portmap -version
+# 或
+./portmap version
+```
+
+启动本地 SOCKS5 + HTTP 代理（单端口双协议，出站直连）：
+
+```bash
+./portmap proxy -addr 127.0.0.1:1080
 ```
 
 按 `Ctrl+C` 优雅退出，会等待在途连接处理完成。
@@ -179,22 +234,29 @@ PORTMAP_LANG=ja ./portmap -version   # 环境变量指定
 完整示例见 [config.example.yaml](config.example.yaml)：
 
 ```yaml
-listen_port: 22
-listen_host: ""
-target: 127.0.0.1:2222
-mode: go
-proto: tcp
-reuseaddr: true
-sudo: false
-dial_timeout: 10s
-max_conns: 0
-idle_timeout: 0s
-log_level: info
-quiet: false
+forward:
+  listen_port: 22
+  listen_host: ""
+  target: 127.0.0.1:2222
+  mode: go
+  proto: tcp
+  reuseaddr: true
+  sudo: false
+  dial_timeout: 10s
+  max_conns: 0
+  idle_timeout: 0s
+  log_level: info
+  quiet: false
+proxy:
+  addr: 127.0.0.1:1080
+  dial_timeout: 30s
 lang: en
 ```
 
-命令行覆盖配置文件示例（配置文件里 `listen_port` 为 22，此处显式指定 8022 生效）：
+- 配置按子命令**分段**：`forward` 子命令读取 `forward:` 段，`proxy` 子命令读取 `proxy:` 段，顶层 `lang` 为两者共享。
+- **向后兼容**：旧版「平铺 forward」布局（顶层直接写 `listen_port` / `target` / … ）仍受支持，`portmap` 会自动识别并归一化到 `forward:` 段，无需迁移即可继续使用。
+
+命令行覆盖配置文件示例（配置文件里 `forward.listen_port` 为 22，此处显式指定 8022 生效）：
 
 ```bash
 ./portmap -config config.yaml -listen-port 8022
@@ -378,15 +440,25 @@ CI 见 `.github/workflows/ci.yml`：在 linux/macOS/windows 上运行 `go vet` �
     │   ├── udp.go                   # UDP 会话转发
     │   ├── reuseaddr_unix.go        # 类 Unix 平台 SO_REUSEADDR
     │   └── reuseaddr_windows.go     # Windows 平台 SO_REUSEADDR
+    ├── proxy                        # 单端口 SOCKS5 + HTTP 代理
+    │   ├── server.go                # 监听、首字节协议探测、连接分发
+    │   ├── socks5.go                # SOCKS5 握手与 CONNECT
+    │   ├── http.go                  # HTTP 代理与 CONNECT 转发
+    │   ├── dialer.go                # 忽略环境代理的直连拨号器
+    │   └── proxy_test.go            # proxy 单元测试
+    ├── netutil                      # forward/proxy 共用的双向转发与空闲超时
+    │   └── netutil.go               # Relay / RelayReader / IdleConn
     ├── socat                        # 调用系统 socat 的 fallback
-        ├── socat.go                 # 构造并执行 socat 命令
-        ├── socat_test.go            # socat 单元测试
-        ├── socat_cancel_unix.go     # 类 Unix 平台 SIGTERM 优雅取消
-        └── socat_cancel_windows.go  # Windows 平台 no-op（无 SIGTERM）
+    │   ├── socat.go                 # 构造并执行 socat 命令
+    │   ├── socat_test.go            # socat 单元测试
+    │   ├── socat_cancel_unix.go     # 类 Unix 平台 SIGTERM 优雅取消
+    │   └── socat_cancel_windows.go  # Windows 平台 no-op（无 SIGTERM）
     └── i18n                         # 多语言（i18n）支持
         ├── i18n.go                  # 语言检测、解析与查表
         ├── i18n_test.go             # i18n 单元测试
-        ├── keys.go                  # 消息 key 常量与语言表
+        ├── keys_common.go           # 跨命令共享消息 key + 语言表装配
+        ├── keys_forward.go          # forward 子命令消息 key
+        ├── keys_proxy.go            # proxy 子命令消息 key
         ├── locale_unix.go           # 类 Unix 平台区域探测（no-op）
         ├── locale_windows.go        # Windows 平台区域探测
         └── messages_*.go            # 各语言消息（en/zh/ja/ko/fr/de）

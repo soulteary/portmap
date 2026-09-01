@@ -75,4 +75,45 @@ var messagesEN = map[string]string{
 	KeyErrSocatTarget:     "empty target",
 	KeyErrSocatNotFound:   "%q not found in PATH: %w",
 	KeyErrSocatInvalidStr: "<invalid socat options>",
+
+	KeyUsageSubcommands: "subcommands:\n  forward   TCP/UDP port forwarding (default)\n  proxy     SOCKS5 + HTTP proxy on a single port\n  version   print version info",
+	KeyErrUnknownSub:    "unknown subcommand: %q (choose forward, proxy or version)",
+
+	KeyProxyUsageTitle: "portmap proxy - SOCKS5 + HTTP proxy on a single port",
+	KeyProxyUsageLine:  "Usage: %s proxy [flags]\n\nA single listen port auto-detects SOCKS5 and HTTP/HTTPS clients; all outbound connections dial directly, ignoring HTTP_PROXY/HTTPS_PROXY/ALL_PROXY.\n\nflags:",
+
+	KeyFlagProxyAddr:        "listen address, shared by SOCKS5 and HTTP",
+	KeyFlagProxyDialTimeout: "outbound dial timeout",
+
+	KeyLogProxyStarted:      "proxy started, listening on %s (SOCKS5 + HTTP, ignoring environment proxies)",
+	KeyLogProxyAcceptFailed: "accept connection failed: %v",
+	KeyLogProxyDetectFailed: "protocol detection failed (%s): %v",
+	KeyLogProxySOCKS5Failed: "SOCKS5 handling error (%s): %v",
+	KeyLogProxyHTTPFailed:   "HTTP handling error (%s): %v",
+	KeyLogProxySOCKS5Relay:  "SOCKS5 %s -> %s",
+	KeyLogProxyHTTPConnect:  "HTTP CONNECT %s -> %s",
+	KeyLogProxyHTTPPlain:    "HTTP %s %s -> %s",
+	KeyLogProxyShuttingDown: "shutdown signal received, closing...",
+
+	KeyErrProxyExit: "proxy service exited: %w",
+
+	KeyErrProxySocksReadNMethods: "failed to read NMETHODS: %w",
+	KeyErrProxySocksReadMethods:  "failed to read METHODS: %w",
+	KeyErrProxySocksNoAuth:       "client does not support the no-authentication method",
+	KeyErrProxySocksReplyAuth:    "failed to reply auth method: %w",
+	KeyErrProxySocksReadHeader:   "failed to read request header: %w",
+	KeyErrProxySocksBadVersion:   "invalid SOCKS version: %d",
+	KeyErrProxySocksParseAddr:    "failed to parse target address: %w",
+	KeyErrProxySocksReadPort:     "failed to read port: %w",
+	KeyErrProxySocksBadCommand:   "unsupported command: %d",
+	KeyErrProxySocksDial:         "failed to connect to target %s: %w",
+	KeyErrProxySocksReplySuccess: "failed to reply success: %w",
+	KeyErrProxySocksBadAddrType:  "unsupported address type: %d",
+
+	KeyErrProxyHTTPParseRequest: "failed to parse HTTP request: %w",
+	KeyErrProxyHTTPConnectDial:  "CONNECT to %s failed: %w",
+	KeyErrProxyHTTPConnectReply: "failed to reply CONNECT success: %w",
+	KeyErrProxyHTTPDial:         "failed to connect to %s: %w",
+	KeyErrProxyHTTPForward:      "failed to forward request to %s: %w",
+	KeyErrProxyHTTPRelayResp:    "failed to relay response: %w",
 }

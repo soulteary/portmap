@@ -75,4 +75,45 @@ var messagesDE = map[string]string{
 	KeyErrSocatTarget:     "leeres target",
 	KeyErrSocatNotFound:   "%q nicht im PATH gefunden: %w",
 	KeyErrSocatInvalidStr: "<ungültige socat-Optionen>",
+
+	KeyUsageSubcommands: "Unterbefehle:\n  forward   TCP/UDP-Portweiterleitung (Standard)\n  proxy     SOCKS5- + HTTP-Proxy auf einem einzigen Port\n  version   Versionsinformationen ausgeben",
+	KeyErrUnknownSub:    "unbekannter Unterbefehl: %q (forward, proxy oder version wählen)",
+
+	KeyProxyUsageTitle: "portmap proxy - SOCKS5- + HTTP-Proxy auf einem einzigen Port",
+	KeyProxyUsageLine:  "Verwendung: %s proxy [flags]\n\nEin einziger Lausch-Port erkennt SOCKS5- und HTTP/HTTPS-Clients automatisch; alle ausgehenden Verbindungen verbinden sich direkt und ignorieren HTTP_PROXY/HTTPS_PROXY/ALL_PROXY.\n\nflags:",
+
+	KeyFlagProxyAddr:        "Lausch-Adresse, gemeinsam für SOCKS5 und HTTP",
+	KeyFlagProxyDialTimeout: "Timeout für ausgehende Verbindungen",
+
+	KeyLogProxyStarted:      "Proxy gestartet, lausche auf %s (SOCKS5 + HTTP, Umgebungs-Proxys werden ignoriert)",
+	KeyLogProxyAcceptFailed: "Verbindungsannahme fehlgeschlagen: %v",
+	KeyLogProxyDetectFailed: "Protokollerkennung fehlgeschlagen (%s): %v",
+	KeyLogProxySOCKS5Failed: "SOCKS5-Verarbeitungsfehler (%s): %v",
+	KeyLogProxyHTTPFailed:   "HTTP-Verarbeitungsfehler (%s): %v",
+	KeyLogProxySOCKS5Relay:  "SOCKS5 %s -> %s",
+	KeyLogProxyHTTPConnect:  "HTTP CONNECT %s -> %s",
+	KeyLogProxyHTTPPlain:    "HTTP %s %s -> %s",
+	KeyLogProxyShuttingDown: "Beendigungssignal empfangen, schließe...",
+
+	KeyErrProxyExit: "Proxy-Dienst beendet: %w",
+
+	KeyErrProxySocksReadNMethods: "Lesen von NMETHODS fehlgeschlagen: %w",
+	KeyErrProxySocksReadMethods:  "Lesen von METHODS fehlgeschlagen: %w",
+	KeyErrProxySocksNoAuth:       "Client unterstützt die Methode ohne Authentifizierung nicht",
+	KeyErrProxySocksReplyAuth:    "Antwort auf Authentifizierungsmethode fehlgeschlagen: %w",
+	KeyErrProxySocksReadHeader:   "Lesen des Anforderungs-Headers fehlgeschlagen: %w",
+	KeyErrProxySocksBadVersion:   "ungültige SOCKS-Version: %d",
+	KeyErrProxySocksParseAddr:    "Analyse der Zieladresse fehlgeschlagen: %w",
+	KeyErrProxySocksReadPort:     "Lesen des Ports fehlgeschlagen: %w",
+	KeyErrProxySocksBadCommand:   "nicht unterstützter Befehl: %d",
+	KeyErrProxySocksDial:         "Verbindung zum Ziel %s fehlgeschlagen: %w",
+	KeyErrProxySocksReplySuccess: "Erfolgsantwort fehlgeschlagen: %w",
+	KeyErrProxySocksBadAddrType:  "nicht unterstützter Adresstyp: %d",
+
+	KeyErrProxyHTTPParseRequest: "Analyse der HTTP-Anfrage fehlgeschlagen: %w",
+	KeyErrProxyHTTPConnectDial:  "CONNECT-Verbindung zu %s fehlgeschlagen: %w",
+	KeyErrProxyHTTPConnectReply: "CONNECT-Erfolgsantwort fehlgeschlagen: %w",
+	KeyErrProxyHTTPDial:         "Verbindung zu %s fehlgeschlagen: %w",
+	KeyErrProxyHTTPForward:      "Weiterleitung der Anfrage an %s fehlgeschlagen: %w",
+	KeyErrProxyHTTPRelayResp:    "Weiterleitung der Antwort fehlgeschlagen: %w",
 }

@@ -75,4 +75,45 @@ var messagesJA = map[string]string{
 	KeyErrSocatTarget:     "target が空です",
 	KeyErrSocatNotFound:   "%q が PATH に見つかりません: %w",
 	KeyErrSocatInvalidStr: "<不正な socat オプション>",
+
+	KeyUsageSubcommands: "サブコマンド:\n  forward   TCP/UDP ポートフォワーディング（既定）\n  proxy     単一ポートの SOCKS5 + HTTP プロキシ\n  version   バージョン情報を表示",
+	KeyErrUnknownSub:    "不明なサブコマンド: %q（forward、proxy または version を選択）",
+
+	KeyProxyUsageTitle: "portmap proxy - 単一ポートの SOCKS5 + HTTP プロキシ",
+	KeyProxyUsageLine:  "使い方: %s proxy [flags]\n\n同一の待ち受けポートで SOCKS5 と HTTP/HTTPS クライアントを自動判別します。すべての送信接続は直接ダイヤルし、HTTP_PROXY/HTTPS_PROXY/ALL_PROXY を無視します。\n\nflags:",
+
+	KeyFlagProxyAddr:        "待ち受けアドレス、SOCKS5 と HTTP で共用",
+	KeyFlagProxyDialTimeout: "送信接続のタイムアウト",
+
+	KeyLogProxyStarted:      "プロキシサービスを開始しました、%s で待ち受け中（SOCKS5 + HTTP、環境プロキシを無視）",
+	KeyLogProxyAcceptFailed: "接続の受け入れに失敗: %v",
+	KeyLogProxyDetectFailed: "プロトコル検出に失敗 (%s): %v",
+	KeyLogProxySOCKS5Failed: "SOCKS5 処理エラー (%s): %v",
+	KeyLogProxyHTTPFailed:   "HTTP 処理エラー (%s): %v",
+	KeyLogProxySOCKS5Relay:  "SOCKS5 %s -> %s",
+	KeyLogProxyHTTPConnect:  "HTTP CONNECT %s -> %s",
+	KeyLogProxyHTTPPlain:    "HTTP %s %s -> %s",
+	KeyLogProxyShuttingDown: "終了シグナルを受信、シャットダウン中...",
+
+	KeyErrProxyExit: "プロキシサービスが異常終了しました: %w",
+
+	KeyErrProxySocksReadNMethods: "NMETHODS の読み取りに失敗: %w",
+	KeyErrProxySocksReadMethods:  "METHODS の読み取りに失敗: %w",
+	KeyErrProxySocksNoAuth:       "クライアントが無認証方式をサポートしていません",
+	KeyErrProxySocksReplyAuth:    "認証方式の応答に失敗: %w",
+	KeyErrProxySocksReadHeader:   "リクエストヘッダーの読み取りに失敗: %w",
+	KeyErrProxySocksBadVersion:   "不正な SOCKS バージョン: %d",
+	KeyErrProxySocksParseAddr:    "ターゲットアドレスの解析に失敗: %w",
+	KeyErrProxySocksReadPort:     "ポートの読み取りに失敗: %w",
+	KeyErrProxySocksBadCommand:   "サポートされていないコマンド: %d",
+	KeyErrProxySocksDial:         "ターゲット %s への接続に失敗: %w",
+	KeyErrProxySocksReplySuccess: "成功応答の送信に失敗: %w",
+	KeyErrProxySocksBadAddrType:  "サポートされていないアドレスタイプ: %d",
+
+	KeyErrProxyHTTPParseRequest: "HTTP リクエストの解析に失敗: %w",
+	KeyErrProxyHTTPConnectDial:  "%s への CONNECT 接続に失敗: %w",
+	KeyErrProxyHTTPConnectReply: "CONNECT 成功応答の送信に失敗: %w",
+	KeyErrProxyHTTPDial:         "%s への接続に失敗: %w",
+	KeyErrProxyHTTPForward:      "%s へのリクエスト転送に失敗: %w",
+	KeyErrProxyHTTPRelayResp:    "レスポンスの中継に失敗: %w",
 }

@@ -75,4 +75,45 @@ var messagesKO = map[string]string{
 	KeyErrSocatTarget:     "target이 비어 있습니다",
 	KeyErrSocatNotFound:   "PATH에서 %q를 찾을 수 없습니다: %w",
 	KeyErrSocatInvalidStr: "<잘못된 socat 옵션>",
+
+	KeyUsageSubcommands: "하위 명령:\n  forward   TCP/UDP 포트 포워딩 (기본값)\n  proxy     단일 포트 SOCKS5 + HTTP 프록시\n  version   버전 정보 출력",
+	KeyErrUnknownSub:    "알 수 없는 하위 명령: %q (forward, proxy 또는 version 선택)",
+
+	KeyProxyUsageTitle: "portmap proxy - 단일 포트 SOCKS5 + HTTP 프록시",
+	KeyProxyUsageLine:  "사용법: %s proxy [flags]\n\n단일 수신 포트에서 SOCKS5와 HTTP/HTTPS 클라이언트를 자동으로 감지합니다. 모든 아웃바운드 연결은 직접 다이얼하며 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY를 무시합니다.\n\nflags:",
+
+	KeyFlagProxyAddr:        "수신 주소, SOCKS5와 HTTP가 공유",
+	KeyFlagProxyDialTimeout: "아웃바운드 연결 타임아웃",
+
+	KeyLogProxyStarted:      "프록시 서비스가 시작되었습니다, %s에서 수신 중 (SOCKS5 + HTTP, 환경 프록시 무시)",
+	KeyLogProxyAcceptFailed: "연결 수락 실패: %v",
+	KeyLogProxyDetectFailed: "프로토콜 감지 실패 (%s): %v",
+	KeyLogProxySOCKS5Failed: "SOCKS5 처리 오류 (%s): %v",
+	KeyLogProxyHTTPFailed:   "HTTP 처리 오류 (%s): %v",
+	KeyLogProxySOCKS5Relay:  "SOCKS5 %s -> %s",
+	KeyLogProxyHTTPConnect:  "HTTP CONNECT %s -> %s",
+	KeyLogProxyHTTPPlain:    "HTTP %s %s -> %s",
+	KeyLogProxyShuttingDown: "종료 신호 수신, 종료 중...",
+
+	KeyErrProxyExit: "프록시 서비스가 비정상 종료되었습니다: %w",
+
+	KeyErrProxySocksReadNMethods: "NMETHODS 읽기 실패: %w",
+	KeyErrProxySocksReadMethods:  "METHODS 읽기 실패: %w",
+	KeyErrProxySocksNoAuth:       "클라이언트가 무인증 방식을 지원하지 않습니다",
+	KeyErrProxySocksReplyAuth:    "인증 방식 응답 실패: %w",
+	KeyErrProxySocksReadHeader:   "요청 헤더 읽기 실패: %w",
+	KeyErrProxySocksBadVersion:   "잘못된 SOCKS 버전: %d",
+	KeyErrProxySocksParseAddr:    "대상 주소 파싱 실패: %w",
+	KeyErrProxySocksReadPort:     "포트 읽기 실패: %w",
+	KeyErrProxySocksBadCommand:   "지원되지 않는 명령: %d",
+	KeyErrProxySocksDial:         "대상 %s 연결 실패: %w",
+	KeyErrProxySocksReplySuccess: "성공 응답 실패: %w",
+	KeyErrProxySocksBadAddrType:  "지원되지 않는 주소 유형: %d",
+
+	KeyErrProxyHTTPParseRequest: "HTTP 요청 파싱 실패: %w",
+	KeyErrProxyHTTPConnectDial:  "%s 에 대한 CONNECT 연결 실패: %w",
+	KeyErrProxyHTTPConnectReply: "CONNECT 성공 응답 실패: %w",
+	KeyErrProxyHTTPDial:         "%s 연결 실패: %w",
+	KeyErrProxyHTTPForward:      "%s 로 요청 전달 실패: %w",
+	KeyErrProxyHTTPRelayResp:    "응답 회신 실패: %w",
 }

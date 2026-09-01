@@ -36,6 +36,7 @@ import (
 
 	"github.com/soulteary/portmap/internal/forward"
 	"github.com/soulteary/portmap/internal/i18n"
+	"github.com/soulteary/portmap/internal/proxy"
 	"github.com/soulteary/portmap/internal/socat"
 )
 
@@ -79,17 +80,61 @@ func main() {
 	}
 }
 
+// run 是根命令入口：先处理一次 -lang（供所有子命令与 --help 共享），
+// 再解析子命令并分发。无子命令或第一个参数以 - 开头时默认走 forward，
+// 以保持 `portmap -listen-port 22 -target ...` 的向后兼容。
 func run(argv []string) error {
-	var opt options
-
 	// 语言在首次调用 T() 时按系统环境自动检测（见 i18n.Detect）。
 	// 若命令行显式指定 -lang，则预扫描一次并覆盖，使 --help 与 flag
-	// 描述也使用指定语言。
+	// 描述也使用指定语言。preScanLang 会跳过子命令名。
 	if code := preScanLang(argv); code != "" {
 		if l, ok := i18n.ParseLang(code); ok {
 			i18n.SetLang(l)
 		}
 	}
+
+	sub, rest := splitSubcommand(argv)
+	switch sub {
+	case "forward":
+		return runForward(rest)
+	case "proxy":
+		return runProxy(rest)
+	case "version":
+		fmt.Println(i18n.T(i18n.KeyVersionLine, version, commit, date))
+		return nil
+	default:
+		return errors.New(i18n.T(i18n.KeyErrUnknownSub, sub))
+	}
+}
+
+// subcommands 是所有已知子命令的集合。
+var subcommands = map[string]bool{
+	"forward": true,
+	"proxy":   true,
+	"version": true,
+}
+
+// splitSubcommand 从 argv 中解析子命令：
+//   - 无参数，或第一个参数以 - 开头（即直接是 flag）时，默认 "forward" 并保留全部参数；
+//   - 第一个参数为已知子命令时，返回该子命令与其余参数；
+//   - 否则默认 "forward" 并保留全部参数（把未知位置参数交给 forward 解析报错）。
+func splitSubcommand(argv []string) (string, []string) {
+	if len(argv) == 0 {
+		return "forward", argv
+	}
+	first := argv[0]
+	if strings.HasPrefix(first, "-") {
+		return "forward", argv
+	}
+	if subcommands[first] {
+		return first, argv[1:]
+	}
+	return "forward", argv
+}
+
+// runForward 实现 forward 子命令：等价于既有的端口转发逻辑，flag 保持不变。
+func runForward(argv []string) error {
+	var opt options
 
 	fs := flag.NewFlagSet("portmap", flag.ContinueOnError)
 	fs.IntVar(&opt.listenPort, "listen-port", 22, i18n.T(i18n.KeyFlagListenPort))
@@ -111,6 +156,7 @@ func run(argv []string) error {
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "%s\n\n", i18n.T(i18n.KeyUsageTitle))
 		fmt.Fprintln(os.Stderr, i18n.T(i18n.KeyUsageLine, "portmap"))
+		fmt.Fprintf(os.Stderr, "\n%s\n\n", i18n.T(i18n.KeyUsageSubcommands))
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(argv); err != nil {
@@ -140,7 +186,7 @@ func run(argv []string) error {
 	// 加载配置文件并合并：仅对配置文件中出现、且命令行未显式设置的字段生效。
 	// 优先级：命令行显式 flag > 配置文件 > 内置默认值。
 	if opt.configPath != "" {
-		cfg, err := loadConfig(opt.configPath)
+		cfg, err := loadForwardConfig(opt.configPath)
 		if err != nil {
 			return err
 		}
@@ -199,8 +245,12 @@ func run(argv []string) error {
 
 // preScanLang 在正式解析 flag 前，从 argv 里粗略读取 -lang/--lang 的值，
 // 以便 --help 与 flag 描述也能使用用户指定的语言。支持 "-lang zh" 与
-// "-lang=zh" 两种写法。未找到时返回空串。
+// "-lang=zh" 两种写法。未找到时返回空串。若首个参数是子命令名（非 flag），
+// 会被跳过，从而支持 "portmap proxy -lang zh" 的写法。
 func preScanLang(argv []string) string {
+	if len(argv) > 0 && !strings.HasPrefix(argv[0], "-") && subcommands[argv[0]] {
+		argv = argv[1:]
+	}
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
 		if a == "--" {
@@ -267,6 +317,88 @@ func runSocat(ctx context.Context, opt options, setFlags map[string]bool) error 
 	log.Print(i18n.T(i18n.KeyLogSocatExec, socatOpt.String()))
 	if err := socatOpt.Run(ctx); err != nil {
 		return fmt.Errorf(i18n.T(i18n.KeyErrSocatFailed), err)
+	}
+	return nil
+}
+
+// proxyOptions 保存 proxy 子命令的运行参数。
+type proxyOptions struct {
+	addr        string
+	dialTimeout time.Duration
+	showVersion bool
+	configPath  string
+	lang        string
+}
+
+// runProxy 实现 proxy 子命令：单端口 SOCKS5 + HTTP 应用层代理。
+func runProxy(argv []string) error {
+	var opt proxyOptions
+
+	fs := flag.NewFlagSet("portmap proxy", flag.ContinueOnError)
+	fs.StringVar(&opt.addr, "addr", "127.0.0.1:1080", i18n.T(i18n.KeyFlagProxyAddr))
+	fs.DurationVar(&opt.dialTimeout, "dial-timeout", 30*time.Second, i18n.T(i18n.KeyFlagProxyDialTimeout))
+	fs.BoolVar(&opt.showVersion, "version", false, i18n.T(i18n.KeyFlagVersion))
+	fs.StringVar(&opt.configPath, "config", "", i18n.T(i18n.KeyFlagConfig))
+	fs.StringVar(&opt.lang, "lang", "", i18n.T(i18n.KeyFlagLang, strings.Join(i18n.Codes(), "/")))
+
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "%s\n\n", i18n.T(i18n.KeyProxyUsageTitle))
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.KeyProxyUsageLine, "portmap"))
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(argv); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+
+	if opt.showVersion {
+		fmt.Println(i18n.T(i18n.KeyVersionLine, version, commit, date))
+		return nil
+	}
+
+	setFlags := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) { setFlags[f.Name] = true })
+
+	// 加载配置文件并合并 proxy 段：命令行显式 flag > 配置文件 > 默认值。
+	if opt.configPath != "" {
+		cfg, err := loadTopConfig(opt.configPath)
+		if err != nil {
+			return err
+		}
+		if err := mergeProxyConfig(&opt, cfg, setFlags); err != nil {
+			return err
+		}
+		if !setFlags["lang"] && opt.lang != "" {
+			if l, ok := i18n.ParseLang(opt.lang); ok {
+				i18n.SetLang(l)
+			}
+		}
+	}
+
+	if strings.TrimSpace(opt.addr) == "" {
+		return errors.New(i18n.T(i18n.KeyErrTargetEmpty))
+	}
+	if opt.dialTimeout < 0 {
+		return errors.New(i18n.T(i18n.KeyErrDialNeg, opt.dialTimeout))
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	srv := proxy.New(opt.addr)
+	srv.DialTimeout = opt.dialTimeout
+
+	// 监听退出信号，优雅关闭。
+	go func() {
+		<-ctx.Done()
+		log.Println(i18n.T(i18n.KeyLogProxyShuttingDown))
+		_ = srv.Close()
+	}()
+
+	if err := srv.ListenAndServe(); err != nil {
+		return fmt.Errorf(i18n.T(i18n.KeyErrProxyExit), err)
 	}
 	return nil
 }

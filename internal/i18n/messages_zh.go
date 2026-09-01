@@ -75,4 +75,45 @@ var messagesZH = map[string]string{
 	KeyErrSocatTarget:     "target 为空",
 	KeyErrSocatNotFound:   "在 PATH 中未找到 %q: %w",
 	KeyErrSocatInvalidStr: "<非法的 socat 选项>",
+
+	KeyUsageSubcommands: "子命令:\n  forward   TCP/UDP 端口转发（默认）\n  proxy     单端口 SOCKS5 + HTTP 代理\n  version   打印版本信息",
+	KeyErrUnknownSub:    "未知子命令: %q（可选 forward、proxy 或 version）",
+
+	KeyProxyUsageTitle: "portmap proxy - 单端口 SOCKS5 + HTTP 代理",
+	KeyProxyUsageLine:  "用法: %s proxy [flags]\n\n同一监听端口自动识别 SOCKS5 与 HTTP/HTTPS 客户端；所有出站连接均直连，忽略 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY。\n\nflags:",
+
+	KeyFlagProxyAddr:        "监听地址，SOCKS5 与 HTTP 共用此端口",
+	KeyFlagProxyDialTimeout: "出站连接超时时间",
+
+	KeyLogProxyStarted:      "代理服务已启动，监听 %s（SOCKS5 + HTTP，忽略环境代理）",
+	KeyLogProxyAcceptFailed: "接受连接失败: %v",
+	KeyLogProxyDetectFailed: "探测协议失败 (%s): %v",
+	KeyLogProxySOCKS5Failed: "SOCKS5 处理出错 (%s): %v",
+	KeyLogProxyHTTPFailed:   "HTTP 处理出错 (%s): %v",
+	KeyLogProxySOCKS5Relay:  "SOCKS5 %s -> %s",
+	KeyLogProxyHTTPConnect:  "HTTP CONNECT %s -> %s",
+	KeyLogProxyHTTPPlain:    "HTTP %s %s -> %s",
+	KeyLogProxyShuttingDown: "收到退出信号，正在关闭...",
+
+	KeyErrProxyExit: "代理服务异常退出: %w",
+
+	KeyErrProxySocksReadNMethods: "读取 NMETHODS 失败: %w",
+	KeyErrProxySocksReadMethods:  "读取 METHODS 失败: %w",
+	KeyErrProxySocksNoAuth:       "客户端不支持无认证方式",
+	KeyErrProxySocksReplyAuth:    "回复认证方法失败: %w",
+	KeyErrProxySocksReadHeader:   "读取请求头失败: %w",
+	KeyErrProxySocksBadVersion:   "非法的 SOCKS 版本: %d",
+	KeyErrProxySocksParseAddr:    "解析目标地址失败: %w",
+	KeyErrProxySocksReadPort:     "读取端口失败: %w",
+	KeyErrProxySocksBadCommand:   "不支持的命令: %d",
+	KeyErrProxySocksDial:         "连接目标 %s 失败: %w",
+	KeyErrProxySocksReplySuccess: "回复成功失败: %w",
+	KeyErrProxySocksBadAddrType:  "不支持的地址类型: %d",
+
+	KeyErrProxyHTTPParseRequest: "解析 HTTP 请求失败: %w",
+	KeyErrProxyHTTPConnectDial:  "CONNECT 连接 %s 失败: %w",
+	KeyErrProxyHTTPConnectReply: "回复 CONNECT 成功失败: %w",
+	KeyErrProxyHTTPDial:         "连接 %s 失败: %w",
+	KeyErrProxyHTTPForward:      "转发请求到 %s 失败: %w",
+	KeyErrProxyHTTPRelayResp:    "回传响应失败: %w",
 }

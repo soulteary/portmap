@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/soulteary/portmap/internal/i18n"
+	"github.com/soulteary/portmap/internal/netutil"
 )
 
 // Config 描述一次转发服务的配置。
@@ -255,34 +256,17 @@ func (s *Server) handle(ctx context.Context, src net.Conn) {
 
 // pipe 将 src 的数据拷贝到 dst，返回拷贝的字节数；
 // 结束后尝试半关闭 dst 的写方向，以便对端感知 EOF。
-// 若配置了 IdleTimeout，则用滚动读取超时包装 src 实现空闲断开。
+// 若配置了 IdleTimeout，则用 netutil.IdleConn 包装 src 实现空闲断开。
 func (s *Server) pipe(connID int64, dir string, dst, src net.Conn) int64 {
 	var reader io.Reader = src
 	if s.cfg.IdleTimeout > 0 {
-		reader = &idleConn{Conn: src, timeout: s.cfg.IdleTimeout}
+		reader = &netutil.IdleConn{Conn: src, Timeout: s.cfg.IdleTimeout}
 	}
-	n, err := io.Copy(dst, reader)
+	n, err := netutil.CopyAndCloseWrite(dst, reader)
 	if err != nil && !isNormalClose(err) {
 		s.debugf(i18n.T(i18n.KeyLogPipeError), connID, dir, err)
 	}
-	if cw, ok := dst.(interface{ CloseWrite() error }); ok {
-		_ = cw.CloseWrite()
-	}
 	return n
-}
-
-// idleConn 包装 net.Conn，在每次 Read 前刷新读取截止时间，
-// 从而在空闲超过 timeout 时让 Read 返回超时错误。
-type idleConn struct {
-	net.Conn
-	timeout time.Duration
-}
-
-func (c *idleConn) Read(p []byte) (int, error) {
-	if err := c.SetReadDeadline(time.Now().Add(c.timeout)); err != nil {
-		return 0, err
-	}
-	return c.Conn.Read(p)
 }
 
 // isNormalClose 判断错误是否属于连接正常关闭/取消一类，不应作为异常记录。
