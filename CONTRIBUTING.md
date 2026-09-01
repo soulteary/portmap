@@ -24,9 +24,9 @@ Before you start, please read our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ### Prerequisites
 
-- **Go 1.26+** (the exact version is pinned in [`go.mod`](go.mod)).
+- **Go 1.27+** (the exact version is pinned in [`go.mod`](go.mod)).
 - **make** — used to drive common build/test/lint tasks.
-- **golangci-lint** `v2.12.2` — matches the version used in CI
+- **golangci-lint** `v2.13.2` — matches the version used in CI
   (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 - **socat** *(optional)* — only needed to exercise the `socat` mode locally.
 - **goreleaser** *(optional)* — only needed to dry-run the release flow.
@@ -67,11 +67,12 @@ make vet    # go vet ./...
 make test   # go test ./... -race -count=1
 make lint   # golangci-lint run ./...
 make build  # build with version info injected
+make security # govulncheck
 ```
 
-CI runs `go vet` and `go test -race` on Linux, macOS, and Windows, plus a
-separate `golangci-lint` job. It also cross-compiles for `windows/amd64`, so
-please keep the code portable across platforms.
+CI runs `go vet` and `go test -race` on Linux, macOS, and Windows, plus separate
+lint, module-hygiene, and vulnerability jobs. It cross-compiles every release
+target, including `windows/arm64`, so please keep the code portable across platforms.
 
 ### Coding Guidelines
 
@@ -138,9 +139,9 @@ project's [Apache License 2.0](LICENSE).
 
 ### 环境准备
 
-- **Go 1.26+**（准确版本以 [`go.mod`](go.mod) 为准）。
+- **Go 1.27+**（准确版本以 [`go.mod`](go.mod) 为准）。
 - **make** —— 用于驱动常用的构建/测试/检查任务。
-- **golangci-lint** `v2.12.2` —— 与 CI 使用的版本一致
+- **golangci-lint** `v2.13.2` —— 与 CI 使用的版本一致
   （见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)）。
 - **socat**（可选）—— 仅在本地验证 `socat` 模式时需要。
 - **goreleaser**（可选）—— 仅在本地试跑发布流程时需要。
@@ -181,10 +182,12 @@ make vet    # go vet ./...
 make test   # go test ./... -race -count=1
 make lint   # golangci-lint run ./...
 make build  # 注入版本信息编译
+make security # govulncheck
 ```
 
 CI 会在 Linux、macOS、Windows 上运行 `go vet` 与 `go test -race`，并单独运行
-`golangci-lint`；同时会交叉编译 `windows/amd64`。请确保代码在各平台间保持可移植。
+lint、模块整洁与漏洞检查；同时会交叉编译包括 `windows/arm64` 在内的全部发布目标。
+请确保代码在各平台间保持可移植。
 
 ### 代码规范
 

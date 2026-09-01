@@ -10,7 +10,7 @@ LDFLAGS := -s -w \
 	-X main.commit=$(COMMIT) \
 	-X main.date=$(DATE)
 
-.PHONY: all build test vet lint clean release snapshot
+.PHONY: all build test vet lint security tidy-check check clean release snapshot
 
 all: build
 
@@ -26,6 +26,14 @@ vet:
 lint:
 	golangci-lint run ./...
 
+security:
+	go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+
+tidy-check:
+	go mod tidy -diff
+
+check: tidy-check vet test security build
+
 clean:
 	rm -rf $(BINARY) dist/
 
@@ -35,14 +43,14 @@ clean:
 # 此目标仅用于本地快速交叉编译，不作为发布事实来源。
 release:
 	@mkdir -p dist
-	@for target in \
+	@set -eu; for target in \
 		linux/amd64 linux/arm64 \
 		darwin/amd64 darwin/arm64 \
-		windows/amd64; do \
+		windows/amd64 windows/arm64; do \
 		os=$${target%/*}; arch=$${target#*/}; \
 		ext=""; [ "$$os" = "windows" ] && ext=".exe"; \
 		echo "building $$os/$$arch"; \
-		GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "$(LDFLAGS)" \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "$(LDFLAGS)" \
 			-o dist/$(BINARY)-$$os-$$arch$$ext . ; \
 	done
 

@@ -1,6 +1,6 @@
 # portmap
 
-[![CI](https://github.com/soulteary/portmap/actions/workflows/ci.yml/badge.svg)](https://github.com/soulteary/portmap/actions/workflows/ci.yml) ![Go Report Card](./.github/goreportcard.svg) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/soulteary/portmap/actions/workflows/ci.yml/badge.svg)](https://github.com/soulteary/portmap/actions/workflows/ci.yml) [![Go Report Card](./.github/goreportcard.svg)](.github/goreportcard-report.md) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 <p align="center">
   <a href="README.en.md">ENGLISH</a> | <a href="README.md" target="_blank">中文文档</a>
@@ -53,7 +53,7 @@ sudo portmap -listen-port 22 -target 127.0.0.1:2222
 
 ## 构建
 
-需要 Go 1.26+（版本以 `go.mod` 为准）。
+需要 Go 1.27+（准确版本以 `go.mod` 为准）。
 
 ```bash
 go build -o portmap .
@@ -359,7 +359,7 @@ flags:
   hostname     : example
   os/arch      : linux/amd64
   num cpu      : 8
-  go version   : go1.26.x
+  go version   : go1.27.x
   ...
 [ Results ]
   throughput   : 75.35 MB/s | 0.632 Gbps
@@ -383,31 +383,37 @@ make build     # 注入版本信息编译
 make test      # go test ./... -race
 make vet       # go vet
 make lint      # golangci-lint（需已安装）
+make security  # govulncheck
+make check     # 模块整洁、vet、race test、漏洞检查与构建
 make release   # 交叉编译多平台产物到 dist/
 make snapshot  # 用 GoReleaser 本地试跑发布流程（不推送、不发布）
 ```
 
 CI 见 `.github/workflows/ci.yml`：在 linux/macOS/windows 上运行 `go vet` 与
-`go test -race`，并独立运行 `golangci-lint`。
+`go test -race`，对全部发布平台做交叉编译，并独立运行 `golangci-lint`、
+`go mod tidy -diff` 与 `govulncheck`。
 
 ## 发布
 
 发布见 `.github/workflows/release.yml`，由 GoReleaser 驱动：
 
-- **触发**：推送 `v*` 形式的 tag（如 `v1.0.0`）自动发布，或在 Actions 页手动
-  `workflow_dispatch`。
-- **二进制产物**：`linux`/`darwin`/`windows` × `amd64`/`arm64`（windows/arm64 除外）
+- **触发**：推送 `v*` 形式的 tag（如 `v1.0.0`）自动发布；手动
+  `workflow_dispatch` 也必须从 `v*` tag 发起。
+- **发布门禁**：发布前重新运行 race test、模块整洁检查与 `govulncheck`。
+- **二进制产物**：`linux`/`darwin`/`windows` × `amd64`/`arm64`
   连同 `checksums.txt` 一并上传到 GitHub Release。
 - **容器镜像**：构建多架构（`linux/amd64` + `linux/arm64`）镜像并推送到
   `ghcr.io/soulteary/portmap` 与 `docker.io/soulteary/portmap`，
   同时打 `:latest` 与 `:<version>` 标签。
+- **来源证明**：GitHub 为发布归档与 `checksums.txt` 生成 Sigstore 构建证明，
+  可使用 `gh attestation verify` 验证。
 
 发布前置条件：
 
 - ghcr.io 使用内置 `GITHUB_TOKEN`（工作流已授予 `packages: write`），无需额外配置。
 - Docker Hub 需在仓库 Settings → Secrets 中配置 `DOCKERHUB_USERNAME` 与
-  `DOCKERHUB_TOKEN` 两个 secret。若未配置 `DOCKERHUB_USERNAME`，工作流会自动跳过
-  Docker Hub 登录步骤（镜像仅推送到 ghcr.io），发布流程不会因此失败。
+  `DOCKERHUB_TOKEN` 两个 secret；当前发布配置同时生成 Docker Hub 镜像，缺少任一
+  secret 时会在发布前明确失败，避免只发布了一部分产物。
 - 本地可用 `make snapshot`（等价 `goreleaser release --snapshot --clean`）或
   `goreleaser check` 校验配置，均不会推送。
 
