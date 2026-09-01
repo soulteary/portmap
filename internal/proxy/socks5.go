@@ -138,7 +138,9 @@ func (s *Server) handleSOCKS5WithReader(ctx context.Context, conn net.Conn, read
 	}
 
 	s.logf(i18n.T(i18n.KeyLogProxySOCKS5Relay), conn.RemoteAddr(), target)
-	s.beginRelay(conn, remote)
+	if !s.beginRelay(conn, remote) {
+		return context.Canceled
+	}
 	netutil.RelayReader(conn, reader, remote)
 	return nil
 }

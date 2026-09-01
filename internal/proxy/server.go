@@ -77,6 +77,7 @@ type Server struct {
 	mu              sync.Mutex
 	listener        net.Listener
 	conns           map[net.Conn]struct{}
+	handshakes      map[net.Conn]struct{}
 	remotes         map[net.Conn]struct{}
 	closing         bool
 	lifecycleCtx    context.Context
@@ -93,6 +94,7 @@ func New(addr string) *Server {
 		HandshakeTimeout: defaultHandshakeTimeout,
 		IdleTimeout:      defaultIdleTimeout,
 		conns:            make(map[net.Conn]struct{}),
+		handshakes:       make(map[net.Conn]struct{}),
 		remotes:          make(map[net.Conn]struct{}),
 	}
 }
@@ -132,6 +134,9 @@ func (s *Server) ListenAndServe() error {
 	}
 	if s.remotes == nil {
 		s.remotes = make(map[net.Conn]struct{})
+	}
+	if s.handshakes == nil {
+		s.handshakes = make(map[net.Conn]struct{})
 	}
 	s.mu.Unlock()
 
@@ -201,7 +206,7 @@ func (s *Server) serveConn(conn net.Conn) {
 		ctx, cancel = context.WithTimeout(ctx, s.HandshakeTimeout)
 		defer cancel()
 		deadline, _ := ctx.Deadline()
-		if err := conn.SetDeadline(deadline); err != nil {
+		if !s.setHandshakeDeadline(conn, deadline) {
 			return
 		}
 	}
@@ -245,6 +250,18 @@ func (s *Server) serverContext() context.Context {
 	return s.lifecycleCtx
 }
 
+// setHandshakeDeadline serializes the initial deadline with shutdown. This
+// prevents a just-started handler from overwriting shutdown's immediate
+// deadline with a later HandshakeTimeout value.
+func (s *Server) setHandshakeDeadline(conn net.Conn, deadline time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing {
+		return false
+	}
+	return conn.SetDeadline(deadline) == nil
+}
+
 func (s *Server) trackConn(conn net.Conn) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -252,6 +269,10 @@ func (s *Server) trackConn(conn net.Conn) bool {
 		return false
 	}
 	s.conns[conn] = struct{}{}
+	if s.handshakes == nil {
+		s.handshakes = make(map[net.Conn]struct{})
+	}
+	s.handshakes[conn] = struct{}{}
 	s.wg.Add(1)
 	return true
 }
@@ -259,6 +280,7 @@ func (s *Server) trackConn(conn net.Conn) bool {
 func (s *Server) untrackConn(conn net.Conn) {
 	s.mu.Lock()
 	delete(s.conns, conn)
+	delete(s.handshakes, conn)
 	s.mu.Unlock()
 	s.wg.Done()
 }
@@ -290,6 +312,13 @@ func (s *Server) stopAccepting() error {
 	s.closing = true
 	ln := s.listener
 	cancel := s.lifecycleCancel
+	// Context cancellation interrupts DNS and dialing, while an immediate
+	// socket deadline interrupts clients still blocked in protocol reads. Relay
+	// connections have already been removed from handshakes and may drain.
+	now := time.Now()
+	for conn := range s.handshakes {
+		_ = conn.SetDeadline(now)
+	}
 	s.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -321,7 +350,19 @@ func (s *Server) closeActiveConns() {
 
 // beginRelay 清除握手阶段的绝对截止时间，并把两个端点关联为共享的滚动
 // 空闲超时：任一方向有流量都视为隧道仍然活跃。
-func (s *Server) beginRelay(client, remote net.Conn) {
+func (s *Server) beginRelay(client, remote net.Conn) bool {
+	rawClient := client
+	if idle, ok := client.(*netutil.IdleConn); ok {
+		rawClient = idle.Conn
+	}
+	s.mu.Lock()
+	if s.closing {
+		s.mu.Unlock()
+		return false
+	}
+	delete(s.handshakes, rawClient)
+	s.mu.Unlock()
+
 	_ = client.SetDeadline(time.Time{})
 	_ = remote.SetDeadline(time.Time{})
 	clientIdle, clientOK := client.(*netutil.IdleConn)
@@ -329,6 +370,7 @@ func (s *Server) beginRelay(client, remote net.Conn) {
 	if clientOK && remoteOK {
 		netutil.ShareIdleTimeout(clientIdle, remoteIdle, s.IdleTimeout)
 	}
+	return true
 }
 
 func (s *Server) wrapRemote(conn net.Conn) net.Conn {

@@ -105,6 +105,19 @@ func startHeldOpenConnectRelay(t *testing.T) (*Server, net.Conn, net.Conn, <-cha
 	case <-time.After(time.Second):
 		t.Fatal("代理未连接目标")
 	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		srv.mu.Lock()
+		_, handshaking := srv.handshakes[serverConn]
+		srv.mu.Unlock()
+		if !handshaking {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("CONNECT 成功后仍处于握手阶段")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	_ = targetListener.Close()
 	t.Cleanup(func() {
 		_ = clientConn.Close()
@@ -243,7 +256,7 @@ func TestRejectsPublicListenByDefault(t *testing.T) {
 	}
 }
 
-func TestShutdownForcesConnectionsAtDeadline(t *testing.T) {
+func TestShutdownInterruptsHandshakeBeforeDeadline(t *testing.T) {
 	srv := New("127.0.0.1:0")
 	srv.HandshakeTimeout = 0
 	serverConn, clientConn := net.Pipe()
@@ -258,8 +271,40 @@ func TestShutdownForcesConnectionsAtDeadline(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != context.DeadlineExceeded {
-		t.Fatalf("Shutdown 返回 %v，期望 context deadline exceeded", err)
+	if err := srv.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown 返回错误: %v", err)
+	}
+}
+
+func TestShutdownInterruptsHandshakeWithoutTimeout(t *testing.T) {
+	srv := New("127.0.0.1:0")
+	srv.HandshakeTimeout = 0
+	serverConn, clientConn := net.Pipe()
+	defer func() { _ = clientConn.Close() }()
+	if !srv.trackConn(serverConn) {
+		t.Fatal("连接注册失败")
+	}
+	handlerDone := make(chan struct{})
+	go func() {
+		defer srv.untrackConn(serverConn)
+		srv.serveConn(serverConn)
+		close(handlerDone)
+	}()
+
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- srv.Shutdown(context.Background()) }()
+	select {
+	case err := <-shutdownDone:
+		if err != nil {
+			t.Fatalf("Shutdown 返回错误: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Shutdown 未中断无超时的握手读取")
+	}
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("握手读取取消后处理器未退出")
 	}
 }
 
@@ -396,5 +441,32 @@ func TestShutdownDeadlineClosesOutboundRelay(t *testing.T) {
 	case <-handlerDone:
 	case <-time.After(time.Second):
 		t.Fatal("Shutdown 截止后未关闭出站连接")
+	}
+}
+
+func TestShutdownAllowsEstablishedRelayToDrain(t *testing.T) {
+	srv, clientConn, targetConn, handlerDone := startHeldOpenConnectRelay(t)
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- srv.Shutdown(context.Background()) }()
+
+	select {
+	case err := <-shutdownDone:
+		t.Fatalf("Shutdown 在已建立中继结束前返回: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	_ = clientConn.Close()
+	_ = targetConn.Close()
+	select {
+	case err := <-shutdownDone:
+		if err != nil {
+			t.Fatalf("Shutdown 返回错误: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("已建立中继结束后 Shutdown 未返回")
+	}
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("已建立中继结束后处理器未退出")
 	}
 }
