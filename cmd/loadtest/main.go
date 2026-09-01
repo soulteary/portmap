@@ -58,8 +58,8 @@ func parseFlags(args []string) (*options, error) {
 	o := &options{}
 	fs.StringVar(&o.proto, "proto", "tcp", "转发协议：tcp 或 udp")
 	fs.IntVar(&o.conns, "conns", 50, "并发连接/会话数")
-	fs.DurationVar(&o.duration, "duration", 10*time.Second, "压测时长（与 -requests 二选一）")
-	fs.IntVar(&o.requests, "requests", 0, "每连接请求数，0 表示按 duration 持续跑")
+	fs.DurationVar(&o.duration, "duration", 10*time.Second, "压测最长时长（所有模式的硬截止时间）")
+	fs.IntVar(&o.requests, "requests", 0, "每连接成功请求数，0 表示仅按 duration 持续跑")
 	fs.IntVar(&o.payload, "payload", 1024, "单次请求负载字节数")
 	fs.StringVar(&o.mode, "mode", "throughput", "压测模式：throughput（长连接持续收发）或 connrate（短连接建立/关闭循环）")
 	fs.StringVar(&o.external, "external", "", "外部 portmap 地址；为空则自建链路")
@@ -84,6 +84,21 @@ func parseFlags(args []string) (*options, error) {
 	}
 	if o.requests < 0 {
 		return nil, fmt.Errorf("invalid -requests %d: must be >= 0", o.requests)
+	}
+	if o.duration <= 0 {
+		return nil, fmt.Errorf("invalid -duration %s: must be > 0", o.duration)
+	}
+	if o.warmup < 0 {
+		return nil, fmt.Errorf("invalid -warmup %s: must be >= 0", o.warmup)
+	}
+	if o.maxConns < 0 {
+		return nil, fmt.Errorf("invalid -max-conns %d: must be >= 0", o.maxConns)
+	}
+	if o.idleTimeout < 0 {
+		return nil, fmt.Errorf("invalid -idle-timeout %s: must be >= 0", o.idleTimeout)
+	}
+	if o.proto == "udp" && o.payload > 65507 {
+		return nil, fmt.Errorf("invalid -payload %d: UDP payload must be <= 65507", o.payload)
 	}
 	return o, nil
 }
@@ -301,6 +316,10 @@ type result struct {
 
 // run 执行一次完整压测。
 func run(o *options) error {
+	return runWithOutput(o, os.Stdout, os.Stderr)
+}
+
+func runWithOutput(o *options, stdout, stderr io.Writer) error {
 	hi := collectHostInfo()
 
 	// 建立链路（自建或外部）。
@@ -326,13 +345,7 @@ func run(o *options) error {
 
 	// 正式压测。
 	s := &stats{}
-	var ctx context.Context
-	var cancel context.CancelFunc
-	if o.requests > 0 {
-		ctx, cancel = context.WithCancel(context.Background())
-	} else {
-		ctx, cancel = context.WithTimeout(context.Background(), o.duration)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), o.duration)
 	defer cancel()
 
 	start := time.Now()
@@ -364,13 +377,13 @@ func run(o *options) error {
 	var activeAfter int64 = -1
 	if ch != nil {
 		if err := ch.stop(); err != nil {
-			fmt.Fprintln(os.Stderr, "loadtest: forward server stop:", err)
+			fmt.Fprintln(stderr, "loadtest: forward server stop:", err)
 		}
 		activeAfter = ch.srv.ActiveConns()
 		activeZero = activeAfter == 0
 	}
 
-	printReport(os.Stdout, o, hi, res, activeZero, activeAfter, ch != nil)
+	printReport(stdout, o, hi, res, activeZero, activeAfter, ch != nil)
 	return nil
 }
 
@@ -437,6 +450,29 @@ func ctxDone(ctx context.Context) bool {
 	}
 }
 
+const retryBackoff = 10 * time.Millisecond
+
+// waitBeforeRetry 为连续失败提供短暂退避，同时确保全局截止时间能立即打断等待。
+func waitBeforeRetry(ctx context.Context) bool {
+	timer := time.NewTimer(retryBackoff)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+// operationDeadline 返回单次 I/O 上限与全局压测截止时间中较早的一个。
+func operationDeadline(ctx context.Context, limit time.Duration) time.Time {
+	deadline := time.Now().Add(limit)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		return ctxDeadline
+	}
+	return deadline
+}
+
 // runTCP 执行 TCP 压测：throughput 复用同一连接循环收发；connrate 每次新建/关闭连接。
 func (w *worker) runTCP(ctx context.Context) []time.Duration {
 	payload := makePayload(w.o.payload)
@@ -458,7 +494,7 @@ func (w *worker) runTCP(ctx context.Context) []time.Duration {
 			if budget >= 0 && done >= budget {
 				break
 			}
-			rtt, ok := tcpRoundTrip(conn, payload, buf, w.s)
+			rtt, ok := tcpRoundTrip(ctx, conn, payload, buf, w.s)
 			if !ok {
 				return lat
 			}
@@ -482,12 +518,18 @@ func (w *worker) runTCP(ctx context.Context) []time.Duration {
 			if ctx.Err() == nil {
 				w.s.errDial.Add(1)
 			}
+			if !waitBeforeRetry(ctx) {
+				break
+			}
 			continue
 		}
 		w.s.newConns.Add(1)
-		_, ok := tcpRoundTrip(conn, payload, buf, w.s)
+		_, ok := tcpRoundTrip(ctx, conn, payload, buf, w.s)
 		_ = conn.Close()
 		if !ok {
+			if !waitBeforeRetry(ctx) {
+				break
+			}
 			continue
 		}
 		if w.record {
@@ -500,15 +542,19 @@ func (w *worker) runTCP(ctx context.Context) []time.Duration {
 
 // tcpRoundTrip 写入 payload 并 ReadFull 读回等量字节，校验数据完整性。
 // 返回本次 RTT 与是否成功。
-func tcpRoundTrip(conn net.Conn, payload, buf []byte, s *stats) (time.Duration, bool) {
-	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+func tcpRoundTrip(ctx context.Context, conn net.Conn, payload, buf []byte, s *stats) (time.Duration, bool) {
+	_ = conn.SetDeadline(operationDeadline(ctx, 10*time.Second))
 	start := time.Now()
 	if _, err := conn.Write(payload); err != nil {
-		s.errWrite.Add(1)
+		if ctx.Err() == nil {
+			s.errWrite.Add(1)
+		}
 		return 0, false
 	}
 	if _, err := io.ReadFull(conn, buf); err != nil {
-		s.errRead.Add(1)
+		if ctx.Err() == nil {
+			s.errRead.Add(1)
+		}
 		return 0, false
 	}
 	rtt := time.Since(start)
@@ -529,16 +575,21 @@ func (w *worker) runUDP(ctx context.Context) []time.Duration {
 	budget := w.budget()
 	done := 0
 
-	raddr, err := net.ResolveUDPAddr("udp", w.addr)
-	if err != nil {
-		w.s.errDial.Add(1)
-		return lat
-	}
-
+	dialer := net.Dialer{Timeout: 5 * time.Second}
 	dial := func() *net.UDPConn {
-		c, derr := net.DialUDP("udp", nil, raddr)
+		raw, derr := dialer.DialContext(ctx, "udp", w.addr)
 		if derr != nil {
-			w.s.errDial.Add(1)
+			if ctx.Err() == nil {
+				w.s.errDial.Add(1)
+			}
+			return nil
+		}
+		c, ok := raw.(*net.UDPConn)
+		if !ok {
+			_ = raw.Close()
+			if ctx.Err() == nil {
+				w.s.errDial.Add(1)
+			}
 			return nil
 		}
 		w.s.newConns.Add(1)
@@ -562,10 +613,13 @@ func (w *worker) runUDP(ctx context.Context) []time.Duration {
 		if w.o.mode == "connrate" {
 			c = dial()
 			if c == nil {
+				if !waitBeforeRetry(ctx) {
+					break
+				}
 				continue
 			}
 		}
-		rtt, ok := udpRoundTrip(c, payload, buf, w.s)
+		rtt, ok := udpRoundTrip(ctx, c, payload, buf, w.s)
 		if w.o.mode == "connrate" {
 			_ = c.Close()
 		}
@@ -574,23 +628,29 @@ func (w *worker) runUDP(ctx context.Context) []time.Duration {
 				lat = append(lat, rtt)
 			}
 			done++
+		} else if !waitBeforeRetry(ctx) {
+			break
 		}
 	}
 	return lat
 }
 
 // udpRoundTrip 发送一个数据报并按超时读回，校验回显内容。
-func udpRoundTrip(conn *net.UDPConn, payload, buf []byte, s *stats) (time.Duration, bool) {
+func udpRoundTrip(ctx context.Context, conn *net.UDPConn, payload, buf []byte, s *stats) (time.Duration, bool) {
+	_ = conn.SetDeadline(operationDeadline(ctx, 2*time.Second))
 	start := time.Now()
 	if _, err := conn.Write(payload); err != nil {
-		s.errWrite.Add(1)
+		if ctx.Err() == nil {
+			s.errWrite.Add(1)
+		}
 		return 0, false
 	}
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	n, err := conn.Read(buf)
 	if err != nil {
 		// UDP 丢包/超时：按读取错误统计而非致命。
-		s.errRead.Add(1)
+		if ctx.Err() == nil {
+			s.errRead.Add(1)
+		}
 		return 0, false
 	}
 	rtt := time.Since(start)
@@ -677,10 +737,9 @@ func printReport(w io.Writer, o *options, hi hostInfo, res result, activeZero bo
 	pf("  test mode    : %s\n", o.mode)
 	pf("  conns        : %d\n", o.conns)
 	if o.requests > 0 {
-		pf("  requests     : %d per conn\n", o.requests)
-	} else {
-		pf("  duration     : %s\n", o.duration)
+		pf("  requests     : %d successful per conn\n", o.requests)
 	}
+	pf("  max duration : %s\n", o.duration)
 	pf("  payload      : %d bytes\n", o.payload)
 	pf("  warmup       : %s\n", o.warmup)
 	pf("  max-conns    : %d\n", o.maxConns)
