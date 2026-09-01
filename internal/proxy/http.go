@@ -21,6 +21,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/textproto"
 	"strings"
 
 	"github.com/soulteary/portmap/internal/i18n"
@@ -90,6 +91,8 @@ func (s *Server) handlePlainHTTP(conn net.Conn, reader *bufio.Reader, req *http.
 	// 改写为源站可识别的相对路径请求，并清理逐跳首部。
 	req.RequestURI = ""
 	stripHopByHopHeaders(req.Header)
+	appendVia(req.Header, req.ProtoMajor, req.ProtoMinor)
+	req.Close = true
 	req.Header.Set("Connection", "close")
 
 	if err := req.Write(remote); err != nil {
@@ -98,9 +101,29 @@ func (s *Server) handlePlainHTTP(conn net.Conn, reader *bufio.Reader, req *http.
 
 	s.logf(i18n.T(i18n.KeyLogProxyHTTPPlain), req.Method, conn.RemoteAddr(), host)
 
-	// 把源站响应原样回传给客户端。
-	if _, err := io.Copy(conn, remote); err != nil {
-		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), err)
+	// 解析响应后清理响应侧逐跳首部并追加 Via；1xx（101 除外）可能在最终
+	// 响应之前出现，因此需要逐个转发。
+	remoteReader := bufio.NewReader(remote)
+	for {
+		resp, err := http.ReadResponse(remoteReader, req)
+		if err != nil {
+			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), err)
+		}
+		stripHopByHopHeaders(resp.Header)
+		appendVia(resp.Header, resp.ProtoMajor, resp.ProtoMinor)
+		informational := resp.StatusCode >= 100 && resp.StatusCode < 200 && resp.StatusCode != http.StatusSwitchingProtocols
+		if !informational {
+			resp.Close = true
+			resp.Header.Set("Connection", "close")
+		}
+		writeErr := resp.Write(conn)
+		_ = resp.Body.Close()
+		if writeErr != nil {
+			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), writeErr)
+		}
+		if !informational {
+			break
+		}
 	}
 	return nil
 }
@@ -119,9 +142,22 @@ var hopByHopHeaders = []string{
 }
 
 func stripHopByHopHeaders(h http.Header) {
+	// Connection 可以列出额外的逐跳字段名，必须在删除 Connection 自身前
+	// 逐一删除（RFC 9110 §7.6.1）。
+	for _, value := range h.Values("Connection") {
+		for _, token := range strings.Split(value, ",") {
+			if key := textproto.TrimString(token); key != "" {
+				h.Del(key)
+			}
+		}
+	}
 	for _, key := range hopByHopHeaders {
 		h.Del(key)
 	}
+}
+
+func appendVia(h http.Header, major, minor int) {
+	h.Add("Via", fmt.Sprintf("%d.%d portmap", major, minor))
 }
 
 func writeHTTPError(conn net.Conn, code int) {

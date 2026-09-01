@@ -15,6 +15,7 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -205,5 +206,150 @@ func TestSOCKS5Proxy(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "hello from backend") {
 		t.Fatalf("响应内容不符: %q", body)
+	}
+}
+
+func TestStripHopByHopHeadersConnectionOptions(t *testing.T) {
+	header := http.Header{
+		"Connection":       {"keep-alive, X-Remove", "Another-Hop"},
+		"X-Remove":         {"secret"},
+		"Another-Hop":      {"secret"},
+		"Proxy-Connection": {"keep-alive"},
+		"X-End-To-End":     {"keep"},
+	}
+
+	stripHopByHopHeaders(header)
+	for _, key := range []string{"Connection", "X-Remove", "Another-Hop", "Proxy-Connection"} {
+		if got := header.Get(key); got != "" {
+			t.Errorf("逐跳首部 %s 未删除: %q", key, got)
+		}
+	}
+	if got := header.Get("X-End-To-End"); got != "keep" {
+		t.Fatalf("端到端首部被误删: %q", got)
+	}
+}
+
+func TestHTTPProxySanitizesBothDirectionsAndAddsVia(t *testing.T) {
+	proxyAddr, stopProxy := startTestProxy(t)
+	defer stopProxy()
+
+	requestHeaders := make(chan http.Header, 1)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("监听后端失败: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		backendConn, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = backendConn.Close() }()
+		req, readErr := http.ReadRequest(bufio.NewReader(backendConn))
+		if readErr != nil {
+			return
+		}
+		requestHeaders <- req.Header.Clone()
+		_, _ = io.WriteString(backendConn,
+			"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nVia: 1.0 origin-gateway\r\nConnection: X-Origin-Secret\r\nX-Origin-Secret: must-not-leak\r\nX-End-To-End: kept\r\n\r\nok")
+	}()
+
+	conn, err := net.DialTimeout("tcp", proxyAddr, time.Second)
+	if err != nil {
+		t.Fatalf("连接代理失败: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := fmt.Fprintf(conn,
+		"GET http://%s/ HTTP/1.1\r\nHost: %s\r\nConnection: X-Client-Secret\r\nX-Client-Secret: must-not-leak\r\nX-End-To-End: kept\r\nVia: 1.0 client-gateway\r\n\r\n",
+		ln.Addr(), ln.Addr()); err != nil {
+		t.Fatalf("发送代理请求失败: %v", err)
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("读取代理响应失败: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if got := resp.Header.Get("X-Origin-Secret"); got != "" {
+		t.Errorf("响应侧 Connection 命名首部泄漏: %q", got)
+	}
+	if got := resp.Header.Get("X-End-To-End"); got != "kept" {
+		t.Errorf("响应端到端首部丢失: %q", got)
+	}
+	responseVia := strings.Join(resp.Header.Values("Via"), ", ")
+	if !strings.Contains(responseVia, "1.0 origin-gateway") || !strings.Contains(responseVia, "1.1 portmap") {
+		t.Errorf("响应 Via 不完整: %q", responseVia)
+	}
+
+	select {
+	case header := <-requestHeaders:
+		if got := header.Get("X-Client-Secret"); got != "" {
+			t.Errorf("请求侧 Connection 命名首部泄漏: %q", got)
+		}
+		if got := header.Get("X-End-To-End"); got != "kept" {
+			t.Errorf("请求端到端首部丢失: %q", got)
+		}
+		requestVia := strings.Join(header.Values("Via"), ", ")
+		if !strings.Contains(requestVia, "1.0 client-gateway") || !strings.Contains(requestVia, "1.1 portmap") {
+			t.Errorf("请求 Via 不完整: %q", requestVia)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("后端未收到请求")
+	}
+}
+
+func TestHTTPProxyForwardsInformationalResponses(t *testing.T) {
+	proxyAddr, stopProxy := startTestProxy(t)
+	defer stopProxy()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("监听后端失败: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		backendConn, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = backendConn.Close() }()
+		if _, readErr := http.ReadRequest(bufio.NewReader(backendConn)); readErr != nil {
+			return
+		}
+		_, _ = io.WriteString(backendConn,
+			"HTTP/1.1 103 Early Hints\r\nLink: </style.css>; rel=preload\r\n\r\n"+
+				"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+	}()
+
+	conn, err := net.DialTimeout("tcp", proxyAddr, time.Second)
+	if err != nil {
+		t.Fatalf("连接代理失败: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := fmt.Fprintf(conn, "GET http://%s/ HTTP/1.1\r\nHost: %s\r\n\r\n", ln.Addr(), ln.Addr()); err != nil {
+		t.Fatalf("发送请求失败: %v", err)
+	}
+
+	reader := bufio.NewReader(conn)
+	early, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("读取 103 响应失败: %v", err)
+	}
+	_ = early.Body.Close()
+	if early.StatusCode != http.StatusEarlyHints || !strings.Contains(early.Header.Get("Via"), "1.1 portmap") {
+		t.Fatalf("103 响应转发不正确: status=%d Via=%q", early.StatusCode, early.Header.Get("Via"))
+	}
+	if early.Close {
+		t.Fatal("信息响应不应要求关闭连接")
+	}
+
+	final, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("读取最终响应失败: %v", err)
+	}
+	defer func() { _ = final.Body.Close() }()
+	body, _ := io.ReadAll(final.Body)
+	if final.StatusCode != http.StatusOK || string(body) != "ok" || !strings.Contains(final.Header.Get("Via"), "1.1 portmap") {
+		t.Fatalf("最终响应转发不正确: status=%d body=%q Via=%q", final.StatusCode, body, final.Header.Get("Via"))
 	}
 }
