@@ -58,6 +58,13 @@ var messagesZH = map[string]string{
 	KeyErrConfigHandshake: "配置文件 handshake_timeout 非法: %w",
 	KeyErrConfigKeepalive: "配置文件 upstream_keepalive 非法: %w",
 
+	KeyLogForwardStartingInstances: "根据配置启动 %d 个 forward 实例",
+	KeyLogProxyStartingInstances:   "根据配置启动 %d 个 proxy 实例",
+	KeyLogInstanceStarting:         "实例 #%d 启动: %s",
+	KeyErrInstanceFailed:           "实例 %s 启动失败: %w",
+	KeyErrDuplicateListen:          "配置中存在重复的监听地址: %s",
+	KeyLogMultiIgnoreFlags:         "注意：多实例配置忽略以下 per-instance 命令行 flag: %s",
+
 	KeyErrUnsupportedNet:  "不支持的网络类型: %q",
 	KeyLogTCPListening:    "正在监听 %s (tcp)，转发至 %s (reuseaddr=%v, max-conns=%d, idle=%s)",
 	KeyLogDialFailed:      "拨号 %s 失败: %v",

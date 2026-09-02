@@ -58,6 +58,13 @@ var messagesDE = map[string]string{
 	KeyErrConfigHandshake: "ungültiges handshake_timeout in der Konfigurationsdatei: %w",
 	KeyErrConfigKeepalive: "ungültiges upstream_keepalive in der Konfigurationsdatei: %w",
 
+	KeyLogForwardStartingInstances: "starte %d Forward-Instanz(en) aus der Konfiguration",
+	KeyLogProxyStartingInstances:   "starte %d Proxy-Instanz(en) aus der Konfiguration",
+	KeyLogInstanceStarting:         "Instanz #%d startet: %s",
+	KeyErrInstanceFailed:           "Instanz %s fehlgeschlagen: %w",
+	KeyErrDuplicateListen:          "doppelte Listen-Adresse in der Konfiguration: %s",
+	KeyLogMultiIgnoreFlags:         "Hinweis: Multi-Instanz-Konfiguration ignoriert instanzspezifische CLI-Flags: %s",
+
 	KeyErrUnsupportedNet:  "nicht unterstütztes Netzwerk: %q",
 	KeyLogTCPListening:    "lausche auf %s (tcp), leite weiter an %s (reuseaddr=%v, max-conns=%d, idle=%s)",
 	KeyLogDialFailed:      "Verbindung zu %s fehlgeschlagen: %v",

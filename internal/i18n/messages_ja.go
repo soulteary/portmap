@@ -58,6 +58,13 @@ var messagesJA = map[string]string{
 	KeyErrConfigHandshake: "設定ファイルの handshake_timeout が不正です: %w",
 	KeyErrConfigKeepalive: "設定ファイルの upstream_keepalive が不正です: %w",
 
+	KeyLogForwardStartingInstances: "設定から %d 個の forward インスタンスを起動します",
+	KeyLogProxyStartingInstances:   "設定から %d 個の proxy インスタンスを起動します",
+	KeyLogInstanceStarting:         "インスタンス #%d 起動: %s",
+	KeyErrInstanceFailed:           "インスタンス %s の起動に失敗しました: %w",
+	KeyErrDuplicateListen:          "設定内に重複する待受アドレスがあります: %s",
+	KeyLogMultiIgnoreFlags:         "注意: マルチインスタンス設定では次のインスタンス単位の CLI フラグを無視します: %s",
+
 	KeyErrUnsupportedNet:  "サポートされていないネットワーク: %q",
 	KeyLogTCPListening:    "%s (tcp) で待ち受け中、%s へ転送 (reuseaddr=%v, max-conns=%d, idle=%s)",
 	KeyLogDialFailed:      "%s へのダイヤルに失敗: %v",

@@ -43,6 +43,14 @@ const (
 	KeyErrConfigIdle      = "err.config-idle"
 	KeyErrConfigHandshake = "err.config-handshake"
 	KeyErrConfigKeepalive = "err.config-keepalive"
+
+	// 多实例（多端口映射）相关（main.go）。
+	KeyLogForwardStartingInstances = "log.forward-starting-instances"
+	KeyLogProxyStartingInstances   = "log.proxy-starting-instances"
+	KeyLogInstanceStarting         = "log.instance-starting"
+	KeyErrInstanceFailed           = "err.instance-failed"
+	KeyErrDuplicateListen          = "err.duplicate-listen"
+	KeyLogMultiIgnoreFlags         = "log.multi-ignore-flags"
 )
 
 // messages 保存每种语言下 key -> 文本 的映射。

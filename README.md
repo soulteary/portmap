@@ -269,6 +269,33 @@ lang: en
 - 配置按子命令**分段**：`forward` 子命令读取 `forward:` 段，`proxy` 子命令读取 `proxy:` 段，顶层 `lang` 为两者共享。
 - **向后兼容**：旧版「平铺 forward」布局（顶层直接写 `listen_port` / `target` / … ）仍受支持，`portmap` 会自动识别并归一化到 `forward:` 段，无需迁移即可继续使用。
 
+### 多端口映射（多实例）
+
+`forward:` 与 `proxy:` 既可写成**单个对象**（1 个实例），也可写成**对象列表**，用于在一次运行中同时启动多个端口映射（多实例）。列表元素的字段与单对象写法完全一致：
+
+```yaml
+forward:
+  - listen_port: 22
+    target: 127.0.0.1:2222
+  - listen_port: 80
+    target: 127.0.0.1:8080
+
+proxy:
+  - addr: 0.0.0.0:8118
+    allow_public: true
+    upstream: ssh://root@10.10.10.10
+    upstream_identity: ~/.ssh/id_rsa
+    upstream_keepalive: 30s
+    upstream_keepalive_max_failures: 3
+  - addr: 127.0.0.1:1080
+    upstream: socks5://user:pass@host:1080
+```
+
+- 各实例在各自的 goroutine 中并发启动；收到退出信号（`Ctrl-C` / `SIGTERM`）时统一优雅关闭，任一实例发生致命错误会触发整体退出。
+- 多实例**只能在配置文件中表达**；CLI 仍是单实例语义（如 `portmap proxy -addr ... -upstream ...`）。多实例场景下命令行的 per-instance flag（`-listen-port`/`-addr`/`-upstream` 等）无法一一对应，会被忽略并在日志中提示；`-config`/`-lang` 仍生效。
+- 各实例的监听地址（forward 为 `listen_host:listen_port`，proxy 为 `addr`）**不得重复**，否则启动时报错。
+- 单对象写法与旧版平铺布局完全兼容，视为 1 个实例，行为不变。
+
 命令行覆盖配置文件示例（配置文件里 `forward.listen_port` 为 22，此处显式指定 8022 生效）：
 
 ```bash

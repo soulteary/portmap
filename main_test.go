@@ -15,6 +15,8 @@
 package main
 
 import (
+	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -262,4 +264,134 @@ func TestRunProxyConfigLoad(t *testing.T) {
 			t.Fatal("配置中非法上游应触发错误")
 		}
 	})
+}
+
+// TestRunProxyMultiValidation 覆盖 proxy 多实例的校验路径：重复监听地址、
+// 某实例非法参数、某实例非法上游，均应在启动前返回错误。
+func TestRunProxyMultiValidation(t *testing.T) {
+	writeCfg := func(t *testing.T, content string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("写入临时配置失败: %v", err)
+		}
+		return path
+	}
+
+	t.Run("重复监听地址报错", func(t *testing.T) {
+		path := writeCfg(t, "proxy:\n  - addr: 127.0.0.1:1080\n  - addr: 127.0.0.1:1080\n")
+		if err := run([]string{"proxy", "-config", path}); err == nil {
+			t.Fatal("重复监听地址应返回错误")
+		}
+	})
+
+	t.Run("某实例负超时报错", func(t *testing.T) {
+		path := writeCfg(t, "proxy:\n  - addr: 127.0.0.1:1080\n  - addr: 127.0.0.1:1081\n    dial_timeout: -1s\n")
+		if err := run([]string{"proxy", "-config", path}); err == nil {
+			t.Fatal("负 dial_timeout 应返回错误")
+		}
+	})
+
+	t.Run("某实例非法上游报错", func(t *testing.T) {
+		path := writeCfg(t, "proxy:\n  - addr: 127.0.0.1:1080\n  - addr: 127.0.0.1:1081\n    upstream: ftp://host:21\n")
+		if err := run([]string{"proxy", "-config", path}); err == nil {
+			t.Fatal("非法上游应返回错误")
+		}
+	})
+}
+
+// TestRunForwardMultiValidation 覆盖 forward 多实例的校验路径：重复监听地址、
+// 某实例非法端口，均应在启动前返回错误。
+func TestRunForwardMultiValidation(t *testing.T) {
+	writeCfg := func(t *testing.T, content string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("写入临时配置失败: %v", err)
+		}
+		return path
+	}
+
+	t.Run("重复监听地址报错", func(t *testing.T) {
+		path := writeCfg(t, "forward:\n  - listen_port: 22\n    target: a:1\n  - listen_port: 22\n    target: b:2\n")
+		if err := run([]string{"-config", path}); err == nil {
+			t.Fatal("重复监听地址应返回错误")
+		}
+	})
+
+	t.Run("某实例非法端口报错", func(t *testing.T) {
+		path := writeCfg(t, "forward:\n  - listen_port: 22\n    target: a:1\n  - listen_port: 0\n    target: b:2\n")
+		if err := run([]string{"-config", path}); err == nil {
+			t.Fatal("非法端口应返回错误")
+		}
+	})
+
+	t.Run("某实例空 target 报错", func(t *testing.T) {
+		path := writeCfg(t, "forward:\n  - listen_port: 22\n    target: a:1\n  - listen_port: 23\n    target: \"\"\n")
+		if err := run([]string{"-config", path}); err == nil {
+			t.Fatal("空 target 应返回错误")
+		}
+	})
+}
+
+// TestStartForwardInstancesGracefulShutdown 以两个回环高位端口做集成式校验：
+// 并发启动两个 forward 实例，ctx 取消后应全部优雅退出并返回 nil。
+func TestStartForwardInstancesGracefulShutdown(t *testing.T) {
+	p1 := freeLoopbackPort(t)
+	p2 := freeLoopbackPort(t)
+	instances := []options{
+		{listenPort: p1, listenHost: "127.0.0.1", target: "127.0.0.1:1", proto: "tcp", reuseAddr: true, dialTimeout: time.Second, logLevel: "info", quiet: true},
+		{listenPort: p2, listenHost: "127.0.0.1", target: "127.0.0.1:1", proto: "tcp", reuseAddr: true, dialTimeout: time.Second, logLevel: "info", quiet: true},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- startForwardInstances(ctx, instances) }()
+
+	// 给实例一点时间完成监听，再触发关闭。
+	time.Sleep(150 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("多实例优雅关闭应返回 nil，实际 %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("多实例未在超时内退出")
+	}
+}
+
+// TestStartForwardInstancesDuplicateBindFails 验证当某实例监听地址已被占用时，
+// 启动会因该实例致命错误而整体返回错误（而非永久阻塞）。
+func TestStartForwardInstancesDuplicateBindFails(t *testing.T) {
+	// 占用一个端口，使 forward 实例绑定失败。
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("占位监听失败: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+	busyPort := ln.Addr().(*net.TCPAddr).Port
+
+	instances := []options{
+		{listenPort: busyPort, listenHost: "127.0.0.1", target: "127.0.0.1:1", proto: "tcp", reuseAddr: false, dialTimeout: time.Second, logLevel: "info", quiet: true},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := startForwardInstances(ctx, instances); err == nil {
+		t.Fatal("绑定已占用端口应返回错误")
+	}
+}
+
+// freeLoopbackPort 返回一个当前可用的回环端口（先监听再关闭以获取端口号）。
+func freeLoopbackPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("获取空闲端口失败: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	return port
 }

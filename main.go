@@ -31,6 +31,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -183,6 +184,19 @@ func runForward(argv []string) error {
 	setFlags := make(map[string]bool)
 	fs.Visit(func(f *flag.Flag) { setFlags[f.Name] = true })
 
+	// 多实例（多端口映射）：仅当 -config 指向的配置文件中 forward: 段声明了
+	// 多个实例时触发；此时逐个实例转换为运行参数并发启动，per-instance 忽略
+	// CLI 显式 flag（多实例场景下 -listen-port 等 flag 无法一一对应）。
+	if opt.configPath != "" {
+		topCfg, err := loadTopConfig(opt.configPath)
+		if err != nil {
+			return err
+		}
+		if len(topCfg.Forward) > 1 {
+			return runForwardMulti(opt, topCfg, setFlags)
+		}
+	}
+
 	// 加载配置文件并合并：仅对配置文件中出现、且命令行未显式设置的字段生效。
 	// 优先级：命令行显式 flag > 配置文件 > 内置默认值。
 	if opt.configPath != "" {
@@ -321,6 +335,162 @@ func runSocat(ctx context.Context, opt options, setFlags map[string]bool) error 
 	return nil
 }
 
+// forwardPerInstanceFlags 是「per-instance」语义的 forward flag（对应单个实例的
+// 监听/转发行为）。多实例场景下这些 flag 无法一一对应到某个实例，若被显式设置
+// 则提示忽略。-config/-lang/-version 等非 per-instance flag 不在此列。
+var forwardPerInstanceFlags = []string{
+	"listen-port", "listen-host", "target", "mode", "proto",
+	"reuseaddr", "sudo", "dial-timeout", "max-conns", "idle-timeout",
+	"log-level", "quiet",
+}
+
+// normalizeForwardOptions 归一化并校验单个 forward 实例的运行参数。
+// 复用与单实例路径一致的校验规则（端口范围、target 非空、proto、超时非负、
+// log-level 等），并就地归一化 proto/log-level 的大小写。
+func normalizeForwardOptions(opt *options) error {
+	if opt.listenPort <= 0 || opt.listenPort > 65535 {
+		return errors.New(i18n.T(i18n.KeyErrListenPort, opt.listenPort))
+	}
+	if strings.TrimSpace(opt.target) == "" {
+		return errors.New(i18n.T(i18n.KeyErrTargetEmpty))
+	}
+	proto := strings.ToLower(strings.TrimSpace(opt.proto))
+	if proto != "tcp" && proto != "udp" {
+		return errors.New(i18n.T(i18n.KeyErrProto, opt.proto))
+	}
+	opt.proto = proto
+	if opt.idleTimeout < 0 {
+		return errors.New(i18n.T(i18n.KeyErrIdleNeg, opt.idleTimeout))
+	}
+	if opt.maxConns < 0 {
+		return errors.New(i18n.T(i18n.KeyErrMaxConnsNeg, opt.maxConns))
+	}
+	if opt.dialTimeout < 0 {
+		return errors.New(i18n.T(i18n.KeyErrDialNeg, opt.dialTimeout))
+	}
+	logLevel := strings.ToLower(strings.TrimSpace(opt.logLevel))
+	if logLevel != "info" && logLevel != "debug" {
+		return errors.New(i18n.T(i18n.KeyErrLogLevel, opt.logLevel))
+	}
+	opt.logLevel = logLevel
+	return nil
+}
+
+// forwardListenAddr 返回 forward 实例的规范化监听地址，用于重复检测与日志。
+func forwardListenAddr(opt options) string {
+	return net.JoinHostPort(opt.listenHost, strconv.Itoa(opt.listenPort))
+}
+
+// defaultForwardOptions 返回与 forward flag 默认值一致的基线运行参数，供多实例
+// 逐个转换时作为起点（每个实例从默认值出发，再叠加配置文件字段）。
+func defaultForwardOptions() options {
+	return options{
+		listenPort:  22,
+		target:      "127.0.0.1:2222",
+		mode:        "go",
+		proto:       "tcp",
+		reuseAddr:   true,
+		dialTimeout: 10 * time.Second,
+		maxConns:    0,
+		idleTimeout: 0,
+		logLevel:    "info",
+	}
+}
+
+// runForwardMulti 处理 forward 多实例（多端口映射）：逐个实例从默认值出发叠加
+// 配置文件字段（per-instance 不应用 CLI 覆盖），校验并去重后并发启动。
+func runForwardMulti(base options, cfg *Config, setFlags map[string]bool) error {
+	// 语言：配置文件的 lang 在命令行未显式设置时生效（与单实例路径一致）。
+	if cfg.Lang != nil && !setFlags["lang"] {
+		if l, ok := i18n.ParseLang(*cfg.Lang); ok {
+			i18n.SetLang(l)
+		}
+	}
+
+	// 提示：多实例场景忽略 per-instance CLI flag（如 -listen-port）。
+	var ignored []string
+	for _, name := range forwardPerInstanceFlags {
+		if setFlags[name] {
+			ignored = append(ignored, "-"+name)
+		}
+	}
+	if len(ignored) > 0 {
+		log.Print(i18n.T(i18n.KeyLogMultiIgnoreFlags, strings.Join(ignored, " ")))
+	}
+
+	instances := make([]options, 0, len(cfg.Forward))
+	seen := make(map[string]struct{}, len(cfg.Forward))
+	for _, fc := range cfg.Forward {
+		opt := defaultForwardOptions()
+		opt.lang = base.lang
+		// per-instance 不应用 CLI 覆盖：setFlags 传空 map。
+		if err := applyForwardConfig(&opt, fc, map[string]bool{}); err != nil {
+			return err
+		}
+		if err := normalizeForwardOptions(&opt); err != nil {
+			return err
+		}
+		addr := forwardListenAddr(opt)
+		if _, dup := seen[addr]; dup {
+			return errors.New(i18n.T(i18n.KeyErrDuplicateListen, addr))
+		}
+		seen[addr] = struct{}{}
+		instances = append(instances, opt)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return startForwardInstances(ctx, instances)
+}
+
+// startForwardInstances 并发启动多个 forward 实例（均为 go 模式），聚合信号与
+// 错误：任一实例致命错误即返回；ctx 取消（收到退出信号）时各实例经其自身的
+// ListenAndServe(ctx) 优雅关闭。单实例场景亦可复用（列表长度 1）。
+func startForwardInstances(ctx context.Context, instances []options) error {
+	log.Print(i18n.T(i18n.KeyLogForwardStartingInstances, len(instances)))
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	errCh := make(chan error, len(instances))
+	var wg sync.WaitGroup
+	for i, opt := range instances {
+		i, opt := i, opt
+		listen := forwardListenAddr(opt)
+		log.Print(i18n.T(i18n.KeyLogInstanceStarting, i+1, opt.String()))
+		srv := forward.New(forward.Config{
+			Listen:      listen,
+			Target:      opt.target,
+			Network:     opt.proto,
+			ReuseAddr:   opt.reuseAddr,
+			DialTimeout: opt.dialTimeout,
+			MaxConns:    opt.maxConns,
+			IdleTimeout: opt.idleTimeout,
+			Debug:       strings.EqualFold(opt.logLevel, "debug"),
+			Quiet:       opt.quiet,
+		})
+		watchStatusSignal(ctx, srv)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := srv.ListenAndServe(ctx); err != nil {
+				// ctx 取消导致的关闭视为正常退出，不作为致命错误。
+				if ctx.Err() == nil {
+					errCh <- fmt.Errorf(i18n.T(i18n.KeyErrInstanceFailed), listen, err)
+					cancel()
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+	if err := <-errCh; err != nil {
+		return err
+	}
+	return nil
+}
+
 // proxyOptions 保存 proxy 子命令的运行参数。
 type proxyOptions struct {
 	addr                         string
@@ -381,6 +551,18 @@ func runProxy(argv []string) error {
 	setFlags := make(map[string]bool)
 	fs.Visit(func(f *flag.Flag) { setFlags[f.Name] = true })
 
+	// 多实例（多端口映射）：仅当 -config 指向的配置文件中 proxy: 段声明了多个
+	// 实例时触发；逐个实例转换为运行参数并发启动，per-instance 忽略 CLI 显式 flag。
+	if opt.configPath != "" {
+		topCfg, err := loadTopConfig(opt.configPath)
+		if err != nil {
+			return err
+		}
+		if len(topCfg.Proxy) > 1 {
+			return runProxyMulti(opt, topCfg, setFlags)
+		}
+	}
+
 	// 加载配置文件并合并 proxy 段：命令行显式 flag > 配置文件 > 默认值。
 	if opt.configPath != "" {
 		cfg, err := loadTopConfig(opt.configPath)
@@ -397,6 +579,26 @@ func runProxy(argv []string) error {
 		}
 	}
 
+	if err := validateProxyOptions(&opt); err != nil {
+		return err
+	}
+
+	// 解析上游代理配置（留空表示直连，保持向后兼容）。
+	upstream, err := buildProxyUpstream(&opt)
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	srv := newProxyServer(opt, upstream)
+	return serveProxy(ctx, srv)
+}
+
+// validateProxyOptions 校验单个 proxy 实例的运行参数（地址非空、各超时非负、
+// max-conns 非负），与单实例路径规则一致。
+func validateProxyOptions(opt *proxyOptions) error {
 	if strings.TrimSpace(opt.addr) == "" {
 		return errors.New(i18n.T(i18n.KeyErrTargetEmpty))
 	}
@@ -412,25 +614,29 @@ func runProxy(argv []string) error {
 	if opt.idleTimeout < 0 {
 		return errors.New(i18n.T(i18n.KeyErrIdleNeg, opt.idleTimeout))
 	}
+	return nil
+}
 
-	// 解析上游代理配置（留空表示直连，保持向后兼容）。
-	var upstream *proxy.UpstreamConfig
-	if strings.TrimSpace(opt.upstream) != "" {
-		u, err := proxy.ParseUpstreamURL(opt.upstream)
-		if err != nil {
-			return err
-		}
-		u.IdentityFile = opt.upstreamIdentity
-		u.KnownHostsFile = opt.upstreamKnownHosts
-		u.Insecure = opt.upstreamInsecure
-		u.KeepaliveInterval = opt.upstreamKeepalive
-		u.KeepaliveMaxFailures = opt.upstreamKeepaliveMaxFailures
-		upstream = u
+// buildProxyUpstream 依据 proxyOptions 解析上游代理链配置；upstream 为空表示
+// 直连（返回 nil, nil），保持向后兼容。
+func buildProxyUpstream(opt *proxyOptions) (*proxy.UpstreamConfig, error) {
+	if strings.TrimSpace(opt.upstream) == "" {
+		return nil, nil
 	}
+	u, err := proxy.ParseUpstreamURL(opt.upstream)
+	if err != nil {
+		return nil, err
+	}
+	u.IdentityFile = opt.upstreamIdentity
+	u.KnownHostsFile = opt.upstreamKnownHosts
+	u.Insecure = opt.upstreamInsecure
+	u.KeepaliveInterval = opt.upstreamKeepalive
+	u.KeepaliveMaxFailures = opt.upstreamKeepaliveMaxFailures
+	return u, nil
+}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
+// newProxyServer 依据运行参数与上游配置构造 proxy.Server。
+func newProxyServer(opt proxyOptions, upstream *proxy.UpstreamConfig) *proxy.Server {
 	srv := proxy.New(opt.addr)
 	srv.DialTimeout = opt.dialTimeout
 	srv.MaxConns = opt.maxConns
@@ -438,8 +644,11 @@ func runProxy(argv []string) error {
 	srv.IdleTimeout = opt.idleTimeout
 	srv.AllowPublic = opt.allowPublic
 	srv.Upstream = upstream
+	return srv
+}
 
-	// 监听退出信号，优雅关闭。
+// serveProxy 启动单个 proxy.Server 并处理优雅关闭：ctx 取消时对其 Shutdown。
+func serveProxy(ctx context.Context, srv *proxy.Server) error {
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
@@ -458,6 +667,104 @@ func runProxy(argv []string) error {
 	}
 	if err != nil {
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyExit), err)
+	}
+	return nil
+}
+
+// proxyPerInstanceFlags 是「per-instance」语义的 proxy flag，多实例场景下无法
+// 一一对应，若被显式设置则提示忽略。-config/-lang/-version 不在此列。
+var proxyPerInstanceFlags = []string{
+	"addr", "dial-timeout", "max-conns", "handshake-timeout", "idle-timeout",
+	"allow-public", "upstream", "upstream-identity", "upstream-known-hosts",
+	"upstream-insecure", "upstream-keepalive", "upstream-keepalive-max-failures",
+}
+
+// defaultProxyOptions 返回与 proxy flag 默认值一致的基线运行参数，供多实例逐个
+// 转换时作为起点。
+func defaultProxyOptions() proxyOptions {
+	return proxyOptions{
+		addr:             "127.0.0.1:1080",
+		dialTimeout:      30 * time.Second,
+		maxConns:         256,
+		handshakeTimeout: 10 * time.Second,
+		idleTimeout:      5 * time.Minute,
+	}
+}
+
+// runProxyMulti 处理 proxy 多实例（多端口映射）：逐个实例从默认值出发叠加配置
+// 文件字段（per-instance 不应用 CLI 覆盖），校验并按监听地址去重后并发启动。
+func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) error {
+	if cfg.Lang != nil && !setFlags["lang"] {
+		if l, ok := i18n.ParseLang(*cfg.Lang); ok {
+			i18n.SetLang(l)
+		}
+	}
+
+	var ignored []string
+	for _, name := range proxyPerInstanceFlags {
+		if setFlags[name] {
+			ignored = append(ignored, "-"+name)
+		}
+	}
+	if len(ignored) > 0 {
+		log.Print(i18n.T(i18n.KeyLogMultiIgnoreFlags, strings.Join(ignored, " ")))
+	}
+
+	type proxyInstance struct {
+		opt      proxyOptions
+		upstream *proxy.UpstreamConfig
+	}
+	instances := make([]proxyInstance, 0, len(cfg.Proxy))
+	seen := make(map[string]struct{}, len(cfg.Proxy))
+	for _, pc := range cfg.Proxy {
+		opt := defaultProxyOptions()
+		opt.lang = base.lang
+		if err := applyProxyConfig(&opt, pc, map[string]bool{}); err != nil {
+			return err
+		}
+		if err := validateProxyOptions(&opt); err != nil {
+			return err
+		}
+		if _, dup := seen[opt.addr]; dup {
+			return errors.New(i18n.T(i18n.KeyErrDuplicateListen, opt.addr))
+		}
+		seen[opt.addr] = struct{}{}
+		upstream, err := buildProxyUpstream(&opt)
+		if err != nil {
+			return err
+		}
+		instances = append(instances, proxyInstance{opt: opt, upstream: upstream})
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	log.Print(i18n.T(i18n.KeyLogProxyStartingInstances, len(instances)))
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	errCh := make(chan error, len(instances))
+	var wg sync.WaitGroup
+	for i, inst := range instances {
+		i, inst := i, inst
+		log.Print(i18n.T(i18n.KeyLogInstanceStarting, i+1, inst.opt.addr))
+		srv := newProxyServer(inst.opt, inst.upstream)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := serveProxy(ctx, srv); err != nil {
+				if ctx.Err() == nil {
+					errCh <- fmt.Errorf(i18n.T(i18n.KeyErrInstanceFailed), inst.opt.addr, err)
+					cancel()
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+	if err := <-errCh; err != nil {
+		return err
 	}
 	return nil
 }

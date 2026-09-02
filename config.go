@@ -38,11 +38,93 @@ import (
 //	  max_conns: 256
 //	lang: zh            # 全局界面语言
 //
-// 各段均为指针：nil 表示配置文件未出现该段。
+// 各段均为列表：长度为 0 表示配置文件未出现该段；长度为 1 为单实例；
+// 长度大于 1 为多实例（多端口映射）。为兼容历史「单对象」写法，
+// ForwardConfigList / ProxyConfigList 各自实现了 UnmarshalYAML：
+// 既能解析单个映射对象（视为 1 个实例），也能解析对象列表（多实例）。
 type Config struct {
-	Forward *ForwardConfig `yaml:"forward"`
-	Proxy   *ProxyConfig   `yaml:"proxy"`
-	Lang    *string        `yaml:"lang"`
+	Forward ForwardConfigList `yaml:"forward"`
+	Proxy   ProxyConfigList   `yaml:"proxy"`
+	Lang    *string           `yaml:"lang"`
+}
+
+// ForwardConfigList 是 forward 实例列表。支持两种 YAML 写法：
+//   - 单对象：forward: {listen_port: 22, ...} → 归一化为 1 个实例；
+//   - 列表：  forward: [{...}, {...}]          → 多实例（多端口映射）。
+type ForwardConfigList []*ForwardConfig
+
+// ProxyConfigList 是 proxy 实例列表，写法与 ForwardConfigList 一致。
+type ProxyConfigList []*ProxyConfig
+
+// UnmarshalYAML 兼容「单对象或对象列表」两种写法，并保持对每个元素的严格
+// 未知字段校验（KnownFields）。yaml.v3 的 KnownFields 作用于 Decoder，无法
+// 直接经由 UnmarshalYAML 的 *yaml.Node 传递，因此这里对每个子节点先序列化
+// 再用严格 Decoder 解码，从而在列表元素级别保留未知字段报错。
+func (l *ForwardConfigList) UnmarshalYAML(node *yaml.Node) error {
+	items, err := decodeNodeList[ForwardConfig](node)
+	if err != nil {
+		return err
+	}
+	*l = items
+	return nil
+}
+
+// UnmarshalYAML 见 ForwardConfigList.UnmarshalYAML 的说明。
+func (l *ProxyConfigList) UnmarshalYAML(node *yaml.Node) error {
+	items, err := decodeNodeList[ProxyConfig](node)
+	if err != nil {
+		return err
+	}
+	*l = items
+	return nil
+}
+
+// decodeNodeList 把一个 YAML 节点解析为 *T 列表：
+//   - MappingNode → 单元素列表；
+//   - SequenceNode → 多元素列表（每个元素须为 MappingNode）；
+//   - 其它类型报错。
+//
+// 每个元素都经由严格 Decoder（KnownFields(true)）解码，保证未知字段仍报错。
+func decodeNodeList[T any](node *yaml.Node) ([]*T, error) {
+	switch node.Kind {
+	case yaml.MappingNode:
+		item, err := decodeNodeStrict[T](node)
+		if err != nil {
+			return nil, err
+		}
+		return []*T{item}, nil
+	case yaml.SequenceNode:
+		out := make([]*T, 0, len(node.Content))
+		for _, child := range node.Content {
+			item, err := decodeNodeStrict[T](child)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, item)
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf(i18n.T(i18n.KeyErrConfigParse), errUnexpectedNodeKind(node))
+	}
+}
+
+// decodeNodeStrict 以 KnownFields(true) 严格解码单个 YAML 节点到 *T。
+// 通过把节点重新序列化后再解码，从而复用 Decoder 级别的严格校验。
+func decodeNodeStrict[T any](node *yaml.Node) (*T, error) {
+	raw, err := yaml.Marshal(node)
+	if err != nil {
+		return nil, fmt.Errorf(i18n.T(i18n.KeyErrConfigParse), err)
+	}
+	var out T
+	if err := decodeStrict(raw, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// errUnexpectedNodeKind 生成一个描述非映射/序列节点的错误。
+func errUnexpectedNodeKind(node *yaml.Node) error {
+	return fmt.Errorf("unexpected YAML node kind %d at line %d", node.Kind, node.Line)
 }
 
 // ForwardConfig 是 forward 子命令的配置段，字段与 forward flag 一一对应。
@@ -164,7 +246,7 @@ func loadTopConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	cfg := &Config{
-		Forward: &ForwardConfig{
+		Forward: ForwardConfigList{{
 			ListenPort:  flat.ListenPort,
 			ListenHost:  flat.ListenHost,
 			Target:      flat.Target,
@@ -177,25 +259,26 @@ func loadTopConfig(path string) (*Config, error) {
 			IdleTimeout: flat.IdleTimeout,
 			LogLevel:    flat.LogLevel,
 			Quiet:       flat.Quiet,
-		},
+		}},
 		Lang: flat.Lang,
 	}
 	return cfg, nil
 }
 
 // loadForwardConfig 为 forward 子命令加载配置，兼容新旧两种布局：
-//   - 新版：读取 forward: 段与顶层 lang:；
+//   - 新版：读取 forward: 段（单对象或列表的第一个实例）与顶层 lang:；
 //   - 旧版：平铺 listen_port/target/... 直接映射为 forward 配置。
 //
-// 返回归一化后的 *fileConfig，供既有 mergeConfig 复用。
+// 返回归一化后的 *fileConfig，供既有 mergeConfig（CLI 单实例合并）复用。
+// 多实例场景不经由此函数，而是逐个 *ForwardConfig 转换为运行参数。
 func loadForwardConfig(path string) (*fileConfig, error) {
 	cfg, err := loadTopConfig(path)
 	if err != nil {
 		return nil, err
 	}
 	out := &fileConfig{Lang: cfg.Lang}
-	if cfg.Forward != nil {
-		fw := cfg.Forward
+	if len(cfg.Forward) > 0 && cfg.Forward[0] != nil {
+		fw := cfg.Forward[0]
 		out.ListenPort = fw.ListenPort
 		out.ListenHost = fw.ListenHost
 		out.Target = fw.Target
@@ -215,6 +298,9 @@ func loadForwardConfig(path string) (*fileConfig, error) {
 // mergeProxyConfig 将配置文件中的 proxy 段合并进 proxyOptions：
 // 仅当配置文件出现该字段且命令行未显式设置对应 flag 时才覆盖，
 // 从而保证「命令行显式 flag > 配置文件 > 内置默认值」的优先级。
+//
+// 该函数用于 CLI 单实例合并路径：仅合并 proxy 段的「第一个/唯一」实例。
+// 多实例场景由 buildProxyOptions 逐个转换，不经由此函数。
 func mergeProxyConfig(opt *proxyOptions, cfg *Config, setFlags map[string]bool) error {
 	if cfg == nil {
 		return nil
@@ -222,60 +308,70 @@ func mergeProxyConfig(opt *proxyOptions, cfg *Config, setFlags map[string]bool) 
 	if cfg.Lang != nil && !setFlags["lang"] {
 		opt.lang = *cfg.Lang
 	}
-	if cfg.Proxy == nil {
+	if len(cfg.Proxy) == 0 || cfg.Proxy[0] == nil {
 		return nil
 	}
-	if cfg.Proxy.Addr != nil && !setFlags["addr"] {
-		opt.addr = *cfg.Proxy.Addr
+	return applyProxyConfig(opt, cfg.Proxy[0], setFlags)
+}
+
+// applyProxyConfig 将单个 *ProxyConfig 合并进 proxyOptions：仅覆盖配置文件中
+// 出现（指针非 nil）且命令行未显式设置（setFlags 为空/未标记）的字段。
+// 多实例场景调用时 setFlags 传入空 map（per-instance 不应用 CLI 覆盖）。
+func applyProxyConfig(opt *proxyOptions, pc *ProxyConfig, setFlags map[string]bool) error {
+	if pc == nil {
+		return nil
 	}
-	if cfg.Proxy.DialTimeout != nil && !setFlags["dial-timeout"] {
-		d, err := time.ParseDuration(*cfg.Proxy.DialTimeout)
+	if pc.Addr != nil && !setFlags["addr"] {
+		opt.addr = *pc.Addr
+	}
+	if pc.DialTimeout != nil && !setFlags["dial-timeout"] {
+		d, err := time.ParseDuration(*pc.DialTimeout)
 		if err != nil {
 			return fmt.Errorf(i18n.T(i18n.KeyErrConfigDial), err)
 		}
 		opt.dialTimeout = d
 	}
-	if cfg.Proxy.MaxConns != nil && !setFlags["max-conns"] {
-		opt.maxConns = *cfg.Proxy.MaxConns
+	if pc.MaxConns != nil && !setFlags["max-conns"] {
+		opt.maxConns = *pc.MaxConns
 	}
-	if cfg.Proxy.HandshakeTimeout != nil && !setFlags["handshake-timeout"] {
-		d, err := time.ParseDuration(*cfg.Proxy.HandshakeTimeout)
+	if pc.HandshakeTimeout != nil && !setFlags["handshake-timeout"] {
+		d, err := time.ParseDuration(*pc.HandshakeTimeout)
 		if err != nil {
 			return fmt.Errorf(i18n.T(i18n.KeyErrConfigHandshake), err)
 		}
 		opt.handshakeTimeout = d
 	}
-	if cfg.Proxy.IdleTimeout != nil && !setFlags["idle-timeout"] {
-		d, err := time.ParseDuration(*cfg.Proxy.IdleTimeout)
+	if pc.IdleTimeout != nil && !setFlags["idle-timeout"] {
+		d, err := time.ParseDuration(*pc.IdleTimeout)
 		if err != nil {
 			return fmt.Errorf(i18n.T(i18n.KeyErrConfigIdle), err)
 		}
 		opt.idleTimeout = d
 	}
-	if cfg.Proxy.AllowPublic != nil && !setFlags["allow-public"] {
-		opt.allowPublic = *cfg.Proxy.AllowPublic
+	if pc.AllowPublic != nil && !setFlags["allow-public"] {
+		opt.allowPublic = *pc.AllowPublic
 	}
-	if cfg.Proxy.Upstream != nil && !setFlags["upstream"] {
-		opt.upstream = *cfg.Proxy.Upstream
+	if pc.Upstream != nil && !setFlags["upstream"] {
+		opt.upstream = *pc.Upstream
 	}
-	if cfg.Proxy.UpstreamIdentity != nil && !setFlags["upstream-identity"] {
-		opt.upstreamIdentity = *cfg.Proxy.UpstreamIdentity
+	if pc.UpstreamIdentity != nil && !setFlags["upstream-identity"] {
+		opt.upstreamIdentity = *pc.UpstreamIdentity
 	}
-	if cfg.Proxy.UpstreamKnownHosts != nil && !setFlags["upstream-known-hosts"] {
-		opt.upstreamKnownHosts = *cfg.Proxy.UpstreamKnownHosts
+	if pc.UpstreamKnownHosts != nil && !setFlags["upstream-known-hosts"] {
+		opt.upstreamKnownHosts = *pc.UpstreamKnownHosts
 	}
-	if cfg.Proxy.UpstreamInsecure != nil && !setFlags["upstream-insecure"] {
-		opt.upstreamInsecure = *cfg.Proxy.UpstreamInsecure
+	if pc.UpstreamInsecure != nil && !setFlags["upstream-insecure"] {
+		opt.upstreamInsecure = *pc.UpstreamInsecure
 	}
-	if cfg.Proxy.UpstreamKeepalive != nil && !setFlags["upstream-keepalive"] {
-		d, err := time.ParseDuration(*cfg.Proxy.UpstreamKeepalive)
+	if pc.UpstreamKeepalive != nil && !setFlags["upstream-keepalive"] {
+		d, err := time.ParseDuration(*pc.UpstreamKeepalive)
 		if err != nil {
 			return fmt.Errorf(i18n.T(i18n.KeyErrConfigKeepalive), err)
 		}
 		opt.upstreamKeepalive = d
 	}
-	if cfg.Proxy.UpstreamKeepaliveMaxFailures != nil && !setFlags["upstream-keepalive-max-failures"] {
-		opt.upstreamKeepaliveMaxFailures = *cfg.Proxy.UpstreamKeepaliveMaxFailures
+	if pc.UpstreamKeepaliveMaxFailures != nil && !setFlags["upstream-keepalive-max-failures"] {
+		opt.upstreamKeepaliveMaxFailures = *pc.UpstreamKeepaliveMaxFailures
 	}
 	return nil
 }
@@ -354,6 +450,61 @@ func mergeConfig(opt *options, cfg *fileConfig, setFlags map[string]bool) error 
 	}
 	if cfg.IdleTimeout != nil && !setFlags["idle-timeout"] {
 		d, err := time.ParseDuration(*cfg.IdleTimeout)
+		if err != nil {
+			return fmt.Errorf(i18n.T(i18n.KeyErrConfigIdle), err)
+		}
+		opt.idleTimeout = d
+	}
+	return nil
+}
+
+// applyForwardConfig 将单个 *ForwardConfig 合并进 options：仅覆盖配置文件中
+// 出现（指针非 nil）且命令行未显式设置的字段。多实例场景调用时 setFlags 传入
+// 空 map（per-instance 不应用 CLI 覆盖）。ForwardConfig 不含 lang 字段，
+// 语言由顶层 Config.Lang 统一处理。
+func applyForwardConfig(opt *options, fc *ForwardConfig, setFlags map[string]bool) error {
+	if fc == nil {
+		return nil
+	}
+	if fc.ListenPort != nil && !setFlags["listen-port"] {
+		opt.listenPort = *fc.ListenPort
+	}
+	if fc.ListenHost != nil && !setFlags["listen-host"] {
+		opt.listenHost = *fc.ListenHost
+	}
+	if fc.Target != nil && !setFlags["target"] {
+		opt.target = *fc.Target
+	}
+	if fc.Mode != nil && !setFlags["mode"] {
+		opt.mode = *fc.Mode
+	}
+	if fc.Proto != nil && !setFlags["proto"] {
+		opt.proto = *fc.Proto
+	}
+	if fc.ReuseAddr != nil && !setFlags["reuseaddr"] {
+		opt.reuseAddr = *fc.ReuseAddr
+	}
+	if fc.Sudo != nil && !setFlags["sudo"] {
+		opt.useSudo = *fc.Sudo
+	}
+	if fc.MaxConns != nil && !setFlags["max-conns"] {
+		opt.maxConns = *fc.MaxConns
+	}
+	if fc.LogLevel != nil && !setFlags["log-level"] {
+		opt.logLevel = *fc.LogLevel
+	}
+	if fc.Quiet != nil && !setFlags["quiet"] {
+		opt.quiet = *fc.Quiet
+	}
+	if fc.DialTimeout != nil && !setFlags["dial-timeout"] {
+		d, err := time.ParseDuration(*fc.DialTimeout)
+		if err != nil {
+			return fmt.Errorf(i18n.T(i18n.KeyErrConfigDial), err)
+		}
+		opt.dialTimeout = d
+	}
+	if fc.IdleTimeout != nil && !setFlags["idle-timeout"] {
+		d, err := time.ParseDuration(*fc.IdleTimeout)
 		if err != nil {
 			return fmt.Errorf(i18n.T(i18n.KeyErrConfigIdle), err)
 		}

@@ -58,6 +58,13 @@ var messagesKO = map[string]string{
 	KeyErrConfigHandshake: "설정 파일의 handshake_timeout이 잘못되었습니다: %w",
 	KeyErrConfigKeepalive: "설정 파일의 upstream_keepalive가 잘못되었습니다: %w",
 
+	KeyLogForwardStartingInstances: "설정에서 %d개의 forward 인스턴스를 시작합니다",
+	KeyLogProxyStartingInstances:   "설정에서 %d개의 proxy 인스턴스를 시작합니다",
+	KeyLogInstanceStarting:         "인스턴스 #%d 시작: %s",
+	KeyErrInstanceFailed:           "인스턴스 %s 시작 실패: %w",
+	KeyErrDuplicateListen:          "설정에 중복된 수신 주소가 있습니다: %s",
+	KeyLogMultiIgnoreFlags:         "참고: 다중 인스턴스 설정에서는 인스턴스별 CLI 플래그를 무시합니다: %s",
+
 	KeyErrUnsupportedNet:  "지원되지 않는 네트워크: %q",
 	KeyLogTCPListening:    "%s (tcp)에서 수신 중, %s로 전달 (reuseaddr=%v, max-conns=%d, idle=%s)",
 	KeyLogDialFailed:      "%s 다이얼 실패: %v",

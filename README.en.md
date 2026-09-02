@@ -222,6 +222,33 @@ Example of command-line overriding the config file (config has `listen_port: 22`
 ./portmap -config config.yaml -listen-port 8022
 ```
 
+### Multiple Port Mappings (multi-instance)
+
+`forward:` and `proxy:` may be written either as a **single object** (one instance) or as a **list of objects**, to start multiple port mappings in a single run (multi-instance). List elements use exactly the same fields as the single-object form:
+
+```yaml
+forward:
+  - listen_port: 22
+    target: 127.0.0.1:2222
+  - listen_port: 80
+    target: 127.0.0.1:8080
+
+proxy:
+  - addr: 0.0.0.0:8118
+    allow_public: true
+    upstream: ssh://root@10.10.10.10
+    upstream_identity: ~/.ssh/id_rsa
+    upstream_keepalive: 30s
+    upstream_keepalive_max_failures: 3
+  - addr: 127.0.0.1:1080
+    upstream: socks5://user:pass@host:1080
+```
+
+- Each instance starts concurrently in its own goroutine; on a shutdown signal (`Ctrl-C` / `SIGTERM`) they all shut down gracefully, and a fatal error in any instance triggers overall shutdown.
+- Multi-instance can **only be expressed in the config file**; the CLI stays single-instance (e.g. `portmap proxy -addr ... -upstream ...`). In the multi-instance case, per-instance CLI flags (`-listen-port`/`-addr`/`-upstream`, etc.) cannot map to a specific instance and are ignored with a notice; `-config`/`-lang` still take effect.
+- The listen address of each instance (`listen_host:listen_port` for forward, `addr` for proxy) must **not be duplicated**, otherwise startup fails.
+- The single-object form and the legacy flat layout remain fully compatible, treated as one instance with unchanged behavior.
+
 ## Mode Differences (go vs socat)
 
 The two modes support different capabilities; choose based on your needs:

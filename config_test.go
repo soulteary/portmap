@@ -262,12 +262,12 @@ func TestMergeProxyConfigSecurityLimits(t *testing.T) {
 	boolPtr := func(b bool) *bool { return &b }
 
 	opt := proxyOptions{}
-	cfg := &Config{Proxy: &ProxyConfig{
+	cfg := &Config{Proxy: ProxyConfigList{{
 		MaxConns:         intPtr(64),
 		HandshakeTimeout: strPtr("3s"),
 		IdleTimeout:      strPtr("2m"),
 		AllowPublic:      boolPtr(true),
-	}}
+	}}}
 	if err := mergeProxyConfig(&opt, cfg, map[string]bool{}); err != nil {
 		t.Fatalf("mergeProxyConfig 返回错误: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestMergeProxyConfigSecurityLimits(t *testing.T) {
 		t.Fatalf("代理安全配置未正确合并: %+v", opt)
 	}
 
-	bad := &Config{Proxy: &ProxyConfig{HandshakeTimeout: strPtr("invalid")}}
+	bad := &Config{Proxy: ProxyConfigList{{HandshakeTimeout: strPtr("invalid")}}}
 	if err := mergeProxyConfig(&proxyOptions{}, bad, map[string]bool{}); err == nil {
 		t.Fatal("非法 handshake_timeout 应返回错误")
 	}
@@ -322,13 +322,13 @@ proxy:
 	if cfg.Lang == nil || *cfg.Lang != "ja" {
 		t.Errorf("lang 解析错误: %v", cfg.Lang)
 	}
-	if cfg.Forward == nil || cfg.Forward.ListenPort == nil || *cfg.Forward.ListenPort != 8022 {
+	if len(cfg.Forward) != 1 || cfg.Forward[0].ListenPort == nil || *cfg.Forward[0].ListenPort != 8022 {
 		t.Errorf("forward.listen_port 解析错误: %+v", cfg.Forward)
 	}
-	if cfg.Proxy == nil || cfg.Proxy.Addr == nil || *cfg.Proxy.Addr != "127.0.0.1:1080" {
+	if len(cfg.Proxy) != 1 || cfg.Proxy[0].Addr == nil || *cfg.Proxy[0].Addr != "127.0.0.1:1080" {
 		t.Errorf("proxy.addr 解析错误: %+v", cfg.Proxy)
 	}
-	if cfg.Proxy.Upstream == nil || *cfg.Proxy.Upstream != "socks5://127.0.0.1:1080" {
+	if cfg.Proxy[0].Upstream == nil || *cfg.Proxy[0].Upstream != "socks5://127.0.0.1:1080" {
 		t.Errorf("proxy.upstream 解析错误: %+v", cfg.Proxy)
 	}
 }
@@ -340,13 +340,13 @@ func TestLoadTopConfigFlatNormalized(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadTopConfig 返回错误: %v", err)
 	}
-	if cfg.Forward == nil || cfg.Forward.ListenPort == nil || *cfg.Forward.ListenPort != 2200 {
+	if len(cfg.Forward) != 1 || cfg.Forward[0].ListenPort == nil || *cfg.Forward[0].ListenPort != 2200 {
 		t.Fatalf("旧版平铺未归一化到 forward: %+v", cfg.Forward)
 	}
 	if cfg.Lang == nil || *cfg.Lang != "zh" {
 		t.Fatalf("lang 归一化错误: %v", cfg.Lang)
 	}
-	if cfg.Proxy != nil {
+	if len(cfg.Proxy) != 0 {
 		t.Fatalf("旧版布局不应产生 proxy 段: %+v", cfg.Proxy)
 	}
 }
@@ -418,7 +418,7 @@ func TestMergeProxyConfigAllFields(t *testing.T) {
 		opt := proxyOptions{}
 		cfg := &Config{
 			Lang: strPtr("de"),
-			Proxy: &ProxyConfig{
+			Proxy: ProxyConfigList{{
 				Addr:                         strPtr("0.0.0.0:1080"),
 				DialTimeout:                  strPtr("20s"),
 				Upstream:                     strPtr("ssh://root@host:22"),
@@ -427,7 +427,7 @@ func TestMergeProxyConfigAllFields(t *testing.T) {
 				UpstreamInsecure:             boolPtr(true),
 				UpstreamKeepalive:            strPtr("45s"),
 				UpstreamKeepaliveMaxFailures: intPtr(5),
-			},
+			}},
 		}
 		if err := mergeProxyConfig(&opt, cfg, map[string]bool{}); err != nil {
 			t.Fatalf("mergeProxyConfig: %v", err)
@@ -446,7 +446,7 @@ func TestMergeProxyConfigAllFields(t *testing.T) {
 
 	t.Run("命令行 flag 优先于配置文件", func(t *testing.T) {
 		opt := proxyOptions{addr: "127.0.0.1:9999"}
-		cfg := &Config{Proxy: &ProxyConfig{Addr: strPtr("0.0.0.0:1080")}}
+		cfg := &Config{Proxy: ProxyConfigList{{Addr: strPtr("0.0.0.0:1080")}}}
 		setFlags := map[string]bool{"addr": true}
 		if err := mergeProxyConfig(&opt, cfg, setFlags); err != nil {
 			t.Fatalf("mergeProxyConfig: %v", err)
@@ -457,21 +457,21 @@ func TestMergeProxyConfigAllFields(t *testing.T) {
 	})
 
 	t.Run("非法 dial_timeout 返回错误", func(t *testing.T) {
-		cfg := &Config{Proxy: &ProxyConfig{DialTimeout: strPtr("bad")}}
+		cfg := &Config{Proxy: ProxyConfigList{{DialTimeout: strPtr("bad")}}}
 		if err := mergeProxyConfig(&proxyOptions{}, cfg, map[string]bool{}); err == nil {
 			t.Fatal("非法 dial_timeout 应返回错误")
 		}
 	})
 
 	t.Run("非法 idle_timeout 返回错误", func(t *testing.T) {
-		cfg := &Config{Proxy: &ProxyConfig{IdleTimeout: strPtr("bad")}}
+		cfg := &Config{Proxy: ProxyConfigList{{IdleTimeout: strPtr("bad")}}}
 		if err := mergeProxyConfig(&proxyOptions{}, cfg, map[string]bool{}); err == nil {
 			t.Fatal("非法 idle_timeout 应返回错误")
 		}
 	})
 
 	t.Run("非法 keepalive 返回错误", func(t *testing.T) {
-		cfg := &Config{Proxy: &ProxyConfig{UpstreamKeepalive: strPtr("bad")}}
+		cfg := &Config{Proxy: ProxyConfigList{{UpstreamKeepalive: strPtr("bad")}}}
 		if err := mergeProxyConfig(&proxyOptions{}, cfg, map[string]bool{}); err == nil {
 			t.Fatal("非法 upstream_keepalive 应返回错误")
 		}
@@ -485,4 +485,103 @@ func TestMergeProxyConfigAllFields(t *testing.T) {
 			t.Fatalf("nil Proxy 段不应报错: %v", err)
 		}
 	})
+}
+
+// TestConfigListSingleObject 验证 forward:/proxy: 写成单个对象时归一化为 1 个实例。
+func TestConfigListSingleObject(t *testing.T) {
+	path := writeTempConfig(t, `
+forward:
+  listen_port: 22
+  target: 127.0.0.1:2222
+proxy:
+  addr: 127.0.0.1:1080
+`)
+	cfg, err := loadTopConfig(path)
+	if err != nil {
+		t.Fatalf("loadTopConfig: %v", err)
+	}
+	if len(cfg.Forward) != 1 || cfg.Forward[0].ListenPort == nil || *cfg.Forward[0].ListenPort != 22 {
+		t.Fatalf("forward 单对象未归一化为 1 实例: %+v", cfg.Forward)
+	}
+	if len(cfg.Proxy) != 1 || cfg.Proxy[0].Addr == nil || *cfg.Proxy[0].Addr != "127.0.0.1:1080" {
+		t.Fatalf("proxy 单对象未归一化为 1 实例: %+v", cfg.Proxy)
+	}
+}
+
+// TestConfigListMultiInstance 验证 forward:/proxy: 写成对象列表时解析为多实例。
+func TestConfigListMultiInstance(t *testing.T) {
+	path := writeTempConfig(t, `
+forward:
+  - listen_port: 22
+    target: 127.0.0.1:2222
+  - listen_port: 80
+    target: 127.0.0.1:8080
+proxy:
+  - addr: 0.0.0.0:8118
+    allow_public: true
+    upstream: socks5://127.0.0.1:1080
+  - addr: 127.0.0.1:1080
+`)
+	cfg, err := loadTopConfig(path)
+	if err != nil {
+		t.Fatalf("loadTopConfig: %v", err)
+	}
+	if len(cfg.Forward) != 2 {
+		t.Fatalf("forward 应有 2 个实例，实际 %d", len(cfg.Forward))
+	}
+	if *cfg.Forward[0].ListenPort != 22 || *cfg.Forward[1].ListenPort != 80 {
+		t.Fatalf("forward 实例端口解析错误: %+v %+v", cfg.Forward[0], cfg.Forward[1])
+	}
+	if len(cfg.Proxy) != 2 {
+		t.Fatalf("proxy 应有 2 个实例，实际 %d", len(cfg.Proxy))
+	}
+	if *cfg.Proxy[0].Addr != "0.0.0.0:8118" || cfg.Proxy[0].AllowPublic == nil || !*cfg.Proxy[0].AllowPublic {
+		t.Fatalf("proxy[0] 解析错误: %+v", cfg.Proxy[0])
+	}
+	if *cfg.Proxy[1].Addr != "127.0.0.1:1080" {
+		t.Fatalf("proxy[1] 解析错误: %+v", cfg.Proxy[1])
+	}
+}
+
+// TestConfigListStrictUnknownField 验证列表元素中的未知字段仍触发严格校验报错。
+func TestConfigListStrictUnknownField(t *testing.T) {
+	t.Run("forward 列表未知字段", func(t *testing.T) {
+		path := writeTempConfig(t, "forward:\n  - listen_port: 22\n    bogus: 1\n")
+		if _, err := loadTopConfig(path); err == nil {
+			t.Fatal("列表元素未知字段应返回错误")
+		}
+	})
+	t.Run("proxy 列表未知字段", func(t *testing.T) {
+		path := writeTempConfig(t, "proxy:\n  - addr: 127.0.0.1:1080\n    bogus: 1\n")
+		if _, err := loadTopConfig(path); err == nil {
+			t.Fatal("列表元素未知字段应返回错误")
+		}
+	})
+	t.Run("单对象未知字段", func(t *testing.T) {
+		path := writeTempConfig(t, "proxy:\n  addr: 127.0.0.1:1080\n  bogus: 1\n")
+		if _, err := loadTopConfig(path); err == nil {
+			t.Fatal("单对象未知字段应返回错误")
+		}
+	})
+}
+
+// TestConfigListScalarRejected 验证 forward:/proxy: 为标量（既非对象也非列表）时报错。
+func TestConfigListScalarRejected(t *testing.T) {
+	path := writeTempConfig(t, "proxy: just-a-string\n")
+	if _, err := loadTopConfig(path); err == nil {
+		t.Fatal("标量 proxy 段应返回错误")
+	}
+}
+
+// TestLoadForwardConfigUsesFirstInstance 验证 loadForwardConfig 对多实例列表取第一个实例，
+// 从而使单实例 CLI 路径仍可复用（多实例会走独立的 runForwardMulti 路径）。
+func TestLoadForwardConfigUsesFirstInstance(t *testing.T) {
+	path := writeTempConfig(t, "forward:\n  - listen_port: 2201\n    target: a:1\n  - listen_port: 2202\n    target: b:2\n")
+	fc, err := loadForwardConfig(path)
+	if err != nil {
+		t.Fatalf("loadForwardConfig: %v", err)
+	}
+	if fc.ListenPort == nil || *fc.ListenPort != 2201 {
+		t.Fatalf("应取第一个实例，listen_port=%v", fc.ListenPort)
+	}
 }

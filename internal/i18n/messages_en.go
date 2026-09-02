@@ -58,6 +58,13 @@ var messagesEN = map[string]string{
 	KeyErrConfigHandshake: "invalid handshake_timeout in config file: %w",
 	KeyErrConfigKeepalive: "invalid upstream_keepalive in config file: %w",
 
+	KeyLogForwardStartingInstances: "starting %d forward instance(s) from config",
+	KeyLogProxyStartingInstances:   "starting %d proxy instance(s) from config",
+	KeyLogInstanceStarting:         "instance #%d starting: %s",
+	KeyErrInstanceFailed:           "instance %s failed: %w",
+	KeyErrDuplicateListen:          "duplicate listen address in config: %s",
+	KeyLogMultiIgnoreFlags:         "note: multi-instance config ignores per-instance CLI flags: %s",
+
 	KeyErrUnsupportedNet:  "unsupported network: %q",
 	KeyLogTCPListening:    "listening on %s (tcp), forwarding to %s (reuseaddr=%v, max-conns=%d, idle=%s)",
 	KeyLogDialFailed:      "dial %s failed: %v",
