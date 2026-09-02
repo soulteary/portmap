@@ -42,6 +42,14 @@ proxy:
   addr: 127.0.0.1:1080
   # 出站连接超时时间，字符串写法（如 30s、1m），默认 30s
   dial_timeout: 30s
+  # 最大并发客户端连接数，0 表示不限制（默认 256）
+  max_conns: 256
+  # 协议探测与 HTTP/SOCKS5 握手超时，0 表示不限制（默认 10s）
+  handshake_timeout: 10s
+  # 隧道双向空闲超时，0 表示不限制（默认 5m）
+  idle_timeout: 5m
+  # 是否允许监听非回环地址。代理不提供认证，仅应在受保护网络中开启（默认 false）
+  allow_public: false
 
 # 界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
 # 注意：该字段仅影响运行期消息（日志/错误），不影响 --help 与 flag 描述的语言

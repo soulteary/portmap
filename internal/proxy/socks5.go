@@ -58,7 +58,7 @@ const (
 //
 // 版本字节已经被探测逻辑消费，握手报文的剩余部分从 reader 读取
 // （reader 可能已缓冲了部分数据，因此不能直接读裸连接）。
-func (s *Server) handleSOCKS5WithReader(conn net.Conn, reader *bufio.Reader) error {
+func (s *Server) handleSOCKS5WithReader(ctx context.Context, conn net.Conn, reader *bufio.Reader) error {
 	// 1. 方法协商：VER(已读) | NMETHODS | METHODS...
 	nMethods, err := reader.ReadByte()
 	if err != nil {
@@ -108,13 +108,28 @@ func (s *Server) handleSOCKS5WithReader(conn net.Conn, reader *bufio.Reader) err
 	}
 
 	// 3. 直连目标（忽略环境代理）。
-	ctx, cancel := context.WithTimeout(context.Background(), s.DialTimeout)
+	dialCtx, cancel := context.WithTimeout(ctx, s.DialTimeout)
 	defer cancel()
-	remote, err := s.dialer.DialContext(ctx, "tcp", target)
+	if s.isSelfTarget(dialCtx, target) {
+		_ = s.sendSOCKSReply(conn, socksRepGeneralFailure)
+		return fmt.Errorf(i18n.T(i18n.KeyErrProxySelfTarget), target)
+	}
+	remote, err := s.dialer.DialContext(dialCtx, "tcp", target)
 	if err != nil {
 		_ = s.sendSOCKSReply(conn, socksReplyForDialError(err))
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxySocksDial), target, err)
 	}
+	if s.isSelfConn(remote) {
+		_ = remote.Close()
+		_ = s.sendSOCKSReply(conn, socksRepGeneralFailure)
+		return fmt.Errorf(i18n.T(i18n.KeyErrProxySelfTarget), target)
+	}
+	if !s.trackRemote(remote) {
+		_ = remote.Close()
+		return context.Canceled
+	}
+	defer s.untrackRemote(remote)
+	remote = s.wrapRemote(remote)
 	defer func() { _ = remote.Close() }()
 
 	// 4. 回复成功。BND.ADDR/BND.PORT 填 0 即可，多数客户端不校验。
@@ -123,6 +138,9 @@ func (s *Server) handleSOCKS5WithReader(conn net.Conn, reader *bufio.Reader) err
 	}
 
 	s.logf(i18n.T(i18n.KeyLogProxySOCKS5Relay), conn.RemoteAddr(), target)
+	if !s.beginRelay(conn, remote) {
+		return context.Canceled
+	}
 	netutil.RelayReader(conn, reader, remote)
 	return nil
 }

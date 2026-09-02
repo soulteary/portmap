@@ -33,32 +33,47 @@ import (
 //
 // reader 已经包裹了原始连接，并且其缓冲区开头包含用于协议探测时
 // “塞回去”的字节，因此可以直接从 reader 解析完整的 HTTP 请求。
-func (s *Server) handleHTTP(conn net.Conn, reader *bufio.Reader) error {
+func (s *Server) handleHTTP(ctx context.Context, conn net.Conn, reader *bufio.Reader) error {
 	req, err := http.ReadRequest(reader)
 	if err != nil {
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPParseRequest), err)
 	}
 
 	if req.Method == http.MethodConnect {
-		return s.handleConnect(conn, reader, req)
+		return s.handleConnect(ctx, conn, reader, req)
 	}
-	return s.handlePlainHTTP(conn, reader, req)
+	return s.handlePlainHTTP(ctx, conn, reader, req)
 }
 
 // handleConnect 处理 HTTPS CONNECT 转发。
-func (s *Server) handleConnect(conn net.Conn, reader *bufio.Reader, req *http.Request) error {
+func (s *Server) handleConnect(ctx context.Context, conn net.Conn, reader *bufio.Reader, req *http.Request) error {
 	target := req.Host
 	if !hasPort(target) {
 		target = net.JoinHostPort(target, "443")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.DialTimeout)
+	dialCtx, cancel := context.WithTimeout(ctx, s.DialTimeout)
 	defer cancel()
-	remote, err := s.dialer.DialContext(ctx, "tcp", target)
+	if s.isSelfTarget(dialCtx, target) {
+		writeHTTPError(conn, http.StatusLoopDetected)
+		return fmt.Errorf(i18n.T(i18n.KeyErrProxySelfTarget), target)
+	}
+	remote, err := s.dialer.DialContext(dialCtx, "tcp", target)
 	if err != nil {
 		writeHTTPError(conn, http.StatusBadGateway)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPConnectDial), target, err)
 	}
+	if s.isSelfConn(remote) {
+		_ = remote.Close()
+		writeHTTPError(conn, http.StatusLoopDetected)
+		return fmt.Errorf(i18n.T(i18n.KeyErrProxySelfTarget), target)
+	}
+	if !s.trackRemote(remote) {
+		_ = remote.Close()
+		return context.Canceled
+	}
+	defer s.untrackRemote(remote)
+	remote = s.wrapRemote(remote)
 	defer func() { _ = remote.Close() }()
 
 	if _, err := io.WriteString(conn, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
@@ -66,12 +81,15 @@ func (s *Server) handleConnect(conn net.Conn, reader *bufio.Reader, req *http.Re
 	}
 
 	s.logf(i18n.T(i18n.KeyLogProxyHTTPConnect), conn.RemoteAddr(), target)
+	if !s.beginRelay(conn, remote) {
+		return context.Canceled
+	}
 	netutil.RelayReader(conn, reader, remote)
 	return nil
 }
 
 // handlePlainHTTP 处理普通（明文）HTTP 代理请求。
-func (s *Server) handlePlainHTTP(conn net.Conn, reader *bufio.Reader, req *http.Request) error {
+func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *bufio.Reader, req *http.Request) error {
 	host := req.Host
 	if host == "" {
 		host = req.URL.Host
@@ -80,14 +98,32 @@ func (s *Server) handlePlainHTTP(conn net.Conn, reader *bufio.Reader, req *http.
 		host = net.JoinHostPort(host, "80")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.DialTimeout)
+	dialCtx, cancel := context.WithTimeout(ctx, s.DialTimeout)
 	defer cancel()
-	remote, err := s.dialer.DialContext(ctx, "tcp", host)
+	if s.isSelfTarget(dialCtx, host) {
+		writeHTTPError(conn, http.StatusLoopDetected)
+		return fmt.Errorf(i18n.T(i18n.KeyErrProxySelfTarget), host)
+	}
+	remote, err := s.dialer.DialContext(dialCtx, "tcp", host)
 	if err != nil {
 		writeHTTPError(conn, http.StatusBadGateway)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPDial), host, err)
 	}
+	if s.isSelfConn(remote) {
+		_ = remote.Close()
+		writeHTTPError(conn, http.StatusLoopDetected)
+		return fmt.Errorf(i18n.T(i18n.KeyErrProxySelfTarget), host)
+	}
+	if !s.trackRemote(remote) {
+		_ = remote.Close()
+		return context.Canceled
+	}
+	defer s.untrackRemote(remote)
+	remote = s.wrapRemote(remote)
 	defer func() { _ = remote.Close() }()
+	if !s.beginRelay(conn, remote) {
+		return context.Canceled
+	}
 
 	// 改写为源站可识别的相对路径请求，并清理逐跳首部。
 	req.RequestURI = ""

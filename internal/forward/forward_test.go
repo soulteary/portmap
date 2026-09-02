@@ -25,6 +25,12 @@ import (
 	"time"
 )
 
+type noOpHalfCloseConn struct {
+	net.Conn
+}
+
+func (*noOpHalfCloseConn) CloseWrite() error { return nil }
+
 // freePort 返回一个当前空闲的本地 TCP 端口。
 func freePort(t *testing.T) int {
 	t.Helper()
@@ -669,5 +675,58 @@ func TestIdleTimeoutClosesBothDirections(t *testing.T) {
 	buf := make([]byte, 1)
 	if _, err := conn.Read(buf); err == nil {
 		t.Fatal("expected connection to be closed after idle timeout in one direction")
+	}
+}
+
+func TestIdleTimeoutDoesNotExpireActiveForwardWrites(t *testing.T) {
+	clientSide, clientPeer := net.Pipe()
+	targetSide, targetPeer := net.Pipe()
+	defer func() { _ = clientSide.Close() }()
+	defer func() { _ = clientPeer.Close() }()
+	defer func() { _ = targetSide.Close() }()
+	defer func() { _ = targetPeer.Close() }()
+
+	// The reverse direction remains silent and reaches its read timeout. Its
+	// half-close is a no-op here so the test isolates whether that read deadline
+	// incorrectly poisons active writes on the same target connection.
+	client := &noOpHalfCloseConn{Conn: clientSide}
+	target := &noOpHalfCloseConn{Conn: targetSide}
+	const idleTimeout = 80 * time.Millisecond
+	srv := New(Config{IdleTimeout: idleTimeout})
+	done := make(chan struct{}, 2)
+	go func() {
+		srv.pipe(1, "target<-client", target, client)
+		done <- struct{}{}
+	}()
+	go func() {
+		srv.pipe(1, "client<-target", client, target)
+		done <- struct{}{}
+	}()
+
+	until := time.Now().Add(4 * idleTimeout)
+	for time.Now().Before(until) {
+		if err := clientPeer.SetWriteDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := clientPeer.Write([]byte{'x'}); err != nil {
+			t.Fatalf("持续上传失败: %v", err)
+		}
+		if err := targetPeer.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.ReadFull(targetPeer, make([]byte, 1)); err != nil {
+			t.Fatalf("目标读取持续上传失败: %v", err)
+		}
+		time.Sleep(idleTimeout / 4)
+	}
+
+	_ = clientPeer.Close()
+	_ = targetPeer.Close()
+	for range 2 {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("pipe 未在连接关闭后退出")
+		}
 	}
 }

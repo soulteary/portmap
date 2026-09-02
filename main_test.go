@@ -45,6 +45,9 @@ func TestRunValidation(t *testing.T) {
 		{name: "idle-timeout 为负非法", argv: []string{"-idle-timeout", "-1s"}, wantErr: true},
 		{name: "max-conns 为负非法", argv: []string{"-max-conns", "-1"}, wantErr: true},
 		{name: "dial-timeout 为负非法", argv: []string{"-dial-timeout", "-1s"}, wantErr: true},
+		{name: "proxy max-conns 为负非法", argv: []string{"proxy", "-max-conns", "-1"}, wantErr: true},
+		{name: "proxy handshake-timeout 为负非法", argv: []string{"proxy", "-handshake-timeout", "-1s"}, wantErr: true},
+		{name: "proxy idle-timeout 为负非法", argv: []string{"proxy", "-idle-timeout", "-1s"}, wantErr: true},
 
 		{name: "未知 log-level 非法", argv: []string{"-log-level", "trace"}, wantErr: true},
 

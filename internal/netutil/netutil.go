@@ -20,6 +20,7 @@ package netutil
 import (
 	"io"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -78,20 +79,109 @@ func Relay(a, b net.Conn) {
 	RelayReader(a, a, b)
 }
 
-// IdleConn 包装 net.Conn，在每次 Read 前刷新读取截止时间，
-// 从而在空闲超过 Timeout 时让 Read 返回超时错误，实现空闲断开。
+// idleGroup 为双向隧道共享活动状态。任一端发生 I/O 时同时刷新两端的全部
+// 截止时间，使超时表示整条隧道无活动，而不是某个方向暂时静默。
+type idleGroup struct {
+	mu      sync.Mutex
+	timeout time.Duration
+	conns   []net.Conn
+}
+
+func (g *idleGroup) refreshDeadline() error {
+	if g.timeout <= 0 {
+		return nil
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	deadline := time.Now().Add(g.timeout)
+	var firstErr error
+	for _, conn := range g.conns {
+		if err := conn.SetDeadline(deadline); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// IdleConn 包装 net.Conn。默认情况下 Read/Write 仅刷新各自方向的截止时间，
+// 以免影响把它仅用作 reader 的调用方；ShareIdleTimeout 可把两个端点关联为
+// 共享双向活动状态。
 type IdleConn struct {
 	net.Conn
 	// Timeout 是允许的最长空闲时间；<=0 时不启用（等价于裸连接）。
 	Timeout time.Duration
+	group   *idleGroup
 }
 
-// Read 在读取前刷新读截止时间，实现滚动的空闲超时。
-func (c *IdleConn) Read(p []byte) (int, error) {
-	if c.Timeout > 0 {
-		if err := c.SetReadDeadline(time.Now().Add(c.Timeout)); err != nil {
-			return 0, err
-		}
+// ShareIdleTimeout 把隧道两端关联起来，使任一端的成功 I/O 都刷新两端的
+// 读写截止时间。调用方应在开始并发中继前完成关联。
+func ShareIdleTimeout(a, b *IdleConn, timeout time.Duration) {
+	group := &idleGroup{
+		timeout: timeout,
+		conns:   []net.Conn{a.Conn, b.Conn},
 	}
-	return c.Conn.Read(p)
+	a.Timeout, b.Timeout = timeout, timeout
+	a.group, b.group = group, group
+}
+
+func (c *IdleConn) refreshReadDeadline() error {
+	if c.group != nil {
+		return c.group.refreshDeadline()
+	}
+	if c.Timeout > 0 {
+		return c.SetReadDeadline(time.Now().Add(c.Timeout))
+	}
+	return nil
+}
+
+func (c *IdleConn) refreshWriteDeadline() error {
+	if c.group != nil {
+		return c.group.refreshDeadline()
+	}
+	if c.Timeout > 0 {
+		return c.SetWriteDeadline(time.Now().Add(c.Timeout))
+	}
+	return nil
+}
+
+func (c *IdleConn) refreshSharedDeadlineAfterActivity(err error) error {
+	if c.group == nil {
+		return err
+	}
+	if refreshErr := c.group.refreshDeadline(); err == nil && refreshErr != nil {
+		return refreshErr
+	}
+	return err
+}
+
+// Read 在读取前刷新读截止时间；共享模式还会在成功读取后刷新隧道两端。
+func (c *IdleConn) Read(p []byte) (int, error) {
+	if err := c.refreshReadDeadline(); err != nil {
+		return 0, err
+	}
+	n, err := c.Conn.Read(p)
+	if n > 0 {
+		err = c.refreshSharedDeadlineAfterActivity(err)
+	}
+	return n, err
+}
+
+// Write 在写入前刷新写截止时间；共享模式还会在成功写入后刷新隧道两端。
+func (c *IdleConn) Write(p []byte) (int, error) {
+	if err := c.refreshWriteDeadline(); err != nil {
+		return 0, err
+	}
+	n, err := c.Conn.Write(p)
+	if n > 0 {
+		err = c.refreshSharedDeadlineAfterActivity(err)
+	}
+	return n, err
+}
+
+// CloseWrite 保留底层 TCP 连接的半关闭能力，供 Relay 正确传播 EOF。
+func (c *IdleConn) CloseWrite() error {
+	if hc, ok := c.Conn.(halfCloser); ok {
+		return hc.CloseWrite()
+	}
+	return c.SetReadDeadline(time.Now())
 }

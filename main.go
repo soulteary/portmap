@@ -323,11 +323,15 @@ func runSocat(ctx context.Context, opt options, setFlags map[string]bool) error 
 
 // proxyOptions 保存 proxy 子命令的运行参数。
 type proxyOptions struct {
-	addr        string
-	dialTimeout time.Duration
-	showVersion bool
-	configPath  string
-	lang        string
+	addr             string
+	dialTimeout      time.Duration
+	maxConns         int
+	handshakeTimeout time.Duration
+	idleTimeout      time.Duration
+	allowPublic      bool
+	showVersion      bool
+	configPath       string
+	lang             string
 }
 
 // runProxy 实现 proxy 子命令：单端口 SOCKS5 + HTTP 应用层代理。
@@ -337,6 +341,10 @@ func runProxy(argv []string) error {
 	fs := flag.NewFlagSet("portmap proxy", flag.ContinueOnError)
 	fs.StringVar(&opt.addr, "addr", "127.0.0.1:1080", i18n.T(i18n.KeyFlagProxyAddr))
 	fs.DurationVar(&opt.dialTimeout, "dial-timeout", 30*time.Second, i18n.T(i18n.KeyFlagProxyDialTimeout))
+	fs.IntVar(&opt.maxConns, "max-conns", 256, i18n.T(i18n.KeyFlagProxyMaxConns))
+	fs.DurationVar(&opt.handshakeTimeout, "handshake-timeout", 10*time.Second, i18n.T(i18n.KeyFlagProxyHandshakeTimeout))
+	fs.DurationVar(&opt.idleTimeout, "idle-timeout", 5*time.Minute, i18n.T(i18n.KeyFlagProxyIdleTimeout))
+	fs.BoolVar(&opt.allowPublic, "allow-public", false, i18n.T(i18n.KeyFlagProxyAllowPublic))
 	fs.BoolVar(&opt.showVersion, "version", false, i18n.T(i18n.KeyFlagVersion))
 	fs.StringVar(&opt.configPath, "config", "", i18n.T(i18n.KeyFlagConfig))
 	fs.StringVar(&opt.lang, "lang", "", i18n.T(i18n.KeyFlagLang, strings.Join(i18n.Codes(), "/")))
@@ -383,21 +391,44 @@ func runProxy(argv []string) error {
 	if opt.dialTimeout < 0 {
 		return errors.New(i18n.T(i18n.KeyErrDialNeg, opt.dialTimeout))
 	}
+	if opt.maxConns < 0 {
+		return errors.New(i18n.T(i18n.KeyErrMaxConnsNeg, opt.maxConns))
+	}
+	if opt.handshakeTimeout < 0 {
+		return errors.New(i18n.T(i18n.KeyErrProxyHandshakeNeg, opt.handshakeTimeout))
+	}
+	if opt.idleTimeout < 0 {
+		return errors.New(i18n.T(i18n.KeyErrIdleNeg, opt.idleTimeout))
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	srv := proxy.New(opt.addr)
 	srv.DialTimeout = opt.dialTimeout
+	srv.MaxConns = opt.maxConns
+	srv.HandshakeTimeout = opt.handshakeTimeout
+	srv.IdleTimeout = opt.idleTimeout
+	srv.AllowPublic = opt.allowPublic
 
 	// 监听退出信号，优雅关闭。
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		log.Println(i18n.T(i18n.KeyLogProxyShuttingDown))
-		_ = srv.Close()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf(i18n.T(i18n.KeyLogProxyShutdownFailed), err)
+		}
 	}()
 
-	if err := srv.ListenAndServe(); err != nil {
+	err := srv.ListenAndServe()
+	if ctx.Err() != nil {
+		<-shutdownDone
+	}
+	if err != nil {
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyExit), err)
 	}
 	return nil

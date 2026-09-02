@@ -197,3 +197,28 @@ func TestMergeConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestMergeProxyConfigSecurityLimits(t *testing.T) {
+	strPtr := func(s string) *string { return &s }
+	intPtr := func(i int) *int { return &i }
+	boolPtr := func(b bool) *bool { return &b }
+
+	opt := proxyOptions{}
+	cfg := &Config{Proxy: &ProxyConfig{
+		MaxConns:         intPtr(64),
+		HandshakeTimeout: strPtr("3s"),
+		IdleTimeout:      strPtr("2m"),
+		AllowPublic:      boolPtr(true),
+	}}
+	if err := mergeProxyConfig(&opt, cfg, map[string]bool{}); err != nil {
+		t.Fatalf("mergeProxyConfig 返回错误: %v", err)
+	}
+	if opt.maxConns != 64 || opt.handshakeTimeout != 3*time.Second || opt.idleTimeout != 2*time.Minute || !opt.allowPublic {
+		t.Fatalf("代理安全配置未正确合并: %+v", opt)
+	}
+
+	bad := &Config{Proxy: &ProxyConfig{HandshakeTimeout: strPtr("invalid")}}
+	if err := mergeProxyConfig(&proxyOptions{}, bad, map[string]bool{}); err == nil {
+		t.Fatal("非法 handshake_timeout 应返回错误")
+	}
+}
