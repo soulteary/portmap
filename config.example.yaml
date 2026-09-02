@@ -50,6 +50,15 @@ proxy:
   idle_timeout: 5m
   # 是否允许监听非回环地址。代理不提供认证，仅应在受保护网络中开启（默认 false）
   allow_public: false
+  # 上游代理链：出站连接经此上游转发，留空表示直连（默认空）。
+  # 形如 socks5://user:pass@host:1080、http://host:3128、ssh://user@host:22
+  upstream: ""
+  # SSH 上游认证使用的私钥文件路径（仅 ssh 上游，默认空）
+  upstream_identity: ""
+  # SSH 上游 host key 校验使用的 known_hosts 路径（仅 ssh 上游，默认 ~/.ssh/known_hosts）
+  upstream_known_hosts: ""
+  # 是否跳过 SSH 上游 host key 校验（不安全，仅用于自建测试环境，默认 false）
+  upstream_insecure: false
 
 # 界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
 # 注意：该字段仅影响运行期消息（日志/错误），不影响 --help 与 flag 描述的语言

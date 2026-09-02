@@ -81,7 +81,7 @@ var messagesDE = map[string]string{
 	KeyErrUnknownSub:    "unbekannter Unterbefehl: %q (forward, proxy oder version wählen)",
 
 	KeyProxyUsageTitle: "portmap proxy - SOCKS5- + HTTP-Proxy auf einem einzigen Port",
-	KeyProxyUsageLine:  "Verwendung: %s proxy [flags]\n\nEin einziger Lausch-Port erkennt SOCKS5- und HTTP/HTTPS-Clients automatisch; alle ausgehenden Verbindungen verbinden sich direkt und ignorieren HTTP_PROXY/HTTPS_PROXY/ALL_PROXY.\n\nflags:",
+	KeyProxyUsageLine:  "Verwendung: %s proxy [flags]\n\nEin einziger Lausch-Port erkennt SOCKS5- und HTTP/HTTPS-Clients automatisch; ausgehende Verbindungen verbinden sich standardmäßig direkt oder werden über den konfigurierten Upstream (SOCKS5/HTTP/SSH) weitergeleitet. Umgebungs-Proxys (HTTP_PROXY/HTTPS_PROXY/ALL_PROXY) werden immer ignoriert.\n\nflags:",
 
 	KeyFlagProxyAddr:             "Lausch-Adresse, gemeinsam für SOCKS5 und HTTP",
 	KeyFlagProxyDialTimeout:      "Timeout für ausgehende Verbindungen",
@@ -89,6 +89,11 @@ var messagesDE = map[string]string{
 	KeyFlagProxyHandshakeTimeout: "Timeout für den Protokoll-Handshake, 0 deaktiviert",
 	KeyFlagProxyIdleTimeout:      "bidirektionaler Leerlauf-Timeout, 0 deaktiviert",
 	KeyFlagProxyAllowPublic:      "Listen auf Nicht-Loopback-Adressen erlauben (keine Authentifizierung)",
+
+	KeyFlagProxyUpstream:           "Upstream-Proxy-URL für ausgehende Verbindungen, z. B. socks5://user:pass@host:1080, http://host:3128, ssh://user@host:22 (leer bedeutet direkt)",
+	KeyFlagProxyUpstreamIdentity:   "SSH-Private-Key-Datei für die ssh-Upstream-Authentifizierung",
+	KeyFlagProxyUpstreamKnownHosts: "SSH-known_hosts-Datei für die Host-Key-Prüfung (Standard ~/.ssh/known_hosts)",
+	KeyFlagProxyUpstreamInsecure:   "SSH-Upstream-Host-Key-Prüfung überspringen (unsicher, nur für selbst gehostete Testumgebungen)",
 
 	KeyLogProxyStarted:        "Proxy gestartet, lausche auf %s (SOCKS5 + HTTP, Umgebungs-Proxys werden ignoriert)",
 	KeyLogProxyAcceptFailed:   "Verbindungsannahme fehlgeschlagen: %v",
@@ -101,6 +106,11 @@ var messagesDE = map[string]string{
 	KeyLogProxyShuttingDown:   "Beendigungssignal empfangen, schließe...",
 	KeyLogProxyShutdownFailed: "geordnetes Herunterfahren nicht abgeschlossen: %v",
 	KeyLogProxyConnLimit:      "%s abgelehnt: Verbindungslimit erreicht (%d)",
+
+	KeyLogProxyUpstreamEnabled:      "Upstream-Proxy aktiviert: %s %s",
+	KeyLogProxyUpstreamInsecure:     "WARNUNG: Die SSH-Upstream-Host-Key-Prüfung ist deaktiviert (-upstream-insecure); die Verbindung ist anfällig für Man-in-the-Middle-Angriffe",
+	KeyLogProxyUpstreamSSHConnect:   "SSH-Upstream verbunden: %s",
+	KeyLogProxyUpstreamSSHReconnect: "SSH-Upstream-Verbindung verloren, verbinde erneut: %s",
 
 	KeyErrProxyExit:         "Proxy-Dienst beendet: %w",
 	KeyErrProxyHandshakeNeg: "handshake-timeout darf nicht negativ sein: %s",
@@ -126,4 +136,18 @@ var messagesDE = map[string]string{
 	KeyErrProxyHTTPDial:         "Verbindung zu %s fehlgeschlagen: %w",
 	KeyErrProxyHTTPForward:      "Weiterleitung der Anfrage an %s fehlgeschlagen: %w",
 	KeyErrProxyHTTPRelayResp:    "Weiterleitung der Antwort fehlgeschlagen: %w",
+
+	KeyErrProxyUpstreamScheme:        "nicht unterstütztes Upstream-Schema: %q (socks5, http oder ssh wählen)",
+	KeyErrProxyUpstreamParse:         "Analyse der Upstream-URL fehlgeschlagen: %w",
+	KeyErrProxyUpstreamEmptyHost:     "die Upstream-URL muss einen Host enthalten",
+	KeyErrProxyUpstreamSocks5:        "Erstellen des SOCKS5-Upstream-Dialers fehlgeschlagen: %w",
+	KeyErrProxyUpstreamHTTPConnect:   "Upstream-HTTP-CONNECT zu %s fehlgeschlagen: %w",
+	KeyErrProxyUpstreamHTTPStatus:    "Upstream-HTTP-CONNECT zu %s lieferte unerwarteten Status: %s",
+	KeyErrProxyUpstreamSSHNoAuth:     "ssh-Upstream erfordert eine Identitätsdatei (-upstream-identity) oder ein Passwort in der Upstream-URL",
+	KeyErrProxyUpstreamSSHIdentity:   "Lesen der SSH-Identitätsdatei %s fehlgeschlagen: %w",
+	KeyErrProxyUpstreamSSHParseKey:   "Analyse des privaten SSH-Schlüssels fehlgeschlagen: %w",
+	KeyErrProxyUpstreamSSHKnownHosts: "Laden von SSH-known_hosts %s fehlgeschlagen: %w",
+	KeyErrProxyUpstreamSSHDial:       "Aufbau der SSH-Upstream-Verbindung zu %s fehlgeschlagen: %w",
+	KeyErrProxyUpstreamSSHChannel:    "Öffnen des SSH-Kanals zu %s fehlgeschlagen: %w",
+	KeyErrProxyUpstreamClosed:        "der Upstream-Dialer ist geschlossen",
 }

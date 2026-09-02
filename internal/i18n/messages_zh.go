@@ -81,7 +81,7 @@ var messagesZH = map[string]string{
 	KeyErrUnknownSub:    "未知子命令: %q（可选 forward、proxy 或 version）",
 
 	KeyProxyUsageTitle: "portmap proxy - 单端口 SOCKS5 + HTTP 代理",
-	KeyProxyUsageLine:  "用法: %s proxy [flags]\n\n同一监听端口自动识别 SOCKS5 与 HTTP/HTTPS 客户端；所有出站连接均直连，忽略 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY。\n\nflags:",
+	KeyProxyUsageLine:  "用法: %s proxy [flags]\n\n同一监听端口自动识别 SOCKS5 与 HTTP/HTTPS 客户端；出站连接默认直连，或经配置的上游（SOCKS5/HTTP/SSH）转发。始终忽略环境代理（HTTP_PROXY/HTTPS_PROXY/ALL_PROXY）。\n\nflags:",
 
 	KeyFlagProxyAddr:             "监听地址，SOCKS5 与 HTTP 共用此端口",
 	KeyFlagProxyDialTimeout:      "出站连接超时时间",
@@ -89,6 +89,11 @@ var messagesZH = map[string]string{
 	KeyFlagProxyHandshakeTimeout: "协议握手超时，0 表示不限制",
 	KeyFlagProxyIdleTimeout:      "双向空闲超时，0 表示不限制",
 	KeyFlagProxyAllowPublic:      "允许监听非回环地址（代理不提供身份认证）",
+
+	KeyFlagProxyUpstream:           "出站连接使用的上游代理 URL，如 socks5://user:pass@host:1080、http://host:3128、ssh://user@host:22（留空表示直连）",
+	KeyFlagProxyUpstreamIdentity:   "SSH 上游认证使用的私钥文件",
+	KeyFlagProxyUpstreamKnownHosts: "SSH host key 校验使用的 known_hosts 文件（默认 ~/.ssh/known_hosts）",
+	KeyFlagProxyUpstreamInsecure:   "跳过 SSH 上游 host key 校验（不安全，仅用于自建测试环境）",
 
 	KeyLogProxyStarted:        "代理服务已启动，监听 %s（SOCKS5 + HTTP，忽略环境代理）",
 	KeyLogProxyAcceptFailed:   "接受连接失败: %v",
@@ -101,6 +106,11 @@ var messagesZH = map[string]string{
 	KeyLogProxyShuttingDown:   "收到退出信号，正在关闭...",
 	KeyLogProxyShutdownFailed: "优雅关闭未完成: %v",
 	KeyLogProxyConnLimit:      "拒绝 %s：已达到连接上限（%d）",
+
+	KeyLogProxyUpstreamEnabled:      "已启用上游代理: %s %s",
+	KeyLogProxyUpstreamInsecure:     "警告: 已禁用 SSH 上游 host key 校验（-upstream-insecure），连接易受中间人攻击",
+	KeyLogProxyUpstreamSSHConnect:   "SSH 上游已连接: %s",
+	KeyLogProxyUpstreamSSHReconnect: "SSH 上游连接已断开，正在重连: %s",
 
 	KeyErrProxyExit:         "代理服务异常退出: %w",
 	KeyErrProxyHandshakeNeg: "handshake-timeout 不能为负数: %s",
@@ -126,4 +136,18 @@ var messagesZH = map[string]string{
 	KeyErrProxyHTTPDial:         "连接 %s 失败: %w",
 	KeyErrProxyHTTPForward:      "转发请求到 %s 失败: %w",
 	KeyErrProxyHTTPRelayResp:    "回传响应失败: %w",
+
+	KeyErrProxyUpstreamScheme:        "不支持的上游协议: %q（可选 socks5、http 或 ssh）",
+	KeyErrProxyUpstreamParse:         "解析上游 URL 失败: %w",
+	KeyErrProxyUpstreamEmptyHost:     "上游 URL 必须包含主机地址",
+	KeyErrProxyUpstreamSocks5:        "创建 SOCKS5 上游拨号器失败: %w",
+	KeyErrProxyUpstreamHTTPConnect:   "上游 HTTP CONNECT 到 %s 失败: %w",
+	KeyErrProxyUpstreamHTTPStatus:    "上游 HTTP CONNECT 到 %s 返回异常状态: %s",
+	KeyErrProxyUpstreamSSHNoAuth:     "ssh 上游需要私钥文件（-upstream-identity）或上游 URL 中的密码",
+	KeyErrProxyUpstreamSSHIdentity:   "读取 SSH 私钥文件 %s 失败: %w",
+	KeyErrProxyUpstreamSSHParseKey:   "解析 SSH 私钥失败: %w",
+	KeyErrProxyUpstreamSSHKnownHosts: "加载 SSH known_hosts %s 失败: %w",
+	KeyErrProxyUpstreamSSHDial:       "建立到 %s 的 SSH 上游连接失败: %w",
+	KeyErrProxyUpstreamSSHChannel:    "打开到 %s 的 SSH 通道失败: %w",
+	KeyErrProxyUpstreamClosed:        "上游拨号器已关闭",
 }

@@ -323,15 +323,19 @@ func runSocat(ctx context.Context, opt options, setFlags map[string]bool) error 
 
 // proxyOptions 保存 proxy 子命令的运行参数。
 type proxyOptions struct {
-	addr             string
-	dialTimeout      time.Duration
-	maxConns         int
-	handshakeTimeout time.Duration
-	idleTimeout      time.Duration
-	allowPublic      bool
-	showVersion      bool
-	configPath       string
-	lang             string
+	addr               string
+	dialTimeout        time.Duration
+	maxConns           int
+	handshakeTimeout   time.Duration
+	idleTimeout        time.Duration
+	allowPublic        bool
+	upstream           string
+	upstreamIdentity   string
+	upstreamKnownHosts string
+	upstreamInsecure   bool
+	showVersion        bool
+	configPath         string
+	lang               string
 }
 
 // runProxy 实现 proxy 子命令：单端口 SOCKS5 + HTTP 应用层代理。
@@ -345,6 +349,10 @@ func runProxy(argv []string) error {
 	fs.DurationVar(&opt.handshakeTimeout, "handshake-timeout", 10*time.Second, i18n.T(i18n.KeyFlagProxyHandshakeTimeout))
 	fs.DurationVar(&opt.idleTimeout, "idle-timeout", 5*time.Minute, i18n.T(i18n.KeyFlagProxyIdleTimeout))
 	fs.BoolVar(&opt.allowPublic, "allow-public", false, i18n.T(i18n.KeyFlagProxyAllowPublic))
+	fs.StringVar(&opt.upstream, "upstream", "", i18n.T(i18n.KeyFlagProxyUpstream))
+	fs.StringVar(&opt.upstreamIdentity, "upstream-identity", "", i18n.T(i18n.KeyFlagProxyUpstreamIdentity))
+	fs.StringVar(&opt.upstreamKnownHosts, "upstream-known-hosts", "", i18n.T(i18n.KeyFlagProxyUpstreamKnownHosts))
+	fs.BoolVar(&opt.upstreamInsecure, "upstream-insecure", false, i18n.T(i18n.KeyFlagProxyUpstreamInsecure))
 	fs.BoolVar(&opt.showVersion, "version", false, i18n.T(i18n.KeyFlagVersion))
 	fs.StringVar(&opt.configPath, "config", "", i18n.T(i18n.KeyFlagConfig))
 	fs.StringVar(&opt.lang, "lang", "", i18n.T(i18n.KeyFlagLang, strings.Join(i18n.Codes(), "/")))
@@ -401,6 +409,19 @@ func runProxy(argv []string) error {
 		return errors.New(i18n.T(i18n.KeyErrIdleNeg, opt.idleTimeout))
 	}
 
+	// 解析上游代理配置（留空表示直连，保持向后兼容）。
+	var upstream *proxy.UpstreamConfig
+	if strings.TrimSpace(opt.upstream) != "" {
+		u, err := proxy.ParseUpstreamURL(opt.upstream)
+		if err != nil {
+			return err
+		}
+		u.IdentityFile = opt.upstreamIdentity
+		u.KnownHostsFile = opt.upstreamKnownHosts
+		u.Insecure = opt.upstreamInsecure
+		upstream = u
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -410,6 +431,7 @@ func runProxy(argv []string) error {
 	srv.HandshakeTimeout = opt.handshakeTimeout
 	srv.IdleTimeout = opt.idleTimeout
 	srv.AllowPublic = opt.allowPublic
+	srv.Upstream = upstream
 
 	// 监听退出信号，优雅关闭。
 	shutdownDone := make(chan struct{})

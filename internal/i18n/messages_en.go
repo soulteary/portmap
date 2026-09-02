@@ -81,7 +81,7 @@ var messagesEN = map[string]string{
 	KeyErrUnknownSub:    "unknown subcommand: %q (choose forward, proxy or version)",
 
 	KeyProxyUsageTitle: "portmap proxy - SOCKS5 + HTTP proxy on a single port",
-	KeyProxyUsageLine:  "Usage: %s proxy [flags]\n\nA single listen port auto-detects SOCKS5 and HTTP/HTTPS clients; all outbound connections dial directly, ignoring HTTP_PROXY/HTTPS_PROXY/ALL_PROXY.\n\nflags:",
+	KeyProxyUsageLine:  "Usage: %s proxy [flags]\n\nA single listen port auto-detects SOCKS5 and HTTP/HTTPS clients; outbound connections dial directly by default, or are forwarded through the configured upstream (SOCKS5/HTTP/SSH). Environment proxies (HTTP_PROXY/HTTPS_PROXY/ALL_PROXY) are always ignored.\n\nflags:",
 
 	KeyFlagProxyAddr:             "listen address, shared by SOCKS5 and HTTP",
 	KeyFlagProxyDialTimeout:      "outbound dial timeout",
@@ -89,6 +89,11 @@ var messagesEN = map[string]string{
 	KeyFlagProxyHandshakeTimeout: "protocol handshake timeout, 0 disables",
 	KeyFlagProxyIdleTimeout:      "bidirectional idle timeout, 0 disables",
 	KeyFlagProxyAllowPublic:      "allow listening on non-loopback addresses (proxy has no authentication)",
+
+	KeyFlagProxyUpstream:           "upstream proxy URL for outbound connections, e.g. socks5://user:pass@host:1080, http://host:3128, ssh://user@host:22 (empty means direct)",
+	KeyFlagProxyUpstreamIdentity:   "SSH private key file for ssh upstream authentication",
+	KeyFlagProxyUpstreamKnownHosts: "SSH known_hosts file for host key verification (default ~/.ssh/known_hosts)",
+	KeyFlagProxyUpstreamInsecure:   "skip SSH upstream host key verification (insecure, for self-hosted test environments only)",
 
 	KeyLogProxyStarted:        "proxy started, listening on %s (SOCKS5 + HTTP, ignoring environment proxies)",
 	KeyLogProxyAcceptFailed:   "accept connection failed: %v",
@@ -101,6 +106,11 @@ var messagesEN = map[string]string{
 	KeyLogProxyShuttingDown:   "shutdown signal received, closing...",
 	KeyLogProxyShutdownFailed: "graceful shutdown did not complete: %v",
 	KeyLogProxyConnLimit:      "rejecting %s: connection limit reached (%d)",
+
+	KeyLogProxyUpstreamEnabled:      "upstream proxy enabled: %s %s",
+	KeyLogProxyUpstreamInsecure:     "WARNING: SSH upstream host key verification is disabled (-upstream-insecure); the connection is vulnerable to man-in-the-middle attacks",
+	KeyLogProxyUpstreamSSHConnect:   "SSH upstream connected: %s",
+	KeyLogProxyUpstreamSSHReconnect: "SSH upstream connection lost, reconnecting: %s",
 
 	KeyErrProxyExit:         "proxy service exited: %w",
 	KeyErrProxyHandshakeNeg: "handshake-timeout must not be negative: %s",
@@ -126,4 +136,18 @@ var messagesEN = map[string]string{
 	KeyErrProxyHTTPDial:         "failed to connect to %s: %w",
 	KeyErrProxyHTTPForward:      "failed to forward request to %s: %w",
 	KeyErrProxyHTTPRelayResp:    "failed to relay response: %w",
+
+	KeyErrProxyUpstreamScheme:        "unsupported upstream scheme: %q (choose socks5, http or ssh)",
+	KeyErrProxyUpstreamParse:         "failed to parse upstream URL: %w",
+	KeyErrProxyUpstreamEmptyHost:     "upstream URL must include a host",
+	KeyErrProxyUpstreamSocks5:        "failed to create SOCKS5 upstream dialer: %w",
+	KeyErrProxyUpstreamHTTPConnect:   "upstream HTTP CONNECT to %s failed: %w",
+	KeyErrProxyUpstreamHTTPStatus:    "upstream HTTP CONNECT to %s returned unexpected status: %s",
+	KeyErrProxyUpstreamSSHNoAuth:     "ssh upstream requires an identity file (-upstream-identity) or a password in the upstream URL",
+	KeyErrProxyUpstreamSSHIdentity:   "failed to read SSH identity file %s: %w",
+	KeyErrProxyUpstreamSSHParseKey:   "failed to parse SSH private key: %w",
+	KeyErrProxyUpstreamSSHKnownHosts: "failed to load SSH known_hosts %s: %w",
+	KeyErrProxyUpstreamSSHDial:       "failed to establish SSH upstream connection to %s: %w",
+	KeyErrProxyUpstreamSSHChannel:    "failed to open SSH channel to %s: %w",
+	KeyErrProxyUpstreamClosed:        "upstream dialer is closed",
 }

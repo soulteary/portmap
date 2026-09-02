@@ -28,6 +28,12 @@ const (
 	KeyFlagProxyIdleTimeout      = "flag.proxy-idle-timeout"
 	KeyFlagProxyAllowPublic      = "flag.proxy-allow-public"
 
+	// proxy 上游代理链 flag 描述。
+	KeyFlagProxyUpstream           = "flag.proxy-upstream"
+	KeyFlagProxyUpstreamIdentity   = "flag.proxy-upstream-identity"
+	KeyFlagProxyUpstreamKnownHosts = "flag.proxy-upstream-known-hosts"
+	KeyFlagProxyUpstreamInsecure   = "flag.proxy-upstream-insecure"
+
 	// proxy 运行时日志（面向用户）。
 	KeyLogProxyStarted        = "proxy.started"
 	KeyLogProxyAcceptFailed   = "proxy.accept-failed"
@@ -40,6 +46,12 @@ const (
 	KeyLogProxyShuttingDown   = "proxy.shutting-down"
 	KeyLogProxyShutdownFailed = "proxy.shutdown-failed"
 	KeyLogProxyConnLimit      = "proxy.conn-limit"
+
+	// proxy 上游代理链运行时日志。
+	KeyLogProxyUpstreamEnabled      = "proxy.upstream-enabled"
+	KeyLogProxyUpstreamInsecure     = "proxy.upstream-insecure"
+	KeyLogProxyUpstreamSSHConnect   = "proxy.upstream-ssh-connect"
+	KeyLogProxyUpstreamSSHReconnect = "proxy.upstream-ssh-reconnect"
 
 	// proxy 运行/退出错误（main.go proxy 分支）。
 	KeyErrProxyExit         = "err.proxy-exit"
@@ -69,4 +81,19 @@ const (
 	KeyErrProxyHTTPDial         = "err.proxy-http-dial"
 	KeyErrProxyHTTPForward      = "err.proxy-http-forward"
 	KeyErrProxyHTTPRelayResp    = "err.proxy-http-relay-resp"
+
+	// proxy 上游代理链错误（upstream.go / main.go）。
+	KeyErrProxyUpstreamScheme        = "err.proxy-upstream-scheme"
+	KeyErrProxyUpstreamParse         = "err.proxy-upstream-parse"
+	KeyErrProxyUpstreamEmptyHost     = "err.proxy-upstream-empty-host"
+	KeyErrProxyUpstreamSocks5        = "err.proxy-upstream-socks5"
+	KeyErrProxyUpstreamHTTPConnect   = "err.proxy-upstream-http-connect"
+	KeyErrProxyUpstreamHTTPStatus    = "err.proxy-upstream-http-status"
+	KeyErrProxyUpstreamSSHNoAuth     = "err.proxy-upstream-ssh-no-auth"
+	KeyErrProxyUpstreamSSHIdentity   = "err.proxy-upstream-ssh-identity"
+	KeyErrProxyUpstreamSSHParseKey   = "err.proxy-upstream-ssh-parse-key"
+	KeyErrProxyUpstreamSSHKnownHosts = "err.proxy-upstream-ssh-known-hosts"
+	KeyErrProxyUpstreamSSHDial       = "err.proxy-upstream-ssh-dial"
+	KeyErrProxyUpstreamSSHChannel    = "err.proxy-upstream-ssh-channel"
+	KeyErrProxyUpstreamClosed        = "err.proxy-upstream-closed"
 )

@@ -81,7 +81,7 @@ var messagesJA = map[string]string{
 	KeyErrUnknownSub:    "不明なサブコマンド: %q（forward、proxy または version を選択）",
 
 	KeyProxyUsageTitle: "portmap proxy - 単一ポートの SOCKS5 + HTTP プロキシ",
-	KeyProxyUsageLine:  "使い方: %s proxy [flags]\n\n同一の待ち受けポートで SOCKS5 と HTTP/HTTPS クライアントを自動判別します。すべての送信接続は直接ダイヤルし、HTTP_PROXY/HTTPS_PROXY/ALL_PROXY を無視します。\n\nflags:",
+	KeyProxyUsageLine:  "使い方: %s proxy [flags]\n\n同一の待ち受けポートで SOCKS5 と HTTP/HTTPS クライアントを自動判別します。送信接続は既定で直接ダイヤルするか、設定された上流（SOCKS5/HTTP/SSH）経由で転送します。環境プロキシ（HTTP_PROXY/HTTPS_PROXY/ALL_PROXY）は常に無視します。\n\nflags:",
 
 	KeyFlagProxyAddr:             "待ち受けアドレス、SOCKS5 と HTTP で共用",
 	KeyFlagProxyDialTimeout:      "送信接続のタイムアウト",
@@ -89,6 +89,11 @@ var messagesJA = map[string]string{
 	KeyFlagProxyHandshakeTimeout: "プロトコルハンドシェイクのタイムアウト（0 は無効）",
 	KeyFlagProxyIdleTimeout:      "双方向アイドルタイムアウト（0 は無効）",
 	KeyFlagProxyAllowPublic:      "ループバック以外での待受を許可（認証機能はありません）",
+
+	KeyFlagProxyUpstream:           "送信接続に使用する上流プロキシ URL。例: socks5://user:pass@host:1080、http://host:3128、ssh://user@host:22（空は直接接続）",
+	KeyFlagProxyUpstreamIdentity:   "ssh 上流認証に使用する SSH 秘密鍵ファイル",
+	KeyFlagProxyUpstreamKnownHosts: "host key 検証に使用する SSH known_hosts ファイル（既定 ~/.ssh/known_hosts）",
+	KeyFlagProxyUpstreamInsecure:   "SSH 上流の host key 検証をスキップ（安全でない、自己ホストのテスト環境専用）",
 
 	KeyLogProxyStarted:        "プロキシサービスを開始しました、%s で待ち受け中（SOCKS5 + HTTP、環境プロキシを無視）",
 	KeyLogProxyAcceptFailed:   "接続の受け入れに失敗: %v",
@@ -101,6 +106,11 @@ var messagesJA = map[string]string{
 	KeyLogProxyShuttingDown:   "終了シグナルを受信、シャットダウン中...",
 	KeyLogProxyShutdownFailed: "正常終了が完了しませんでした: %v",
 	KeyLogProxyConnLimit:      "%s を拒否しました: 接続上限（%d）に到達",
+
+	KeyLogProxyUpstreamEnabled:      "上流プロキシを有効化しました: %s %s",
+	KeyLogProxyUpstreamInsecure:     "警告: SSH 上流の host key 検証が無効です（-upstream-insecure）。中間者攻撃に対して脆弱です",
+	KeyLogProxyUpstreamSSHConnect:   "SSH 上流に接続しました: %s",
+	KeyLogProxyUpstreamSSHReconnect: "SSH 上流接続が切断されました、再接続します: %s",
 
 	KeyErrProxyExit:         "プロキシサービスが異常終了しました: %w",
 	KeyErrProxyHandshakeNeg: "handshake-timeout は負の値にできません: %s",
@@ -126,4 +136,18 @@ var messagesJA = map[string]string{
 	KeyErrProxyHTTPDial:         "%s への接続に失敗: %w",
 	KeyErrProxyHTTPForward:      "%s へのリクエスト転送に失敗: %w",
 	KeyErrProxyHTTPRelayResp:    "レスポンスの中継に失敗: %w",
+
+	KeyErrProxyUpstreamScheme:        "サポートされていない上流スキーム: %q（socks5、http または ssh を選択）",
+	KeyErrProxyUpstreamParse:         "上流 URL の解析に失敗: %w",
+	KeyErrProxyUpstreamEmptyHost:     "上流 URL にはホストを含める必要があります",
+	KeyErrProxyUpstreamSocks5:        "SOCKS5 上流ダイヤラーの作成に失敗: %w",
+	KeyErrProxyUpstreamHTTPConnect:   "%s への上流 HTTP CONNECT に失敗: %w",
+	KeyErrProxyUpstreamHTTPStatus:    "%s への上流 HTTP CONNECT が予期しないステータスを返しました: %s",
+	KeyErrProxyUpstreamSSHNoAuth:     "ssh 上流には秘密鍵ファイル（-upstream-identity）または上流 URL のパスワードが必要です",
+	KeyErrProxyUpstreamSSHIdentity:   "SSH 秘密鍵ファイル %s の読み取りに失敗: %w",
+	KeyErrProxyUpstreamSSHParseKey:   "SSH 秘密鍵の解析に失敗: %w",
+	KeyErrProxyUpstreamSSHKnownHosts: "SSH known_hosts %s の読み込みに失敗: %w",
+	KeyErrProxyUpstreamSSHDial:       "%s への SSH 上流接続の確立に失敗: %w",
+	KeyErrProxyUpstreamSSHChannel:    "%s への SSH チャネルのオープンに失敗: %w",
+	KeyErrProxyUpstreamClosed:        "上流ダイヤラーは閉じられています",
 }

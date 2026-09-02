@@ -81,7 +81,7 @@ var messagesKO = map[string]string{
 	KeyErrUnknownSub:    "알 수 없는 하위 명령: %q (forward, proxy 또는 version 선택)",
 
 	KeyProxyUsageTitle: "portmap proxy - 단일 포트 SOCKS5 + HTTP 프록시",
-	KeyProxyUsageLine:  "사용법: %s proxy [flags]\n\n단일 수신 포트에서 SOCKS5와 HTTP/HTTPS 클라이언트를 자동으로 감지합니다. 모든 아웃바운드 연결은 직접 다이얼하며 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY를 무시합니다.\n\nflags:",
+	KeyProxyUsageLine:  "사용법: %s proxy [flags]\n\n단일 수신 포트에서 SOCKS5와 HTTP/HTTPS 클라이언트를 자동으로 감지합니다. 아웃바운드 연결은 기본적으로 직접 다이얼하거나 설정된 업스트림(SOCKS5/HTTP/SSH)을 통해 전달됩니다. 환경 프록시(HTTP_PROXY/HTTPS_PROXY/ALL_PROXY)는 항상 무시됩니다.\n\nflags:",
 
 	KeyFlagProxyAddr:             "수신 주소, SOCKS5와 HTTP가 공유",
 	KeyFlagProxyDialTimeout:      "아웃바운드 연결 타임아웃",
@@ -89,6 +89,11 @@ var messagesKO = map[string]string{
 	KeyFlagProxyHandshakeTimeout: "프로토콜 핸드셰이크 타임아웃, 0은 비활성화",
 	KeyFlagProxyIdleTimeout:      "양방향 유휴 타임아웃, 0은 비활성화",
 	KeyFlagProxyAllowPublic:      "루프백이 아닌 주소 수신 허용(인증 기능 없음)",
+
+	KeyFlagProxyUpstream:           "아웃바운드 연결에 사용할 업스트림 프록시 URL, 예: socks5://user:pass@host:1080, http://host:3128, ssh://user@host:22 (비어 있으면 직접 연결)",
+	KeyFlagProxyUpstreamIdentity:   "ssh 업스트림 인증에 사용할 SSH 개인 키 파일",
+	KeyFlagProxyUpstreamKnownHosts: "host key 검증에 사용할 SSH known_hosts 파일 (기본값 ~/.ssh/known_hosts)",
+	KeyFlagProxyUpstreamInsecure:   "SSH 업스트림 host key 검증 건너뛰기 (안전하지 않음, 자체 호스팅 테스트 환경 전용)",
 
 	KeyLogProxyStarted:        "프록시 서비스가 시작되었습니다, %s에서 수신 중 (SOCKS5 + HTTP, 환경 프록시 무시)",
 	KeyLogProxyAcceptFailed:   "연결 수락 실패: %v",
@@ -101,6 +106,11 @@ var messagesKO = map[string]string{
 	KeyLogProxyShuttingDown:   "종료 신호 수신, 종료 중...",
 	KeyLogProxyShutdownFailed: "정상 종료가 완료되지 않았습니다: %v",
 	KeyLogProxyConnLimit:      "%s 거부: 연결 한도 도달(%d)",
+
+	KeyLogProxyUpstreamEnabled:      "업스트림 프록시 활성화됨: %s %s",
+	KeyLogProxyUpstreamInsecure:     "경고: SSH 업스트림 host key 검증이 비활성화되었습니다(-upstream-insecure). 중간자 공격에 취약합니다",
+	KeyLogProxyUpstreamSSHConnect:   "SSH 업스트림 연결됨: %s",
+	KeyLogProxyUpstreamSSHReconnect: "SSH 업스트림 연결이 끊어졌습니다, 재연결 중: %s",
 
 	KeyErrProxyExit:         "프록시 서비스가 비정상 종료되었습니다: %w",
 	KeyErrProxyHandshakeNeg: "handshake-timeout은 음수일 수 없습니다: %s",
@@ -126,4 +136,18 @@ var messagesKO = map[string]string{
 	KeyErrProxyHTTPDial:         "%s 연결 실패: %w",
 	KeyErrProxyHTTPForward:      "%s 로 요청 전달 실패: %w",
 	KeyErrProxyHTTPRelayResp:    "응답 회신 실패: %w",
+
+	KeyErrProxyUpstreamScheme:        "지원되지 않는 업스트림 스킴: %q (socks5, http 또는 ssh 선택)",
+	KeyErrProxyUpstreamParse:         "업스트림 URL 파싱 실패: %w",
+	KeyErrProxyUpstreamEmptyHost:     "업스트림 URL에는 호스트가 포함되어야 합니다",
+	KeyErrProxyUpstreamSocks5:        "SOCKS5 업스트림 다이얼러 생성 실패: %w",
+	KeyErrProxyUpstreamHTTPConnect:   "%s 에 대한 업스트림 HTTP CONNECT 실패: %w",
+	KeyErrProxyUpstreamHTTPStatus:    "%s 에 대한 업스트림 HTTP CONNECT가 예기치 않은 상태를 반환했습니다: %s",
+	KeyErrProxyUpstreamSSHNoAuth:     "ssh 업스트림에는 개인 키 파일(-upstream-identity) 또는 업스트림 URL의 비밀번호가 필요합니다",
+	KeyErrProxyUpstreamSSHIdentity:   "SSH 개인 키 파일 %s 읽기 실패: %w",
+	KeyErrProxyUpstreamSSHParseKey:   "SSH 개인 키 파싱 실패: %w",
+	KeyErrProxyUpstreamSSHKnownHosts: "SSH known_hosts %s 로드 실패: %w",
+	KeyErrProxyUpstreamSSHDial:       "%s 에 대한 SSH 업스트림 연결 설정 실패: %w",
+	KeyErrProxyUpstreamSSHChannel:    "%s 에 대한 SSH 채널 열기 실패: %w",
+	KeyErrProxyUpstreamClosed:        "업스트림 다이얼러가 닫혔습니다",
 }

@@ -64,12 +64,16 @@ type ForwardConfig struct {
 
 // ProxyConfig 是 proxy 子命令的配置段，字段与 proxy flag 一一对应。
 type ProxyConfig struct {
-	Addr             *string `yaml:"addr"`
-	DialTimeout      *string `yaml:"dial_timeout"`
-	MaxConns         *int    `yaml:"max_conns"`
-	HandshakeTimeout *string `yaml:"handshake_timeout"`
-	IdleTimeout      *string `yaml:"idle_timeout"`
-	AllowPublic      *bool   `yaml:"allow_public"`
+	Addr               *string `yaml:"addr"`
+	DialTimeout        *string `yaml:"dial_timeout"`
+	MaxConns           *int    `yaml:"max_conns"`
+	HandshakeTimeout   *string `yaml:"handshake_timeout"`
+	IdleTimeout        *string `yaml:"idle_timeout"`
+	AllowPublic        *bool   `yaml:"allow_public"`
+	Upstream           *string `yaml:"upstream"`
+	UpstreamIdentity   *string `yaml:"upstream_identity"`
+	UpstreamKnownHosts *string `yaml:"upstream_known_hosts"`
+	UpstreamInsecure   *bool   `yaml:"upstream_insecure"`
 }
 
 // fileConfig 与命令行 flag 一一对应，字段均为指针类型：
@@ -247,6 +251,18 @@ func mergeProxyConfig(opt *proxyOptions, cfg *Config, setFlags map[string]bool) 
 	}
 	if cfg.Proxy.AllowPublic != nil && !setFlags["allow-public"] {
 		opt.allowPublic = *cfg.Proxy.AllowPublic
+	}
+	if cfg.Proxy.Upstream != nil && !setFlags["upstream"] {
+		opt.upstream = *cfg.Proxy.Upstream
+	}
+	if cfg.Proxy.UpstreamIdentity != nil && !setFlags["upstream-identity"] {
+		opt.upstreamIdentity = *cfg.Proxy.UpstreamIdentity
+	}
+	if cfg.Proxy.UpstreamKnownHosts != nil && !setFlags["upstream-known-hosts"] {
+		opt.upstreamKnownHosts = *cfg.Proxy.UpstreamKnownHosts
+	}
+	if cfg.Proxy.UpstreamInsecure != nil && !setFlags["upstream-insecure"] {
+		opt.upstreamInsecure = *cfg.Proxy.UpstreamInsecure
 	}
 	return nil
 }

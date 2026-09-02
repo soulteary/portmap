@@ -14,9 +14,10 @@
 
 // Package proxy 提供同时支持 SOCKS5 与 HTTP 的应用层代理服务。
 //
-// 同一个监听端口通过窥探连接首字节自动区分两种协议，所有出站连接均使用
-// 纯粹的 net.Dialer 直连目标地址，完全忽略 HTTP_PROXY / HTTPS_PROXY /
-// ALL_PROXY / NO_PROXY 等环境变量，不依赖任何上游代理。
+// 同一个监听端口通过窥探连接首字节自动区分两种协议。默认情况下所有出站
+// 连接均使用纯粹的 net.Dialer 直连目标地址；配置上游（Server.Upstream）后，
+// 出站连接改为经 SOCKS5 / HTTP CONNECT / SSH 上游转发。无论是否配置上游，
+// 均完全忽略 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY 等环境变量。
 package proxy
 
 import (
@@ -24,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"strings"
@@ -69,6 +71,10 @@ type Server struct {
 	// AllowPublic 允许监听非回环地址。代理不提供身份认证，因此必须显式开启。
 	AllowPublic bool
 
+	// Upstream 配置上游代理链。为 nil 时出站连接直连目标；非 nil 时所有出站
+	// 连接经该上游（SOCKS5 / HTTP CONNECT / SSH）转发。
+	Upstream *UpstreamConfig
+
 	// Logger 用于输出日志，为 nil 时使用标准库默认 logger。
 	Logger *log.Logger
 
@@ -105,7 +111,16 @@ func (s *Server) ListenAndServe() error {
 		s.DialTimeout = defaultDialTimeout
 	}
 	if s.dialer == nil {
-		s.dialer = NewDirectDialer(s.DialTimeout, defaultKeepAlive)
+		if s.Upstream != nil {
+			dialer, err := NewUpstreamDialer(s.Upstream, s.DialTimeout, defaultKeepAlive, s.Logger)
+			if err != nil {
+				return err
+			}
+			s.dialer = dialer
+			s.logf(i18n.T(i18n.KeyLogProxyUpstreamEnabled), s.Upstream.Scheme, s.Upstream.describe())
+		} else {
+			s.dialer = NewDirectDialer(s.DialTimeout, defaultKeepAlive)
+		}
 	}
 
 	ln, err := net.Listen("tcp", s.Addr)
@@ -175,6 +190,7 @@ func (s *Server) Close() error {
 	err := s.stopAccepting()
 	s.closeActiveConns()
 	s.wg.Wait()
+	s.closeDialer()
 	return err
 }
 
@@ -190,10 +206,23 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	select {
 	case <-done:
+		s.closeDialer()
 		return err
 	case <-ctx.Done():
 		s.closeActiveConns()
+		s.closeDialer()
 		return ctx.Err()
+	}
+}
+
+// closeDialer 关闭持有长连接的拨号器（如 SSH 上游）。直连与无状态上游拨号器
+// 不实现 io.Closer，此处为无操作，从而保持默认路径行为不变。
+func (s *Server) closeDialer() {
+	s.mu.Lock()
+	dialer := s.dialer
+	s.mu.Unlock()
+	if closer, ok := dialer.(io.Closer); ok {
+		_ = closer.Close()
 	}
 }
 

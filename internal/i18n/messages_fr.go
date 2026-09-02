@@ -81,7 +81,7 @@ var messagesFR = map[string]string{
 	KeyErrUnknownSub:    "sous-commande inconnue : %q (choisir forward, proxy ou version)",
 
 	KeyProxyUsageTitle: "portmap proxy - proxy SOCKS5 + HTTP sur un seul port",
-	KeyProxyUsageLine:  "Utilisation : %s proxy [flags]\n\nUn unique port d'écoute détecte automatiquement les clients SOCKS5 et HTTP/HTTPS ; toutes les connexions sortantes se connectent en direct, en ignorant HTTP_PROXY/HTTPS_PROXY/ALL_PROXY.\n\nflags :",
+	KeyProxyUsageLine:  "Utilisation : %s proxy [flags]\n\nUn unique port d'écoute détecte automatiquement les clients SOCKS5 et HTTP/HTTPS ; les connexions sortantes se connectent en direct par défaut, ou sont transférées via l'amont configuré (SOCKS5/HTTP/SSH). Les proxys d'environnement (HTTP_PROXY/HTTPS_PROXY/ALL_PROXY) sont toujours ignorés.\n\nflags :",
 
 	KeyFlagProxyAddr:             "adresse d'écoute, partagée par SOCKS5 et HTTP",
 	KeyFlagProxyDialTimeout:      "délai de connexion sortante",
@@ -89,6 +89,11 @@ var messagesFR = map[string]string{
 	KeyFlagProxyHandshakeTimeout: "délai de négociation du protocole, 0 = désactivé",
 	KeyFlagProxyIdleTimeout:      "délai d'inactivité bidirectionnel, 0 = désactivé",
 	KeyFlagProxyAllowPublic:      "autoriser l'écoute hors boucle locale (aucune authentification)",
+
+	KeyFlagProxyUpstream:           "URL du proxy amont pour les connexions sortantes, ex. socks5://user:pass@host:1080, http://host:3128, ssh://user@host:22 (vide = connexion directe)",
+	KeyFlagProxyUpstreamIdentity:   "fichier de clé privée SSH pour l'authentification de l'amont ssh",
+	KeyFlagProxyUpstreamKnownHosts: "fichier SSH known_hosts pour la vérification de la clé d'hôte (par défaut ~/.ssh/known_hosts)",
+	KeyFlagProxyUpstreamInsecure:   "ignorer la vérification de la clé d'hôte SSH amont (non sécurisé, uniquement pour les environnements de test auto-hébergés)",
 
 	KeyLogProxyStarted:        "proxy démarré, écoute sur %s (SOCKS5 + HTTP, proxys d'environnement ignorés)",
 	KeyLogProxyAcceptFailed:   "échec d'acceptation de la connexion : %v",
@@ -101,6 +106,11 @@ var messagesFR = map[string]string{
 	KeyLogProxyShuttingDown:   "signal d'arrêt reçu, fermeture...",
 	KeyLogProxyShutdownFailed: "l'arrêt gracieux n'a pas abouti : %v",
 	KeyLogProxyConnLimit:      "rejet de %s : limite de connexions atteinte (%d)",
+
+	KeyLogProxyUpstreamEnabled:      "proxy amont activé : %s %s",
+	KeyLogProxyUpstreamInsecure:     "AVERTISSEMENT : la vérification de la clé d'hôte SSH amont est désactivée (-upstream-insecure) ; la connexion est vulnérable aux attaques de l'intercepteur",
+	KeyLogProxyUpstreamSSHConnect:   "amont SSH connecté : %s",
+	KeyLogProxyUpstreamSSHReconnect: "connexion amont SSH perdue, reconnexion : %s",
 
 	KeyErrProxyExit:         "le service proxy s'est arrêté : %w",
 	KeyErrProxyHandshakeNeg: "handshake-timeout ne peut pas être négatif : %s",
@@ -126,4 +136,18 @@ var messagesFR = map[string]string{
 	KeyErrProxyHTTPDial:         "échec de connexion à %s : %w",
 	KeyErrProxyHTTPForward:      "échec du transfert de la requête vers %s : %w",
 	KeyErrProxyHTTPRelayResp:    "échec du relais de la réponse : %w",
+
+	KeyErrProxyUpstreamScheme:        "schéma amont non pris en charge : %q (choisir socks5, http ou ssh)",
+	KeyErrProxyUpstreamParse:         "échec d'analyse de l'URL amont : %w",
+	KeyErrProxyUpstreamEmptyHost:     "l'URL amont doit inclure un hôte",
+	KeyErrProxyUpstreamSocks5:        "échec de création du dialer amont SOCKS5 : %w",
+	KeyErrProxyUpstreamHTTPConnect:   "échec du CONNECT HTTP amont vers %s : %w",
+	KeyErrProxyUpstreamHTTPStatus:    "le CONNECT HTTP amont vers %s a renvoyé un statut inattendu : %s",
+	KeyErrProxyUpstreamSSHNoAuth:     "l'amont ssh nécessite un fichier de clé (-upstream-identity) ou un mot de passe dans l'URL amont",
+	KeyErrProxyUpstreamSSHIdentity:   "échec de lecture du fichier de clé SSH %s : %w",
+	KeyErrProxyUpstreamSSHParseKey:   "échec d'analyse de la clé privée SSH : %w",
+	KeyErrProxyUpstreamSSHKnownHosts: "échec du chargement de SSH known_hosts %s : %w",
+	KeyErrProxyUpstreamSSHDial:       "échec de l'établissement de la connexion amont SSH vers %s : %w",
+	KeyErrProxyUpstreamSSHChannel:    "échec de l'ouverture du canal SSH vers %s : %w",
+	KeyErrProxyUpstreamClosed:        "le dialer amont est fermé",
 }
