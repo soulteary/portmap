@@ -357,6 +357,70 @@ func TestSOCKS5UnsupportedCommand(t *testing.T) {
 	}
 }
 
+// TestSOCKS5BadRequestVersion 验证请求头 VER 非 0x05 时握手失败（覆盖
+// handleSOCKS5WithReader 的版本校验分支）。
+func TestSOCKS5BadRequestVersion(t *testing.T) {
+	proxyAddr, stop := startTestProxy(t)
+	defer stop()
+
+	conn, err := net.DialTimeout("tcp", proxyAddr, time.Second)
+	if err != nil {
+		t.Fatalf("连接代理失败: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if _, err := conn.Write([]byte{socks5Version, 0x01, socksAuthNone}); err != nil {
+		t.Fatalf("方法协商失败: %v", err)
+	}
+	if _, err := readFull(conn, make([]byte, 2)); err != nil {
+		t.Fatalf("读取协商应答失败: %v", err)
+	}
+
+	// 请求头 VER=0x04（非法），服务端应在校验版本时中止握手并关闭连接。
+	req := []byte{0x04, socksCmdConnect, 0x00, socksAddrIPv4, 1, 2, 3, 4, 0x00, 0x50}
+	if _, err := conn.Write(req); err != nil {
+		t.Fatalf("发送请求失败: %v", err)
+	}
+	// 非法版本不产生应答；连接被关闭后读取应返回 EOF/错误。
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.Read(make([]byte, 1)); err == nil {
+		t.Fatal("非法请求版本时连接应被关闭")
+	}
+}
+
+// TestSOCKS5UnsupportedAddrType 验证不支持的地址类型返回“地址类型不支持”应答
+// （覆盖 readSOCKSAddr default 分支与 socksRepAddrNotSupported 回复）。
+func TestSOCKS5UnsupportedAddrType(t *testing.T) {
+	proxyAddr, stop := startTestProxy(t)
+	defer stop()
+
+	conn, err := net.DialTimeout("tcp", proxyAddr, time.Second)
+	if err != nil {
+		t.Fatalf("连接代理失败: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if _, err := conn.Write([]byte{socks5Version, 0x01, socksAuthNone}); err != nil {
+		t.Fatalf("方法协商失败: %v", err)
+	}
+	if _, err := readFull(conn, make([]byte, 2)); err != nil {
+		t.Fatalf("读取协商应答失败: %v", err)
+	}
+
+	// ATYP=0x09（未知地址类型），后续负载无关紧要。
+	req := []byte{socks5Version, socksCmdConnect, 0x00, 0x09, 0, 0}
+	if _, err := conn.Write(req); err != nil {
+		t.Fatalf("发送请求失败: %v", err)
+	}
+	head := make([]byte, 10)
+	if _, err := readFull(conn, head); err != nil {
+		t.Fatalf("读取应答失败: %v", err)
+	}
+	if head[1] != socksRepAddrNotSupported {
+		t.Fatalf("应答码=%d，期望地址类型不支持(%d)", head[1], socksRepAddrNotSupported)
+	}
+}
+
 // TestServerListenAndServeUpstreamStartFailure 验证配置了无法构造的上游时，
 // ListenAndServe 在监听前返回错误（覆盖上游拨号器构造失败路径）。
 func TestServerListenAndServeUpstreamStartFailure(t *testing.T) {

@@ -240,6 +240,63 @@ func TestIdleConnCloseWriteTCP(t *testing.T) {
 	}
 }
 
+// TestIdleConnSharedGroupDeadlineError 覆盖共享模式下刷新截止时间失败的分支：
+// 当隧道内某个连接已关闭时，group.refreshDeadline 会返回错误，Read/Write 在读写
+// 前的刷新即失败并返回该错误（refreshReadDeadline/refreshWriteDeadline 的 group
+// 分支，以及 refreshSharedDeadlineAfterActivity 的错误传播）。
+func TestIdleConnSharedGroupDeadlineError(t *testing.T) {
+	a1, a2 := net.Pipe()
+	b1, b2 := net.Pipe()
+	defer func() { _ = a2.Close() }()
+	defer func() { _ = b2.Close() }()
+
+	const idleTimeout = time.Second
+	aIdle := &IdleConn{Conn: a1, Timeout: idleTimeout}
+	bIdle := &IdleConn{Conn: b1, Timeout: idleTimeout}
+	ShareIdleTimeout(aIdle, bIdle, idleTimeout)
+
+	// 关闭其中一端底层连接，使后续 SetDeadline 返回错误（net.ErrClosed）。
+	_ = b1.Close()
+
+	// Read 在读取前刷新共享截止时间，因组内含已关闭连接而失败。
+	if _, err := aIdle.Read(make([]byte, 1)); err == nil {
+		t.Fatal("共享组含已关闭连接时 Read 应返回刷新错误")
+	}
+	if _, err := aIdle.Write([]byte("x")); err == nil {
+		t.Fatal("共享组含已关闭连接时 Write 应返回刷新错误")
+	}
+}
+
+// TestIdleConnZeroTimeoutNoDeadline 覆盖非共享模式下 Timeout<=0 时不设置截止
+// 时间的分支：Read/Write 直接走底层连接。
+func TestIdleConnZeroTimeoutNoDeadline(t *testing.T) {
+	server, client := net.Pipe()
+	defer func() { _ = server.Close() }()
+	defer func() { _ = client.Close() }()
+
+	// Timeout 为 0：refreshReadDeadline/refreshWriteDeadline 应直接返回 nil。
+	ic := &IdleConn{Conn: client}
+
+	got := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 8)
+		n, _ := server.Read(buf)
+		got <- string(buf[:n])
+	}()
+
+	if _, err := ic.Write([]byte("noddl")); err != nil {
+		t.Fatalf("Timeout<=0 时 Write 不应因截止时间失败: %v", err)
+	}
+	select {
+	case s := <-got:
+		if s != "noddl" {
+			t.Fatalf("服务端读取=%q", s)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("服务端未读到数据")
+	}
+}
+
 // TestRelayReaderPropagatesEOFBothDirections 验证 RelayReader 在两端都能传播
 // EOF：一端关闭后另一端也随之退出。
 func TestRelayReaderPropagatesEOFBothDirections(t *testing.T) {

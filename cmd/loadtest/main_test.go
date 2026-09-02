@@ -497,3 +497,105 @@ func TestRunWithOutputBuiltinChain(t *testing.T) {
 		t.Fatalf("报告缺少请求统计:\n%s", report)
 	}
 }
+
+// TestRunWithOutputAllProtoModes 覆盖内建链路下 tcp/udp × throughput/connrate
+// 四种组合的成功收发路径（startChain 的 UDP 分支、runUDP/udpRoundTrip 成功、
+// runTCP connrate 成功），并断言成功请求数为正、无数据完整性错误。
+func TestRunWithOutputAllProtoModes(t *testing.T) {
+	combos := []struct {
+		proto string
+		mode  string
+	}{
+		{"tcp", "throughput"},
+		{"tcp", "connrate"},
+		{"udp", "throughput"},
+		{"udp", "connrate"},
+	}
+	for _, c := range combos {
+		t.Run(c.proto+"_"+c.mode, func(t *testing.T) {
+			o := &options{
+				proto:    c.proto,
+				mode:     c.mode,
+				conns:    2,
+				duration: 150 * time.Millisecond,
+				requests: 0,
+				payload:  128,
+				warmup:   0,
+			}
+			var out bytes.Buffer
+			if err := runWithOutput(o, &out, io.Discard); err != nil {
+				t.Fatalf("runWithOutput(%s/%s): %v", c.proto, c.mode, err)
+			}
+			report := out.String()
+			if !strings.Contains(report, "built-in chain") {
+				t.Fatalf("报告未标记内建链路:\n%s", report)
+			}
+			// 内建 echo 链路应有成功请求且不出现数据完整性错误。
+			if !strings.Contains(report, "mismatch   : 0") {
+				t.Fatalf("内建链路不应出现数据完整性错误:\n%s", report)
+			}
+			if strings.Contains(report, "requests ok  : 0\n") {
+				t.Fatalf("内建链路应有成功请求:\n%s", report)
+			}
+		})
+	}
+}
+
+// TestRunWithFixedRequestsBuiltin 覆盖 requests>0 时按预算提前结束的路径
+// （budget 命中后跳出循环，而非仅靠 duration 截止）。
+func TestRunWithFixedRequestsBuiltin(t *testing.T) {
+	o := &options{
+		proto:    "tcp",
+		mode:     "throughput",
+		conns:    1,
+		duration: 5 * time.Second,
+		requests: 3,
+		payload:  32,
+		warmup:   0,
+	}
+	var out bytes.Buffer
+	start := time.Now()
+	if err := runWithOutput(o, &out, io.Discard); err != nil {
+		t.Fatalf("runWithOutput: %v", err)
+	}
+	// 3 个请求应远早于 5s duration 完成。
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("固定请求数未提前结束: %s", elapsed)
+	}
+	if !strings.Contains(out.String(), "requests ok  : 3") {
+		t.Fatalf("成功请求数应为 3:\n%s", out.String())
+	}
+}
+
+// TestRunDelegatesToRunWithOutput 覆盖 run 的薄封装（写入真实 stdout/stderr）。
+func TestRunDelegatesToRunWithOutput(t *testing.T) {
+	o := &options{
+		proto:    "tcp",
+		mode:     "connrate",
+		conns:    1,
+		duration: 80 * time.Millisecond,
+		requests: 0,
+		payload:  32,
+		warmup:   0,
+	}
+	if err := run(o); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+// TestRunBuiltinChainStartFailure 验证 startEchoTarget 失败（不支持协议）时
+// runWithOutput 返回错误。proto 已在 parseFlags 校验，此处直接构造非法值以命中
+// startChain 的错误传播路径。
+func TestRunBuiltinChainStartFailure(t *testing.T) {
+	o := &options{
+		proto:    "sctp",
+		mode:     "throughput",
+		conns:    1,
+		duration: 50 * time.Millisecond,
+		payload:  32,
+		warmup:   0,
+	}
+	if err := runWithOutput(o, io.Discard, io.Discard); err == nil {
+		t.Fatal("非法协议应使内建链路启动失败并返回错误")
+	}
+}
