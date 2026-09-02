@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestRunValidation 覆盖 run() 中不会真正启动服务的路径：
@@ -115,6 +116,150 @@ func TestRunConfig(t *testing.T) {
 		path := writeCfg(t, "proto: sctp\n")
 		if err := run([]string{"-config", path}); err == nil {
 			t.Fatal("配置中非法 proto 应触发校验错误")
+		}
+	})
+}
+
+// TestOptionsString 验证 options.String 输出包含关键字段。
+func TestOptionsString(t *testing.T) {
+	o := options{
+		listenPort:  8022,
+		listenHost:  "127.0.0.1",
+		target:      "10.0.0.1:22",
+		mode:        "go",
+		proto:       "tcp",
+		reuseAddr:   true,
+		dialTimeout: 10 * time.Second,
+		maxConns:    128,
+		idleTimeout: time.Minute,
+		logLevel:    "debug",
+		quiet:       false,
+		useSudo:     true,
+	}
+	s := o.String()
+	for _, sub := range []string{"mode=go", "proto=tcp", "listen=127.0.0.1:8022", "target=10.0.0.1:22", "reuseaddr=true", "max-conns=128", "log-level=debug", "sudo=true"} {
+		if !strings.Contains(s, sub) {
+			t.Errorf("String() 缺少 %q: %s", sub, s)
+		}
+	}
+}
+
+// TestSplitSubcommand 覆盖子命令拆分的各分支。
+func TestSplitSubcommand(t *testing.T) {
+	cases := []struct {
+		name     string
+		argv     []string
+		wantSub  string
+		wantRest []string
+	}{
+		{"空参数默认 forward", nil, "forward", nil},
+		{"以 flag 开头默认 forward", []string{"-listen-port", "22"}, "forward", []string{"-listen-port", "22"}},
+		{"显式 proxy 子命令", []string{"proxy", "-addr", "x"}, "proxy", []string{"-addr", "x"}},
+		{"显式 version 子命令", []string{"version"}, "version", []string{}},
+		{"未知位置参数默认 forward", []string{"bogus", "arg"}, "forward", []string{"bogus", "arg"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			sub, rest := splitSubcommand(c.argv)
+			if sub != c.wantSub {
+				t.Fatalf("sub=%q，期望 %q", sub, c.wantSub)
+			}
+			if len(rest) != len(c.wantRest) {
+				t.Fatalf("rest=%v，期望 %v", rest, c.wantRest)
+			}
+			for i := range c.wantRest {
+				if rest[i] != c.wantRest[i] {
+					t.Fatalf("rest[%d]=%q，期望 %q", i, rest[i], c.wantRest[i])
+				}
+			}
+		})
+	}
+}
+
+// TestPreScanLang 覆盖 -lang / --lang / -lang=xx / 子命令跳过 / 未找到 等分支。
+func TestPreScanLang(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"空格分隔", []string{"-lang", "zh"}, "zh"},
+		{"等号形式", []string{"-lang=ja"}, "ja"},
+		{"双横线", []string{"--lang", "fr"}, "fr"},
+		{"跳过子命令名", []string{"proxy", "-lang", "de"}, "de"},
+		{"未提供值", []string{"-lang"}, ""},
+		{"无 lang flag", []string{"-listen-port", "22"}, ""},
+		{"-- 之后停止", []string{"--", "-lang", "zh"}, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := preScanLang(c.argv); got != c.want {
+				t.Fatalf("preScanLang(%v)=%q，期望 %q", c.argv, got, c.want)
+			}
+		})
+	}
+}
+
+// TestRunVersionSubcommand 验证 version 子命令返回 nil。
+func TestRunVersionSubcommand(t *testing.T) {
+	if err := run([]string{"version"}); err != nil {
+		t.Fatalf("version 子命令应返回 nil，实际 %v", err)
+	}
+}
+
+// TestRunProxyValidation 覆盖 runProxy 的校验分支：非法上游 URL、负超时、
+// -version 提前返回、空地址等，均在监听端口前返回。
+func TestRunProxyValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		argv    []string
+		wantErr bool
+	}{
+		{"proxy version 提前返回", []string{"proxy", "-version"}, false},
+		{"proxy 空地址非法", []string{"proxy", "-addr", ""}, true},
+		{"proxy 负 dial-timeout", []string{"proxy", "-dial-timeout", "-1s"}, true},
+		{"proxy 负 handshake-timeout", []string{"proxy", "-handshake-timeout", "-1s"}, true},
+		{"proxy 负 idle-timeout", []string{"proxy", "-idle-timeout", "-1s"}, true},
+		{"proxy 非法上游 scheme", []string{"proxy", "-upstream", "ftp://host:21"}, true},
+		{"proxy 上游缺 host", []string{"proxy", "-upstream", "socks5://"}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := run(tc.argv); (err != nil) != tc.wantErr {
+				t.Fatalf("run(%v) err=%v，期望 wantErr=%v", tc.argv, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestRunProxyConfigLoad 验证 proxy 子命令的 -config 加载与合并。
+func TestRunProxyConfigLoad(t *testing.T) {
+	writeCfg := func(t *testing.T, content string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("写入临时配置失败: %v", err)
+		}
+		return path
+	}
+
+	t.Run("config 文件不存在返回错误", func(t *testing.T) {
+		if err := run([]string{"proxy", "-config", filepath.Join(t.TempDir(), "nope.yaml")}); err == nil {
+			t.Fatal("config 文件不存在应返回错误")
+		}
+	})
+
+	t.Run("config 非法 duration 返回错误", func(t *testing.T) {
+		path := writeCfg(t, "proxy:\n  dial_timeout: not-a-duration\n")
+		if err := run([]string{"proxy", "-config", path}); err == nil {
+			t.Fatal("非法 dial_timeout 应返回错误")
+		}
+	})
+
+	t.Run("config 提供非法上游触发解析错误", func(t *testing.T) {
+		path := writeCfg(t, "proxy:\n  upstream: ftp://host:21\n")
+		if err := run([]string{"proxy", "-config", path}); err == nil {
+			t.Fatal("配置中非法上游应触发错误")
 		}
 	})
 }

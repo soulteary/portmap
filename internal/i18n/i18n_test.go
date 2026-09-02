@@ -133,3 +133,136 @@ func TestPlaceholdersConsistent(t *testing.T) {
 		}
 	}
 }
+
+// TestCodes 验证 Codes 返回全部受支持语言，且顺序与 order 一致。
+func TestCodes(t *testing.T) {
+	codes := Codes()
+	if len(codes) != len(order) {
+		t.Fatalf("Codes 返回 %d 项，期望 %d", len(codes), len(order))
+	}
+	for i, l := range order {
+		if codes[i] != string(l) {
+			t.Errorf("Codes[%d]=%q，期望 %q", i, codes[i], string(l))
+		}
+	}
+	// 必须包含全部六种语言。
+	want := map[string]bool{"en": true, "zh": true, "ja": true, "ko": true, "fr": true, "de": true}
+	for _, c := range codes {
+		delete(want, c)
+	}
+	if len(want) != 0 {
+		t.Errorf("Codes 缺失语言: %v", want)
+	}
+}
+
+// TestParseLang 验证公开的 ParseLang 与内部 match 行为一致。
+func TestParseLang(t *testing.T) {
+	cases := []struct {
+		in   string
+		want Lang
+		ok   bool
+	}{
+		{"zh-CN", Chinese, true},
+		{"en_US.UTF-8", English, true},
+		{"de", German, true},
+		{"xx", English, false},
+		{"", English, false},
+	}
+	for _, c := range cases {
+		got, ok := ParseLang(c.in)
+		if got != c.want || ok != c.ok {
+			t.Errorf("ParseLang(%q)=(%q,%v)，期望 (%q,%v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// TestSetLangAndCurrent 验证 SetLang 覆盖后 Current 立即返回该语言。
+func TestSetLangAndCurrent(t *testing.T) {
+	orig := Current()
+	t.Cleanup(func() { SetLang(orig) })
+
+	SetLang(Japanese)
+	if got := Current(); got != Japanese {
+		t.Fatalf("SetLang(Japanese) 后 Current()=%q", got)
+	}
+	SetLang(French)
+	if got := Current(); got != French {
+		t.Fatalf("SetLang(French) 后 Current()=%q", got)
+	}
+}
+
+// TestCurrentAutoDetect 验证未显式设置语言时 Current 走自动检测路径。
+func TestCurrentAutoDetect(t *testing.T) {
+	// 保存并在结束后恢复包级检测状态，避免影响其它测试。
+	mu.Lock()
+	savedCurrent, savedDetected := current, detected
+	mu.Unlock()
+	t.Cleanup(func() {
+		mu.Lock()
+		current, detected = savedCurrent, savedDetected
+		mu.Unlock()
+	})
+
+	for _, k := range []string{"PORTMAP_LANG", "LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("LANG", "ko_KR.UTF-8")
+
+	// 重置检测标志，强制 Current 重新检测。
+	mu.Lock()
+	detected = false
+	mu.Unlock()
+
+	if got := Current(); got != Korean {
+		t.Fatalf("自动检测 Current()=%q，期望 ko", got)
+	}
+}
+
+// TestDetectFallsBackToEnglish 验证所有来源都无法识别时回退英文。
+func TestDetectFallsBackToEnglish(t *testing.T) {
+	for _, k := range []string{"PORTMAP_LANG", "LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("LANG", "xx_YY.UTF-8")
+	if got := Detect(); got != English {
+		t.Fatalf("无法识别时 Detect()=%q，期望 en", got)
+	}
+}
+
+// TestDetectPriority 验证 PORTMAP_LANG 优先级高于其它环境变量。
+func TestDetectPriority(t *testing.T) {
+	for _, k := range []string{"PORTMAP_LANG", "LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("LANG", "fr_FR.UTF-8")
+	t.Setenv("LC_ALL", "de_DE.UTF-8")
+	t.Setenv("PORTMAP_LANG", "zh")
+	if got := Detect(); got != Chinese {
+		t.Fatalf("PORTMAP_LANG 应优先，Detect()=%q，期望 zh", got)
+	}
+}
+
+// TestLookupFallback 验证 lookup 在语言缺 key 时回退英文，英文也缺时返回 key。
+func TestLookupFallback(t *testing.T) {
+	if got := lookup(German, "no.such.key"); got != "no.such.key" {
+		t.Errorf("缺失 key 应返回 key 本身，实际 %q", got)
+	}
+	// 已知 key 在德文表中存在时应返回德文文本。
+	if got := lookup(German, KeyFlagVersion); got != messagesDE[KeyFlagVersion] {
+		t.Errorf("lookup(German, KeyFlagVersion)=%q，期望 %q", got, messagesDE[KeyFlagVersion])
+	}
+	// 未知语言（无对应表）应回退英文表。
+	if got := lookup(Lang("xx"), KeyFlagVersion); got != messagesEN[KeyFlagVersion] {
+		t.Errorf("未知语言应回退英文，实际 %q", got)
+	}
+}
+
+// TestTWithoutArgsReturnsRawFormat 验证不带参数时 T 返回原始格式串（含占位符）。
+func TestTWithoutArgsReturnsRawFormat(t *testing.T) {
+	SetLang(English)
+	t.Cleanup(func() { SetLang(English) })
+	raw := T(KeyErrListenPort)
+	if raw != messagesEN[KeyErrListenPort] {
+		t.Fatalf("无参数 T 应返回原始格式串，实际 %q", raw)
+	}
+}
