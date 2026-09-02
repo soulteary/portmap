@@ -69,6 +69,16 @@ type UpstreamConfig struct {
 
 	// Insecure 为 true 时跳过 ssh 上游 host key 校验（不安全）。
 	Insecure bool
+
+	// KeepaliveInterval 是 ssh 上游主动保活探测的间隔（可选）。
+	//   - 0：沿用默认间隔（defaultKeepaliveInterval，30s）；
+	//   - 负数：禁用主动保活，退回到「拨号失败时被动重连一次」的行为；
+	//   - 正数：每隔该间隔发送一次 keepalive@openssh.com 探测。
+	KeepaliveInterval time.Duration
+
+	// KeepaliveMaxFailures 是连续保活探测失败多少次后判定连接已断、
+	// 触发后台重连（可选，0 表示沿用默认 defaultKeepaliveMaxFailures，3 次）。
+	KeepaliveMaxFailures int
 }
 
 // describe 返回用于日志展示的上游摘要（不含凭据）。
@@ -266,16 +276,44 @@ func basicAuth(user, pass string) string {
 
 // ---- SSH 上游 ----
 
+// SSH 上游主动保活与后台重连的默认参数，与 superviseSSH 对齐
+// （等价于 ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3）。
+const (
+	// defaultKeepaliveInterval 是保活探测的默认间隔。
+	defaultKeepaliveInterval = 30 * time.Second
+	// defaultKeepaliveMaxFailures 是判定连接已断前允许的连续探测失败次数。
+	defaultKeepaliveMaxFailures = 3
+	// defaultMinBackoff / defaultMaxBackoff 是后台重连的指数退避上下界。
+	defaultMinBackoff = 1 * time.Second
+	defaultMaxBackoff = 30 * time.Second
+)
+
 // sshDialer 通过一个惰性建立、断开自动重连的 *ssh.Client 打开出站连接。
+//
+// 首次成功建连后会启动一个后台守护 goroutine（superviseClient），周期性发送
+// keepalive@openssh.com 探测；连续失败达阈值或底层连接结束时，按指数退避在后台
+// 主动重连，避免 NAT/防火墙静默断连时长时间不可用。守护 goroutine 严格随 Close
+// 关闭的 done 通道退出，不会泄漏。
 type sshDialer struct {
 	cfg     *UpstreamConfig
 	timeout time.Duration
 	logger  *log.Logger
 	sshCfg  *ssh.ClientConfig
 
+	// 保活/退避参数，来自配置或默认值；负的 keepaliveInterval 表示禁用主动保活。
+	keepaliveInterval    time.Duration
+	keepaliveMaxFailures int
+	minBackoff           time.Duration
+	maxBackoff           time.Duration
+
 	mu     sync.Mutex
 	client *ssh.Client
 	closed bool
+
+	// superviseOnce 确保只启动一个守护 goroutine。
+	superviseOnce sync.Once
+	// done 在 Close 时关闭，通知守护 goroutine 优雅退出。
+	done chan struct{}
 }
 
 func newSSHDialer(cfg *UpstreamConfig, timeout time.Duration, logger *log.Logger) (Dialer, error) {
@@ -310,11 +348,26 @@ func newSSHDialer(cfg *UpstreamConfig, timeout time.Duration, logger *log.Logger
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         timeout,
 	}
+
+	keepaliveInterval := cfg.KeepaliveInterval
+	if keepaliveInterval == 0 {
+		keepaliveInterval = defaultKeepaliveInterval
+	}
+	keepaliveMaxFailures := cfg.KeepaliveMaxFailures
+	if keepaliveMaxFailures <= 0 {
+		keepaliveMaxFailures = defaultKeepaliveMaxFailures
+	}
+
 	return &sshDialer{
-		cfg:     cfg,
-		timeout: timeout,
-		logger:  logger,
-		sshCfg:  sshCfg,
+		cfg:                  cfg,
+		timeout:              timeout,
+		logger:               logger,
+		sshCfg:               sshCfg,
+		keepaliveInterval:    keepaliveInterval,
+		keepaliveMaxFailures: keepaliveMaxFailures,
+		minBackoff:           defaultMinBackoff,
+		maxBackoff:           defaultMaxBackoff,
+		done:                 make(chan struct{}),
 	}, nil
 }
 
@@ -402,7 +455,108 @@ func (s *sshDialer) getClient() (*ssh.Client, error) {
 	}
 	s.client = client
 	s.logMessage(i18n.T(i18n.KeyLogProxyUpstreamSSHConnect), s.cfg.Addr)
+	// 首次成功建连后启动后台守护：主动保活 + 断线指数退避重连。
+	// keepaliveInterval < 0 表示禁用主动保活，退回被动重连行为，不启动守护。
+	if s.keepaliveInterval > 0 {
+		s.superviseOnce.Do(func() {
+			go s.superviseClient(client)
+		})
+	}
 	return client, nil
+}
+
+// superviseClient 是随首个 ssh 客户端启动的后台守护 goroutine：
+//   - 每隔 keepaliveInterval 发送一次 keepalive@openssh.com 探测；
+//   - 连续失败达 keepaliveMaxFailures 次，或底层连接结束（client.Wait 返回），
+//     判定连接已断，丢弃当前客户端并在后台按指数退避重连；
+//   - 通过监听 s.done（Close 时关闭）优雅退出，避免 goroutine 泄漏。
+//
+// 守护始终跟随「当前」客户端：重连成功后继续对新客户端保活，无需再启动新的 goroutine。
+func (s *sshDialer) superviseClient(client *ssh.Client) {
+	ticker := time.NewTicker(s.keepaliveInterval)
+	defer ticker.Stop()
+
+	// waitClosed 在底层连接结束时收到信号（缓冲 1，避免 goroutine 泄漏）。
+	waitClosed := make(chan struct{}, 1)
+	watch := func(c *ssh.Client) {
+		go func() {
+			_ = c.Wait()
+			select {
+			case waitClosed <- struct{}{}:
+			default:
+			}
+		}()
+	}
+	watch(client)
+
+	failures := 0
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-waitClosed:
+			// 连接已结束：立即触发重连。
+			newClient, ok := s.reconnect(client)
+			if !ok {
+				return
+			}
+			client = newClient
+			failures = 0
+			watch(client)
+		case <-ticker.C:
+			_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+			if err == nil {
+				failures = 0
+				continue
+			}
+			failures++
+			s.logMessage(i18n.T(i18n.KeyLogProxyUpstreamSSHKeepaliveFail), s.cfg.Addr, failures, s.keepaliveMaxFailures)
+			if failures < s.keepaliveMaxFailures {
+				continue
+			}
+			newClient, ok := s.reconnect(client)
+			if !ok {
+				return
+			}
+			client = newClient
+			failures = 0
+			watch(client)
+		}
+	}
+}
+
+// reconnect 丢弃当前客户端并按指数退避（minBackoff→maxBackoff）在后台重连。
+// 成功时返回新客户端与 true；若期间 Close 被调用则返回 false，调用方应退出守护。
+func (s *sshDialer) reconnect(client *ssh.Client) (*ssh.Client, bool) {
+	s.discard(client)
+	s.logMessage(i18n.T(i18n.KeyLogProxyUpstreamSSHReconnect), s.cfg.Addr)
+
+	backoff := s.minBackoff
+	for {
+		select {
+		case <-s.done:
+			return nil, false
+		default:
+		}
+
+		newClient, err := s.getClient()
+		if err == nil {
+			return newClient, true
+		}
+
+		s.logMessage(i18n.T(i18n.KeyLogProxyUpstreamSSHBackoff), backoff)
+		timer := time.NewTimer(backoff)
+		select {
+		case <-s.done:
+			timer.Stop()
+			return nil, false
+		case <-timer.C:
+		}
+		backoff *= 2
+		if backoff > s.maxBackoff {
+			backoff = s.maxBackoff
+		}
+	}
 }
 
 // discard 关闭并清除当前 ssh 客户端，使下次拨号触发重连。
@@ -416,12 +570,17 @@ func (s *sshDialer) discard(client *ssh.Client) {
 }
 
 // Close 关闭底层 ssh 客户端，实现 io.Closer，供 Server 生命周期收尾调用。
+// 同时关闭 done 通道，通知后台守护 goroutine 优雅退出，避免泄漏。
 func (s *sshDialer) Close() error {
 	s.mu.Lock()
 	client := s.client
 	s.client = nil
+	alreadyClosed := s.closed
 	s.closed = true
 	s.mu.Unlock()
+	if !alreadyClosed {
+		close(s.done)
+	}
 	if client != nil {
 		return client.Close()
 	}

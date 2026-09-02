@@ -26,7 +26,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -531,4 +533,261 @@ func closeDialer(t *testing.T, dialer Dialer) {
 	if closer, ok := dialer.(io.Closer); ok {
 		_ = closer.Close()
 	}
+}
+
+// ---- 主动保活 / 后台守护重连测试 ----
+
+// closableSSHServer 是可控的内存 SSH 服务端：除处理 direct-tcpip 通道外，
+// 还记录每个已接受的底层连接，便于测试从服务端主动断开，触发客户端重连。
+type closableSSHServer struct {
+	addr string
+	mu   sync.Mutex
+	conn []net.Conn
+	ln   net.Listener
+}
+
+// closeConns 关闭当前所有服务端连接，模拟服务端主动断开（或网络中断）。
+func (s *closableSSHServer) closeConns() {
+	s.mu.Lock()
+	conns := s.conn
+	s.conn = nil
+	s.mu.Unlock()
+	for _, c := range conns {
+		_ = c.Close()
+	}
+}
+
+func (s *closableSSHServer) track(c net.Conn) {
+	s.mu.Lock()
+	s.conn = append(s.conn, c)
+	s.mu.Unlock()
+}
+
+// startClosableSSHServer 启动一个可从服务端主动断开的内存 SSH 服务端。
+func startClosableSSHServer(t *testing.T, authorizedKey ssh.PublicKey) (*closableSSHServer, func()) {
+	t.Helper()
+	hostSigner := generateHostKey(t)
+	serverCfg := &ssh.ServerConfig{
+		PublicKeyCallback: func(_ ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			if string(key.Marshal()) == string(authorizedKey.Marshal()) {
+				return &ssh.Permissions{}, nil
+			}
+			return nil, io.EOF
+		},
+	}
+	serverCfg.AddHostKey(hostSigner)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("SSH 监听失败: %v", err)
+	}
+	srv := &closableSSHServer{addr: ln.Addr().String(), ln: ln}
+	go func() {
+		for {
+			nConn, acceptErr := ln.Accept()
+			if acceptErr != nil {
+				return
+			}
+			srv.track(nConn)
+			go handleSSHConn(nConn, serverCfg)
+		}
+	}()
+	return srv, func() { _ = ln.Close() }
+}
+
+// superviseGoroutineRunning 报告是否有 goroutine 当前处于 superviseClient 中，
+// 用于精确检测守护是否已退出（避免受 http/ssh 客户端等无关 goroutine 干扰）。
+func superviseGoroutineRunning() bool {
+	buf := make([]byte, 1<<20)
+	n := runtime.Stack(buf, true)
+	return strings.Contains(string(buf[:n]), "superviseClient")
+}
+
+// waitSupervisorExit 轮询等待守护 goroutine 退出。
+func waitSupervisorExit(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if !superviseGoroutineRunning() {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestSSHDialerKeepaliveKeepsAlive 验证：启用短间隔主动保活后连接持续可用，
+// 保活探测本身不会误杀健康连接。
+func TestSSHDialerKeepaliveKeepsAlive(t *testing.T) {
+	backendAddr, stopBackend := startBackend(t)
+	defer stopBackend()
+
+	clientPEM, clientPub := generateClientKey(t)
+	sshAddr, _, stopSSH := startSSHServer(t, clientPub)
+	defer stopSSH()
+
+	identity := writeIdentity(t, clientPEM)
+	dialer, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:            UpstreamSchemeSSH,
+		Addr:              sshAddr,
+		Username:          "tester",
+		IdentityFile:      identity,
+		Insecure:          true,
+		KeepaliveInterval: 20 * time.Millisecond,
+	}, 5*time.Second, 30*time.Second, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("构造 SSH 上游失败: %v", err)
+	}
+	defer closeDialer(t, dialer)
+
+	// 首次拨号触发建连并启动守护。
+	assertDialerReachesBackend(t, dialer, backendAddr)
+	// 等待若干个保活周期，连接应保持可用。
+	time.Sleep(150 * time.Millisecond)
+	assertDialerReachesBackend(t, dialer, backendAddr)
+
+	// 客户端应始终是同一个（未发生重连）。
+	sd := dialer.(*sshDialer)
+	sd.mu.Lock()
+	client := sd.client
+	sd.mu.Unlock()
+	if client == nil {
+		t.Fatal("期望保活期间客户端保持存活")
+	}
+}
+
+// TestSSHDialerCloseTerminatesSupervisor 验证：Close 关闭 done 通道后，
+// 守护 goroutine 及时退出，无泄漏。
+func TestSSHDialerCloseTerminatesSupervisor(t *testing.T) {
+	backendAddr, stopBackend := startBackend(t)
+	defer stopBackend()
+
+	clientPEM, clientPub := generateClientKey(t)
+	sshAddr, _, stopSSH := startSSHServer(t, clientPub)
+	defer stopSSH()
+
+	identity := writeIdentity(t, clientPEM)
+	dialer, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:            UpstreamSchemeSSH,
+		Addr:              sshAddr,
+		Username:          "tester",
+		IdentityFile:      identity,
+		Insecure:          true,
+		KeepaliveInterval: 20 * time.Millisecond,
+	}, 5*time.Second, 30*time.Second, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("构造 SSH 上游失败: %v", err)
+	}
+	assertDialerReachesBackend(t, dialer, backendAddr)
+
+	// 建连后守护 goroutine 应在运行。
+	if !superviseGoroutineRunning() {
+		t.Fatal("期望建连后守护 goroutine 正在运行")
+	}
+
+	// 关闭后守护 goroutine 应退出。
+	closeDialer(t, dialer)
+	if !waitSupervisorExit(2 * time.Second) {
+		t.Fatal("Close 后守护 goroutine 未退出（疑似泄漏）")
+	}
+}
+
+// TestSSHDialerAutoReconnectOnServerDisconnect 验证：服务端主动断开后，
+// 守护 goroutine 检测到并在退避后自动重连，DialContext 恢复可用。
+func TestSSHDialerAutoReconnectOnServerDisconnect(t *testing.T) {
+	backendAddr, stopBackend := startBackend(t)
+	defer stopBackend()
+
+	clientPEM, clientPub := generateClientKey(t)
+	srv, stopSSH := startClosableSSHServer(t, clientPub)
+	defer stopSSH()
+
+	identity := writeIdentity(t, clientPEM)
+	d, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:            UpstreamSchemeSSH,
+		Addr:              srv.addr,
+		Username:          "tester",
+		IdentityFile:      identity,
+		Insecure:          true,
+		KeepaliveInterval: 20 * time.Millisecond,
+	}, 5*time.Second, 30*time.Second, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("构造 SSH 上游失败: %v", err)
+	}
+	defer closeDialer(t, d)
+
+	sd := d.(*sshDialer)
+	// 使用极短退避，避免测试等待过久。
+	sd.minBackoff = 10 * time.Millisecond
+	sd.maxBackoff = 50 * time.Millisecond
+
+	assertDialerReachesBackend(t, d, backendAddr)
+
+	// 服务端主动断开当前连接，守护应检测到并后台重连。
+	srv.closeConns()
+
+	// 轮询直到重连成功（DialContext 可用）。
+	deadline := time.Now().Add(3 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		conn, dialErr := d.DialContext(context.Background(), "tcp", backendAddr)
+		if dialErr == nil {
+			_ = conn.Close()
+			lastErr = nil
+			break
+		}
+		lastErr = dialErr
+		time.Sleep(20 * time.Millisecond)
+	}
+	if lastErr != nil {
+		t.Fatalf("服务端断开后未能自动重连: %v", lastErr)
+	}
+}
+
+// TestSSHDialerKeepaliveDisabled 验证：KeepaliveInterval < 0 时禁用主动保活，
+// 不启动守护 goroutine，退回到被动重连行为（DialContext 仍能在断开后重连）。
+func TestSSHDialerKeepaliveDisabled(t *testing.T) {
+	backendAddr, stopBackend := startBackend(t)
+	defer stopBackend()
+
+	clientPEM, clientPub := generateClientKey(t)
+	sshAddr, _, stopSSH := startSSHServer(t, clientPub)
+	defer stopSSH()
+
+	identity := writeIdentity(t, clientPEM)
+	d, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:            UpstreamSchemeSSH,
+		Addr:              sshAddr,
+		Username:          "tester",
+		IdentityFile:      identity,
+		Insecure:          true,
+		KeepaliveInterval: -1,
+	}, 5*time.Second, 30*time.Second, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("构造 SSH 上游失败: %v", err)
+	}
+	defer closeDialer(t, d)
+
+	assertDialerReachesBackend(t, d, backendAddr)
+
+	// 禁用主动保活时不应启动守护 goroutine：丢弃当前客户端后，若无守护，
+	// 客户端应保持为 nil（不会被后台自动重连拉起），直到下一次显式拨号。
+	sd := d.(*sshDialer)
+	sd.mu.Lock()
+	current := sd.client
+	sd.mu.Unlock()
+	if current != nil {
+		sd.discard(current)
+	}
+	time.Sleep(100 * time.Millisecond)
+	sd.mu.Lock()
+	afterDiscard := sd.client
+	sd.mu.Unlock()
+	if afterDiscard != nil {
+		t.Fatal("禁用保活时不应有守护 goroutine 后台重连")
+	}
+
+	// 被动重连仍应工作：下一次拨号自动重连。
+	assertDialerReachesBackend(t, d, backendAddr)
 }

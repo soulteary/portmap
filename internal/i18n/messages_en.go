@@ -56,6 +56,7 @@ var messagesEN = map[string]string{
 	KeyErrConfigDial:      "invalid dial_timeout in config file: %w",
 	KeyErrConfigIdle:      "invalid idle_timeout in config file: %w",
 	KeyErrConfigHandshake: "invalid handshake_timeout in config file: %w",
+	KeyErrConfigKeepalive: "invalid upstream_keepalive in config file: %w",
 
 	KeyErrUnsupportedNet:  "unsupported network: %q",
 	KeyLogTCPListening:    "listening on %s (tcp), forwarding to %s (reuseaddr=%v, max-conns=%d, idle=%s)",
@@ -95,6 +96,9 @@ var messagesEN = map[string]string{
 	KeyFlagProxyUpstreamKnownHosts: "SSH known_hosts file for host key verification (default ~/.ssh/known_hosts)",
 	KeyFlagProxyUpstreamInsecure:   "skip SSH upstream host key verification (insecure, for self-hosted test environments only)",
 
+	KeyFlagProxyUpstreamKeepalive:            "SSH upstream keepalive probe interval (0 uses default 30s; negative disables active keepalive)",
+	KeyFlagProxyUpstreamKeepaliveMaxFailures: "consecutive keepalive probe failures before the SSH upstream is treated as down and reconnected (default 3)",
+
 	KeyLogProxyStarted:        "proxy started, listening on %s (SOCKS5 + HTTP, ignoring environment proxies)",
 	KeyLogProxyAcceptFailed:   "accept connection failed: %v",
 	KeyLogProxyDetectFailed:   "protocol detection failed (%s): %v",
@@ -111,6 +115,9 @@ var messagesEN = map[string]string{
 	KeyLogProxyUpstreamInsecure:     "WARNING: SSH upstream host key verification is disabled (-upstream-insecure); the connection is vulnerable to man-in-the-middle attacks",
 	KeyLogProxyUpstreamSSHConnect:   "SSH upstream connected: %s",
 	KeyLogProxyUpstreamSSHReconnect: "SSH upstream connection lost, reconnecting: %s",
+
+	KeyLogProxyUpstreamSSHKeepaliveFail: "SSH upstream keepalive probe failed %[2]d/%[3]d times: %[1]s",
+	KeyLogProxyUpstreamSSHBackoff:       "reconnecting to SSH upstream in %s",
 
 	KeyErrProxyExit:         "proxy service exited: %w",
 	KeyErrProxyHandshakeNeg: "handshake-timeout must not be negative: %s",

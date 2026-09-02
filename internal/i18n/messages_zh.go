@@ -56,6 +56,7 @@ var messagesZH = map[string]string{
 	KeyErrConfigDial:      "配置文件 dial_timeout 非法: %w",
 	KeyErrConfigIdle:      "配置文件 idle_timeout 非法: %w",
 	KeyErrConfigHandshake: "配置文件 handshake_timeout 非法: %w",
+	KeyErrConfigKeepalive: "配置文件 upstream_keepalive 非法: %w",
 
 	KeyErrUnsupportedNet:  "不支持的网络类型: %q",
 	KeyLogTCPListening:    "正在监听 %s (tcp)，转发至 %s (reuseaddr=%v, max-conns=%d, idle=%s)",
@@ -95,6 +96,9 @@ var messagesZH = map[string]string{
 	KeyFlagProxyUpstreamKnownHosts: "SSH host key 校验使用的 known_hosts 文件（默认 ~/.ssh/known_hosts）",
 	KeyFlagProxyUpstreamInsecure:   "跳过 SSH 上游 host key 校验（不安全，仅用于自建测试环境）",
 
+	KeyFlagProxyUpstreamKeepalive:            "SSH 上游主动保活探测间隔（0 表示默认 30s；负数表示禁用主动保活）",
+	KeyFlagProxyUpstreamKeepaliveMaxFailures: "连续保活探测失败多少次后判定 SSH 上游断线并重连（默认 3）",
+
 	KeyLogProxyStarted:        "代理服务已启动，监听 %s（SOCKS5 + HTTP，忽略环境代理）",
 	KeyLogProxyAcceptFailed:   "接受连接失败: %v",
 	KeyLogProxyDetectFailed:   "探测协议失败 (%s): %v",
@@ -111,6 +115,9 @@ var messagesZH = map[string]string{
 	KeyLogProxyUpstreamInsecure:     "警告: 已禁用 SSH 上游 host key 校验（-upstream-insecure），连接易受中间人攻击",
 	KeyLogProxyUpstreamSSHConnect:   "SSH 上游已连接: %s",
 	KeyLogProxyUpstreamSSHReconnect: "SSH 上游连接已断开，正在重连: %s",
+
+	KeyLogProxyUpstreamSSHKeepaliveFail: "SSH 上游保活探测失败 %[2]d/%[3]d 次: %[1]s",
+	KeyLogProxyUpstreamSSHBackoff:       "将在 %s 后重连 SSH 上游",
 
 	KeyErrProxyExit:         "代理服务异常退出: %w",
 	KeyErrProxyHandshakeNeg: "handshake-timeout 不能为负数: %s",

@@ -34,6 +34,9 @@ const (
 	KeyFlagProxyUpstreamKnownHosts = "flag.proxy-upstream-known-hosts"
 	KeyFlagProxyUpstreamInsecure   = "flag.proxy-upstream-insecure"
 
+	KeyFlagProxyUpstreamKeepalive            = "flag.proxy-upstream-keepalive"
+	KeyFlagProxyUpstreamKeepaliveMaxFailures = "flag.proxy-upstream-keepalive-max-failures"
+
 	// proxy 运行时日志（面向用户）。
 	KeyLogProxyStarted        = "proxy.started"
 	KeyLogProxyAcceptFailed   = "proxy.accept-failed"
@@ -52,6 +55,9 @@ const (
 	KeyLogProxyUpstreamInsecure     = "proxy.upstream-insecure"
 	KeyLogProxyUpstreamSSHConnect   = "proxy.upstream-ssh-connect"
 	KeyLogProxyUpstreamSSHReconnect = "proxy.upstream-ssh-reconnect"
+
+	KeyLogProxyUpstreamSSHKeepaliveFail = "proxy.upstream-ssh-keepalive-fail"
+	KeyLogProxyUpstreamSSHBackoff       = "proxy.upstream-ssh-backoff"
 
 	// proxy 运行/退出错误（main.go proxy 分支）。
 	KeyErrProxyExit         = "err.proxy-exit"

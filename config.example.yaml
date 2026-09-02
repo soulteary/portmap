@@ -59,6 +59,11 @@ proxy:
   upstream_known_hosts: ""
   # 是否跳过 SSH 上游 host key 校验（不安全，仅用于自建测试环境，默认 false）
   upstream_insecure: false
+  # SSH 上游主动保活探测间隔（仅 ssh 上游）。字符串写法（如 30s、1m）。
+  # 0 或留空表示默认 30s；负数（如 -1s）表示禁用主动保活，退回被动重连。
+  upstream_keepalive: 30s
+  # 连续保活探测失败多少次后判定断线并触发后台重连（仅 ssh 上游，默认 3）
+  upstream_keepalive_max_failures: 3
 
 # 界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
 # 注意：该字段仅影响运行期消息（日志/错误），不影响 --help 与 flag 描述的语言

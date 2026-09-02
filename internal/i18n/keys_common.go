@@ -42,6 +42,7 @@ const (
 	KeyErrConfigDial      = "err.config-dial"
 	KeyErrConfigIdle      = "err.config-idle"
 	KeyErrConfigHandshake = "err.config-handshake"
+	KeyErrConfigKeepalive = "err.config-keepalive"
 )
 
 // messages 保存每种语言下 key -> 文本 的映射。

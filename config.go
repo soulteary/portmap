@@ -74,6 +74,9 @@ type ProxyConfig struct {
 	UpstreamIdentity   *string `yaml:"upstream_identity"`
 	UpstreamKnownHosts *string `yaml:"upstream_known_hosts"`
 	UpstreamInsecure   *bool   `yaml:"upstream_insecure"`
+
+	UpstreamKeepalive            *string `yaml:"upstream_keepalive"`
+	UpstreamKeepaliveMaxFailures *int    `yaml:"upstream_keepalive_max_failures"`
 }
 
 // fileConfig 与命令行 flag 一一对应，字段均为指针类型：
@@ -263,6 +266,16 @@ func mergeProxyConfig(opt *proxyOptions, cfg *Config, setFlags map[string]bool) 
 	}
 	if cfg.Proxy.UpstreamInsecure != nil && !setFlags["upstream-insecure"] {
 		opt.upstreamInsecure = *cfg.Proxy.UpstreamInsecure
+	}
+	if cfg.Proxy.UpstreamKeepalive != nil && !setFlags["upstream-keepalive"] {
+		d, err := time.ParseDuration(*cfg.Proxy.UpstreamKeepalive)
+		if err != nil {
+			return fmt.Errorf(i18n.T(i18n.KeyErrConfigKeepalive), err)
+		}
+		opt.upstreamKeepalive = d
+	}
+	if cfg.Proxy.UpstreamKeepaliveMaxFailures != nil && !setFlags["upstream-keepalive-max-failures"] {
+		opt.upstreamKeepaliveMaxFailures = *cfg.Proxy.UpstreamKeepaliveMaxFailures
 	}
 	return nil
 }

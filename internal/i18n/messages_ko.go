@@ -56,6 +56,7 @@ var messagesKO = map[string]string{
 	KeyErrConfigDial:      "설정 파일의 dial_timeout이 잘못되었습니다: %w",
 	KeyErrConfigIdle:      "설정 파일의 idle_timeout이 잘못되었습니다: %w",
 	KeyErrConfigHandshake: "설정 파일의 handshake_timeout이 잘못되었습니다: %w",
+	KeyErrConfigKeepalive: "설정 파일의 upstream_keepalive가 잘못되었습니다: %w",
 
 	KeyErrUnsupportedNet:  "지원되지 않는 네트워크: %q",
 	KeyLogTCPListening:    "%s (tcp)에서 수신 중, %s로 전달 (reuseaddr=%v, max-conns=%d, idle=%s)",
@@ -95,6 +96,9 @@ var messagesKO = map[string]string{
 	KeyFlagProxyUpstreamKnownHosts: "host key 검증에 사용할 SSH known_hosts 파일 (기본값 ~/.ssh/known_hosts)",
 	KeyFlagProxyUpstreamInsecure:   "SSH 업스트림 host key 검증 건너뛰기 (안전하지 않음, 자체 호스팅 테스트 환경 전용)",
 
+	KeyFlagProxyUpstreamKeepalive:            "SSH 업스트림 keepalive 프로브 간격 (0은 기본값 30s, 음수는 능동 keepalive 비활성화)",
+	KeyFlagProxyUpstreamKeepaliveMaxFailures: "SSH 업스트림을 끊긴 것으로 판단하고 재연결하기 전 연속 keepalive 프로브 실패 횟수 (기본값 3)",
+
 	KeyLogProxyStarted:        "프록시 서비스가 시작되었습니다, %s에서 수신 중 (SOCKS5 + HTTP, 환경 프록시 무시)",
 	KeyLogProxyAcceptFailed:   "연결 수락 실패: %v",
 	KeyLogProxyDetectFailed:   "프로토콜 감지 실패 (%s): %v",
@@ -111,6 +115,9 @@ var messagesKO = map[string]string{
 	KeyLogProxyUpstreamInsecure:     "경고: SSH 업스트림 host key 검증이 비활성화되었습니다(-upstream-insecure). 중간자 공격에 취약합니다",
 	KeyLogProxyUpstreamSSHConnect:   "SSH 업스트림 연결됨: %s",
 	KeyLogProxyUpstreamSSHReconnect: "SSH 업스트림 연결이 끊어졌습니다, 재연결 중: %s",
+
+	KeyLogProxyUpstreamSSHKeepaliveFail: "SSH 업스트림 keepalive 프로브 실패 %[2]d/%[3]d회: %[1]s",
+	KeyLogProxyUpstreamSSHBackoff:       "%s 후 SSH 업스트림에 재연결합니다",
 
 	KeyErrProxyExit:         "프록시 서비스가 비정상 종료되었습니다: %w",
 	KeyErrProxyHandshakeNeg: "handshake-timeout은 음수일 수 없습니다: %s",

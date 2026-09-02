@@ -323,19 +323,21 @@ func runSocat(ctx context.Context, opt options, setFlags map[string]bool) error 
 
 // proxyOptions 保存 proxy 子命令的运行参数。
 type proxyOptions struct {
-	addr               string
-	dialTimeout        time.Duration
-	maxConns           int
-	handshakeTimeout   time.Duration
-	idleTimeout        time.Duration
-	allowPublic        bool
-	upstream           string
-	upstreamIdentity   string
-	upstreamKnownHosts string
-	upstreamInsecure   bool
-	showVersion        bool
-	configPath         string
-	lang               string
+	addr                         string
+	dialTimeout                  time.Duration
+	maxConns                     int
+	handshakeTimeout             time.Duration
+	idleTimeout                  time.Duration
+	allowPublic                  bool
+	upstream                     string
+	upstreamIdentity             string
+	upstreamKnownHosts           string
+	upstreamInsecure             bool
+	upstreamKeepalive            time.Duration
+	upstreamKeepaliveMaxFailures int
+	showVersion                  bool
+	configPath                   string
+	lang                         string
 }
 
 // runProxy 实现 proxy 子命令：单端口 SOCKS5 + HTTP 应用层代理。
@@ -353,6 +355,8 @@ func runProxy(argv []string) error {
 	fs.StringVar(&opt.upstreamIdentity, "upstream-identity", "", i18n.T(i18n.KeyFlagProxyUpstreamIdentity))
 	fs.StringVar(&opt.upstreamKnownHosts, "upstream-known-hosts", "", i18n.T(i18n.KeyFlagProxyUpstreamKnownHosts))
 	fs.BoolVar(&opt.upstreamInsecure, "upstream-insecure", false, i18n.T(i18n.KeyFlagProxyUpstreamInsecure))
+	fs.DurationVar(&opt.upstreamKeepalive, "upstream-keepalive", 0, i18n.T(i18n.KeyFlagProxyUpstreamKeepalive))
+	fs.IntVar(&opt.upstreamKeepaliveMaxFailures, "upstream-keepalive-max-failures", 0, i18n.T(i18n.KeyFlagProxyUpstreamKeepaliveMaxFailures))
 	fs.BoolVar(&opt.showVersion, "version", false, i18n.T(i18n.KeyFlagVersion))
 	fs.StringVar(&opt.configPath, "config", "", i18n.T(i18n.KeyFlagConfig))
 	fs.StringVar(&opt.lang, "lang", "", i18n.T(i18n.KeyFlagLang, strings.Join(i18n.Codes(), "/")))
@@ -419,6 +423,8 @@ func runProxy(argv []string) error {
 		u.IdentityFile = opt.upstreamIdentity
 		u.KnownHostsFile = opt.upstreamKnownHosts
 		u.Insecure = opt.upstreamInsecure
+		u.KeepaliveInterval = opt.upstreamKeepalive
+		u.KeepaliveMaxFailures = opt.upstreamKeepaliveMaxFailures
 		upstream = u
 	}
 

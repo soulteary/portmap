@@ -56,6 +56,7 @@ var messagesDE = map[string]string{
 	KeyErrConfigDial:      "ungültiges dial_timeout in der Konfigurationsdatei: %w",
 	KeyErrConfigIdle:      "ungültiges idle_timeout in der Konfigurationsdatei: %w",
 	KeyErrConfigHandshake: "ungültiges handshake_timeout in der Konfigurationsdatei: %w",
+	KeyErrConfigKeepalive: "ungültiges upstream_keepalive in der Konfigurationsdatei: %w",
 
 	KeyErrUnsupportedNet:  "nicht unterstütztes Netzwerk: %q",
 	KeyLogTCPListening:    "lausche auf %s (tcp), leite weiter an %s (reuseaddr=%v, max-conns=%d, idle=%s)",
@@ -95,6 +96,9 @@ var messagesDE = map[string]string{
 	KeyFlagProxyUpstreamKnownHosts: "SSH-known_hosts-Datei für die Host-Key-Prüfung (Standard ~/.ssh/known_hosts)",
 	KeyFlagProxyUpstreamInsecure:   "SSH-Upstream-Host-Key-Prüfung überspringen (unsicher, nur für selbst gehostete Testumgebungen)",
 
+	KeyFlagProxyUpstreamKeepalive:            "Keepalive-Prüfintervall für SSH-Upstream (0 verwendet Standard 30s; negativ deaktiviert aktives Keepalive)",
+	KeyFlagProxyUpstreamKeepaliveMaxFailures: "Aufeinanderfolgende fehlgeschlagene Keepalive-Prüfungen, bevor der SSH-Upstream als getrennt gilt und neu verbunden wird (Standard 3)",
+
 	KeyLogProxyStarted:        "Proxy gestartet, lausche auf %s (SOCKS5 + HTTP, Umgebungs-Proxys werden ignoriert)",
 	KeyLogProxyAcceptFailed:   "Verbindungsannahme fehlgeschlagen: %v",
 	KeyLogProxyDetectFailed:   "Protokollerkennung fehlgeschlagen (%s): %v",
@@ -111,6 +115,9 @@ var messagesDE = map[string]string{
 	KeyLogProxyUpstreamInsecure:     "WARNUNG: Die SSH-Upstream-Host-Key-Prüfung ist deaktiviert (-upstream-insecure); die Verbindung ist anfällig für Man-in-the-Middle-Angriffe",
 	KeyLogProxyUpstreamSSHConnect:   "SSH-Upstream verbunden: %s",
 	KeyLogProxyUpstreamSSHReconnect: "SSH-Upstream-Verbindung verloren, verbinde erneut: %s",
+
+	KeyLogProxyUpstreamSSHKeepaliveFail: "SSH-Upstream-Keepalive-Prüfung fehlgeschlagen %[2]d/%[3]d Mal: %[1]s",
+	KeyLogProxyUpstreamSSHBackoff:       "verbinde in %s erneut mit SSH-Upstream",
 
 	KeyErrProxyExit:         "Proxy-Dienst beendet: %w",
 	KeyErrProxyHandshakeNeg: "handshake-timeout darf nicht negativ sein: %s",

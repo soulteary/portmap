@@ -56,6 +56,7 @@ var messagesFR = map[string]string{
 	KeyErrConfigDial:      "dial_timeout invalide dans le fichier de configuration : %w",
 	KeyErrConfigIdle:      "idle_timeout invalide dans le fichier de configuration : %w",
 	KeyErrConfigHandshake: "handshake_timeout invalide dans le fichier de configuration : %w",
+	KeyErrConfigKeepalive: "upstream_keepalive invalide dans le fichier de configuration : %w",
 
 	KeyErrUnsupportedNet:  "réseau non pris en charge : %q",
 	KeyLogTCPListening:    "écoute sur %s (tcp), redirection vers %s (reuseaddr=%v, max-conns=%d, idle=%s)",
@@ -95,6 +96,9 @@ var messagesFR = map[string]string{
 	KeyFlagProxyUpstreamKnownHosts: "fichier SSH known_hosts pour la vérification de la clé d'hôte (par défaut ~/.ssh/known_hosts)",
 	KeyFlagProxyUpstreamInsecure:   "ignorer la vérification de la clé d'hôte SSH amont (non sécurisé, uniquement pour les environnements de test auto-hébergés)",
 
+	KeyFlagProxyUpstreamKeepalive:            "intervalle des sondes keepalive de l'amont SSH (0 utilise la valeur par défaut 30s ; négatif désactive le keepalive actif)",
+	KeyFlagProxyUpstreamKeepaliveMaxFailures: "nombre d'échecs consécutifs de sondes keepalive avant que l'amont SSH soit considéré comme déconnecté et reconnecté (par défaut 3)",
+
 	KeyLogProxyStarted:        "proxy démarré, écoute sur %s (SOCKS5 + HTTP, proxys d'environnement ignorés)",
 	KeyLogProxyAcceptFailed:   "échec d'acceptation de la connexion : %v",
 	KeyLogProxyDetectFailed:   "échec de détection du protocole (%s) : %v",
@@ -111,6 +115,9 @@ var messagesFR = map[string]string{
 	KeyLogProxyUpstreamInsecure:     "AVERTISSEMENT : la vérification de la clé d'hôte SSH amont est désactivée (-upstream-insecure) ; la connexion est vulnérable aux attaques de l'intercepteur",
 	KeyLogProxyUpstreamSSHConnect:   "amont SSH connecté : %s",
 	KeyLogProxyUpstreamSSHReconnect: "connexion amont SSH perdue, reconnexion : %s",
+
+	KeyLogProxyUpstreamSSHKeepaliveFail: "échec de la sonde keepalive amont SSH %[2]d/%[3]d fois : %[1]s",
+	KeyLogProxyUpstreamSSHBackoff:       "reconnexion à l'amont SSH dans %s",
 
 	KeyErrProxyExit:         "le service proxy s'est arrêté : %w",
 	KeyErrProxyHandshakeNeg: "handshake-timeout ne peut pas être négatif : %s",

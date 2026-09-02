@@ -56,6 +56,7 @@ var messagesJA = map[string]string{
 	KeyErrConfigDial:      "設定ファイルの dial_timeout が不正です: %w",
 	KeyErrConfigIdle:      "設定ファイルの idle_timeout が不正です: %w",
 	KeyErrConfigHandshake: "設定ファイルの handshake_timeout が不正です: %w",
+	KeyErrConfigKeepalive: "設定ファイルの upstream_keepalive が不正です: %w",
 
 	KeyErrUnsupportedNet:  "サポートされていないネットワーク: %q",
 	KeyLogTCPListening:    "%s (tcp) で待ち受け中、%s へ転送 (reuseaddr=%v, max-conns=%d, idle=%s)",
@@ -95,6 +96,9 @@ var messagesJA = map[string]string{
 	KeyFlagProxyUpstreamKnownHosts: "host key 検証に使用する SSH known_hosts ファイル（既定 ~/.ssh/known_hosts）",
 	KeyFlagProxyUpstreamInsecure:   "SSH 上流の host key 検証をスキップ（安全でない、自己ホストのテスト環境専用）",
 
+	KeyFlagProxyUpstreamKeepalive:            "SSH 上流のキープアライブ探査間隔（0 はデフォルト 30s、負数はアクティブなキープアライブを無効化）",
+	KeyFlagProxyUpstreamKeepaliveMaxFailures: "SSH 上流を切断と判断して再接続するまでの連続キープアライブ探査失敗回数（デフォルト 3）",
+
 	KeyLogProxyStarted:        "プロキシサービスを開始しました、%s で待ち受け中（SOCKS5 + HTTP、環境プロキシを無視）",
 	KeyLogProxyAcceptFailed:   "接続の受け入れに失敗: %v",
 	KeyLogProxyDetectFailed:   "プロトコル検出に失敗 (%s): %v",
@@ -111,6 +115,9 @@ var messagesJA = map[string]string{
 	KeyLogProxyUpstreamInsecure:     "警告: SSH 上流の host key 検証が無効です（-upstream-insecure）。中間者攻撃に対して脆弱です",
 	KeyLogProxyUpstreamSSHConnect:   "SSH 上流に接続しました: %s",
 	KeyLogProxyUpstreamSSHReconnect: "SSH 上流接続が切断されました、再接続します: %s",
+
+	KeyLogProxyUpstreamSSHKeepaliveFail: "SSH 上流のキープアライブ探査に失敗しました %[2]d/%[3]d 回: %[1]s",
+	KeyLogProxyUpstreamSSHBackoff:       "%s 後に SSH 上流へ再接続します",
 
 	KeyErrProxyExit:         "プロキシサービスが異常終了しました: %w",
 	KeyErrProxyHandshakeNeg: "handshake-timeout は負の値にできません: %s",
