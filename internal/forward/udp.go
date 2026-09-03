@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/soulteary/portmap/internal/i18n"
+	"github.com/soulteary/portmap/internal/stats"
 )
 
 // udpBufferSize 是 UDP 读缓冲区大小，足以容纳最大 UDP 数据报。
@@ -124,6 +125,7 @@ func (s *Server) serveUDP(ctx context.Context) error {
 				continue
 			}
 		}
+		s.stats.AddUp(int64(n))
 		sess.touch()
 	}
 }
@@ -136,6 +138,7 @@ type udpSession struct {
 	client   *net.UDPAddr
 	lastSeen atomic.Int64 // UnixNano
 	connID   int64
+	start    time.Time // 会话建立时间，用于 close 事件的时长统计
 	cancel   context.CancelFunc
 	// done 在 relay 退出（sem 已归还、dst 已关闭）后被 close，
 	// 供重建路径等待旧会话彻底退出，避免限流误拒。
@@ -182,8 +185,9 @@ func (m *udpSessions) get(ctx context.Context, client *net.UDPAddr) (*udpSession
 	}
 
 	sctx, cancel := context.WithCancel(ctx)
-	connID := m.server.total.Add(1)
-	ss := &udpSession{dst: dst, client: client, connID: connID, cancel: cancel, done: make(chan struct{})}
+	m.server.stats.ConnOpened()
+	connID := m.server.stats.TotalConns()
+	ss := &udpSession{dst: dst, client: client, connID: connID, start: time.Now(), cancel: cancel, done: make(chan struct{})}
 	ss.touch()
 
 	m.mu.Lock()
@@ -192,16 +196,25 @@ func (m *udpSessions) get(ctx context.Context, client *net.UDPAddr) (*udpSession
 		m.mu.Unlock()
 		cancel()
 		_ = dst.Close()
+		m.server.stats.ConnClosed()
 		if m.server.sem != nil {
 			<-m.server.sem
 		}
 		return existing, nil
 	}
 	m.table[key] = ss
-	active := m.server.active.Add(1)
+	active := m.server.stats.ActiveConns()
 	m.mu.Unlock()
 
 	m.server.infof(i18n.T(i18n.KeyLogUDPSessionOpen), connID, client, m.target, active)
+	m.server.cfg.Events.Append(stats.Event{
+		Time:   eventTime(),
+		Kind:   "open",
+		Proto:  "udp",
+		Client: client.String(),
+		Target: m.target.String(),
+		ConnID: connID,
+	})
 
 	m.server.wg.Add(1)
 	go func() {
@@ -216,13 +229,22 @@ func (m *udpSessions) relay(ctx context.Context, ss *udpSession) {
 	defer func() {
 		// 仅当表中仍是自己这个会话指针时才删除，避免误删重建后的新会话。
 		m.removeIf(ss.client, ss)
-		m.server.active.Add(-1)
+		m.server.stats.ConnClosed()
 		if m.server.sem != nil {
 			<-m.server.sem
 		}
 		_ = ss.dst.Close()
 		close(ss.done)
 		m.server.infof(i18n.T(i18n.KeyLogUDPSessionClose), ss.connID, ss.client)
+		m.server.cfg.Events.Append(stats.Event{
+			Time:       eventTime(),
+			Kind:       "close",
+			Proto:      "udp",
+			Client:     ss.client.String(),
+			Target:     m.target.String(),
+			DurationMs: time.Since(ss.start).Milliseconds(),
+			ConnID:     ss.connID,
+		})
 	}()
 
 	bufp := udpBufPool.Get().(*[]byte)
@@ -249,6 +271,7 @@ func (m *udpSessions) relay(ctx context.Context, ss *udpSession) {
 			return
 		}
 		ss.touch()
+		m.server.stats.AddDown(int64(n))
 		if _, err := m.conn.WriteToUDP(buf[:n], ss.client); err != nil {
 			m.server.debugf(i18n.T(i18n.KeyLogUDPWriteClient), err)
 			return

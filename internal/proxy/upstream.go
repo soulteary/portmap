@@ -63,6 +63,11 @@ type UpstreamConfig struct {
 	// IdentityFile 是 ssh 上游的私钥文件路径（可选）。
 	IdentityFile string
 
+	// IdentityPassphrase 是解密加密私钥所用的口令（可选，仅对加密私钥有意义）。
+	// 为空时用 ssh.ParsePrivateKey 解析未加密私钥；非空时改用
+	// ssh.ParsePrivateKeyWithPassphrase。不会进入日志或 describe()。
+	IdentityPassphrase string
+
 	// KnownHostsFile 是 ssh 上游 host key 校验使用的 known_hosts 路径；
 	// 为空时默认使用 ~/.ssh/known_hosts。
 	KnownHostsFile string
@@ -316,6 +321,29 @@ type sshDialer struct {
 	done chan struct{}
 }
 
+// parsePrivateKey 解析 SSH 私钥：passphrase 非空时用带口令解析，否则解析未加密
+// 私钥。当私钥已加密但未提供 passphrase 时，ssh.ParsePrivateKey 会返回
+// *ssh.PassphraseMissingError，此处以 errors.As 识别并返回更明确的 i18n 错误，
+// 提示需要提供 passphrase。passphrase 本身不会进入任何错误信息或日志。
+func parsePrivateKey(key []byte, passphrase string) (ssh.Signer, error) {
+	if passphrase != "" {
+		signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(passphrase))
+		if err != nil {
+			return nil, fmt.Errorf(i18n.T(i18n.KeyErrProxyUpstreamSSHParseKey), err)
+		}
+		return signer, nil
+	}
+	signer, err := ssh.ParsePrivateKey(key)
+	if err != nil {
+		var missing *ssh.PassphraseMissingError
+		if errors.As(err, &missing) {
+			return nil, errors.New(i18n.T(i18n.KeyErrProxyUpstreamSSHPassphraseMissing))
+		}
+		return nil, fmt.Errorf(i18n.T(i18n.KeyErrProxyUpstreamSSHParseKey), err)
+	}
+	return signer, nil
+}
+
 func newSSHDialer(cfg *UpstreamConfig, timeout time.Duration, logger *log.Logger) (Dialer, error) {
 	var authMethods []ssh.AuthMethod
 
@@ -324,9 +352,9 @@ func newSSHDialer(cfg *UpstreamConfig, timeout time.Duration, logger *log.Logger
 		if err != nil {
 			return nil, fmt.Errorf(i18n.T(i18n.KeyErrProxyUpstreamSSHIdentity), cfg.IdentityFile, err)
 		}
-		signer, err := ssh.ParsePrivateKey(key)
+		signer, err := parsePrivateKey(key, cfg.IdentityPassphrase)
 		if err != nil {
-			return nil, fmt.Errorf(i18n.T(i18n.KeyErrProxyUpstreamSSHParseKey), err)
+			return nil, err
 		}
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	}

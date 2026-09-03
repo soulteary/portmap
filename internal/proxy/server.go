@@ -34,6 +34,7 @@ import (
 
 	"github.com/soulteary/portmap/internal/i18n"
 	"github.com/soulteary/portmap/internal/netutil"
+	"github.com/soulteary/portmap/internal/stats"
 )
 
 // 默认参数。
@@ -78,6 +79,10 @@ type Server struct {
 	// Logger 用于输出日志，为 nil 时使用标准库默认 logger。
 	Logger *log.Logger
 
+	// Events 为可选的结构化连接事件缓冲区（供 Web 面板展示最近连接活动）。
+	// 为 nil 时所有事件写入均为零成本的空操作（EventLog.Append 对 nil 安全）。
+	Events *stats.EventLog
+
 	dialer Dialer
 
 	mu              sync.Mutex
@@ -89,6 +94,8 @@ type Server struct {
 	lifecycleCtx    context.Context
 	lifecycleCancel context.CancelFunc
 	wg              sync.WaitGroup
+
+	stats *stats.Counters
 }
 
 // New 创建一个代理服务。所有出站连接均直连，忽略环境代理。
@@ -102,8 +109,23 @@ func New(addr string) *Server {
 		conns:            make(map[net.Conn]struct{}),
 		handshakes:       make(map[net.Conn]struct{}),
 		remotes:          make(map[net.Conn]struct{}),
+		stats:            stats.New(),
 	}
 }
+
+// Stats 返回该代理实例的统计计数器（连接/字节/拒绝/失败/uptime）。
+// 延迟初始化以兼容通过零值加字段赋值构造 Server 的用法。
+func (s *Server) Stats() *stats.Counters {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stats == nil {
+		s.stats = stats.New()
+	}
+	return s.stats
+}
+
+// Snapshot 返回该代理实例的统计快照。
+func (s *Server) Snapshot() stats.Snapshot { return s.Stats().Snapshot() }
 
 // ListenAndServe 开始监听并处理连接，阻塞直到出错或被关闭。
 func (s *Server) ListenAndServe() error {
@@ -174,6 +196,8 @@ func (s *Server) ListenAndServe() error {
 			continue
 		}
 		if !s.trackConn(conn) {
+			s.Stats().Reject()
+			s.logEvent("reject", "", conn.RemoteAddr().String(), "", 0, 0, 0, 0)
 			s.logf(i18n.T(i18n.KeyLogProxyConnLimit), conn.RemoteAddr(), s.MaxConns)
 			_ = conn.Close()
 			continue
@@ -229,6 +253,8 @@ func (s *Server) closeDialer() {
 // serveConn 处理单个连接：先探测协议，再分发到对应处理器。
 func (s *Server) serveConn(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
+	s.Stats().ConnOpened()
+	defer s.Stats().ConnClosed()
 	ctx := s.serverContext()
 	if s.HandshakeTimeout > 0 {
 		var cancel context.CancelFunc
@@ -249,7 +275,10 @@ func (s *Server) serveConn(conn net.Conn) {
 		return
 	}
 
+	clientAddr := conn.RemoteAddr().String()
 	if prefix[0] == socks5Version {
+		// 探测到 SOCKS5：记录 open 事件（目标在握手后由处理器补充到 close 事件）。
+		s.logEvent("open", "socks5", clientAddr, "", 0, 0, 0, 0)
 		// 消费掉版本字节，交给 SOCKS5 处理器（它从 NMETHODS 继续）。
 		if _, err := reader.ReadByte(); err != nil {
 			return
@@ -260,6 +289,8 @@ func (s *Server) serveConn(conn net.Conn) {
 		return
 	}
 
+	// 否则按 HTTP/HTTPS 处理：记录 open 事件。
+	s.logEvent("open", "http", clientAddr, "", 0, 0, 0, 0)
 	if err := s.handleHTTP(ctx, client, reader); err != nil {
 		s.logf(i18n.T(i18n.KeyLogProxyHTTPFailed), conn.RemoteAddr(), err)
 	}
@@ -502,4 +533,25 @@ func (s *Server) logf(format string, args ...any) {
 		return
 	}
 	log.Printf(format, args...)
+}
+
+// eventTime 返回当前时间，格式化为 stats.Event 约定的 "2006-01-02 15:04:05"。
+func eventTime() string {
+	return time.Now().Format("2006-01-02 15:04:05")
+}
+
+// logEvent 向可选的事件缓冲区追加一条结构化连接事件；对 nil s.Events 安全，
+// 因此调用方无需在插桩处判空即可直接调用。
+func (s *Server) logEvent(kind, proto, client, target string, up, down, durMs, connID int64) {
+	s.Events.Append(stats.Event{
+		Time:       eventTime(),
+		Kind:       kind,
+		Proto:      proto,
+		Client:     client,
+		Target:     target,
+		UpBytes:    up,
+		DownBytes:  down,
+		DurationMs: durMs,
+		ConnID:     connID,
+	})
 }

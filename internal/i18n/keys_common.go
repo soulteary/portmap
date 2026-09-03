@@ -32,9 +32,48 @@ const (
 	KeyErrUnknownSub    = "err.unknown-sub"
 
 	// 通用 flag 描述（各子命令共享）。
-	KeyFlagVersion = "flag.version"
-	KeyFlagConfig  = "flag.config"
-	KeyFlagLang    = "flag.lang"
+	KeyFlagVersion   = "flag.version"
+	KeyFlagConfig    = "flag.config"
+	KeyFlagLang      = "flag.lang"
+	KeyFlagStatsAddr = "flag.stats-addr"
+
+	// 统计 HTTP 端点（stats.http）相关。
+	KeyLogStatsHTTPStarted = "log.stats-http-started"
+	KeyLogStatsHTTPStopped = "log.stats-http-stopped"
+	KeyErrStatsHTTPServe   = "err.stats-http-serve"
+	KeyErrStatsHTTPPublic  = "err.stats-http-public"
+
+	// Web 面板（web）相关：flag 描述、运行日志与错误。
+	KeyFlagWebAddr   = "flag.web-addr"
+	KeyFlagWebLogMax = "flag.web-log-max"
+	KeyLogWebStarted = "log.web-started"
+	KeyLogWebStopped = "log.web-stopped"
+	KeyErrWebServe   = "err.web-serve"
+	KeyErrWebPublic  = "err.web-public"
+
+	// Web 面板页面 UI 文本（由服务端注入到 HTML 页面）。
+	KeyWebTitle         = "web.title"
+	KeyWebPerfSection   = "web.perf-section"
+	KeyWebLogsSection   = "web.logs-section"
+	KeyWebActiveConns   = "web.active-conns"
+	KeyWebTotalConns    = "web.total-conns"
+	KeyWebRejectedConns = "web.rejected-conns"
+	KeyWebDialErrors    = "web.dial-errors"
+	KeyWebUpBytes       = "web.up-bytes"
+	KeyWebDownBytes     = "web.down-bytes"
+	KeyWebUptime        = "web.uptime"
+	KeyWebColTime       = "web.col-time"
+	KeyWebColKind       = "web.col-kind"
+	KeyWebColProto      = "web.col-proto"
+	KeyWebColClient     = "web.col-client"
+	KeyWebColTarget     = "web.col-target"
+	KeyWebColUp         = "web.col-up"
+	KeyWebColDown       = "web.col-down"
+	KeyWebColDuration   = "web.col-duration"
+	KeyWebBtnRefresh    = "web.btn-refresh"
+	KeyWebAutoRefresh   = "web.auto-refresh"
+	KeyWebCountUnit     = "web.count-unit"
+	KeyWebEmpty         = "web.empty"
 
 	// 配置文件错误（config.go）。
 	KeyErrConfigRead      = "err.config-read"

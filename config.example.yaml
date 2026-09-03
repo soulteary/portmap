@@ -35,6 +35,14 @@ forward:
   log_level: info
   # 安静模式，抑制每连接的常规日志（仅 go 模式，默认 false）
   quiet: false
+  # 可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭。
+  # 暴露 /stats（JSON）与 /metrics（Prometheus 文本）；仅允许绑定回环地址。
+  stats_addr: ""
+  # 可选的 Web 面板监听地址（如 127.0.0.1:8080），留空表示关闭。
+  # 启用后可在浏览器查看实时性能统计与访问/连接日志；默认仅允许绑定回环地址。
+  web_addr: ""
+  # Web 面板连接事件环形缓冲保留的最大条数（默认 1000）
+  web_log_max: 1000
 
 # proxy 子命令（单端口 SOCKS5 + HTTP 代理）
 proxy:
@@ -55,6 +63,11 @@ proxy:
   upstream: ""
   # SSH 上游认证使用的私钥文件路径（仅 ssh 上游，默认空）
   upstream_identity: ""
+  # 加密私钥的 passphrase（仅 ssh 上游，默认空）。优先级：环境变量
+  # PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE > 此配置项 > 交互式终端输入。
+  # 出于安全考虑不提供命令行 flag；推荐使用环境变量而非明文写入配置文件，
+  # 若确需写入 YAML 请自行控制文件权限。
+  # upstream_identity_passphrase: ""
   # SSH 上游 host key 校验使用的 known_hosts 路径（仅 ssh 上游，默认 ~/.ssh/known_hosts）
   upstream_known_hosts: ""
   # 是否跳过 SSH 上游 host key 校验（不安全，仅用于自建测试环境，默认 false）
@@ -64,6 +77,14 @@ proxy:
   upstream_keepalive: 30s
   # 连续保活探测失败多少次后判定断线并触发后台重连（仅 ssh 上游，默认 3）
   upstream_keepalive_max_failures: 3
+  # 可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭。
+  # 暴露 /stats（JSON）与 /metrics（Prometheus 文本）；除非 allow_public 否则仅允许回环地址。
+  stats_addr: ""
+  # 可选的 Web 面板监听地址（如 127.0.0.1:8080），留空表示关闭。
+  # 启用后可在浏览器查看实时性能统计与访问/连接日志；除非 allow_public 否则仅允许回环地址。
+  web_addr: ""
+  # Web 面板连接事件环形缓冲保留的最大条数（默认 1000）
+  web_log_max: 1000
 
 # 界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
 # 注意：该字段仅影响运行期消息（日志/错误），不影响 --help 与 flag 描述的语言

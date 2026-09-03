@@ -142,23 +142,30 @@ type ForwardConfig struct {
 	IdleTimeout *string `yaml:"idle_timeout"`
 	LogLevel    *string `yaml:"log_level"`
 	Quiet       *bool   `yaml:"quiet"`
+	StatsAddr   *string `yaml:"stats_addr"`
+	WebAddr     *string `yaml:"web_addr"`
+	WebLogMax   *int    `yaml:"web_log_max"`
 }
 
 // ProxyConfig 是 proxy 子命令的配置段，字段与 proxy flag 一一对应。
 type ProxyConfig struct {
-	Addr               *string `yaml:"addr"`
-	DialTimeout        *string `yaml:"dial_timeout"`
-	MaxConns           *int    `yaml:"max_conns"`
-	HandshakeTimeout   *string `yaml:"handshake_timeout"`
-	IdleTimeout        *string `yaml:"idle_timeout"`
-	AllowPublic        *bool   `yaml:"allow_public"`
-	Upstream           *string `yaml:"upstream"`
-	UpstreamIdentity   *string `yaml:"upstream_identity"`
-	UpstreamKnownHosts *string `yaml:"upstream_known_hosts"`
-	UpstreamInsecure   *bool   `yaml:"upstream_insecure"`
+	Addr                       *string `yaml:"addr"`
+	DialTimeout                *string `yaml:"dial_timeout"`
+	MaxConns                   *int    `yaml:"max_conns"`
+	HandshakeTimeout           *string `yaml:"handshake_timeout"`
+	IdleTimeout                *string `yaml:"idle_timeout"`
+	AllowPublic                *bool   `yaml:"allow_public"`
+	Upstream                   *string `yaml:"upstream"`
+	UpstreamIdentity           *string `yaml:"upstream_identity"`
+	UpstreamIdentityPassphrase *string `yaml:"upstream_identity_passphrase"`
+	UpstreamKnownHosts         *string `yaml:"upstream_known_hosts"`
+	UpstreamInsecure           *bool   `yaml:"upstream_insecure"`
 
 	UpstreamKeepalive            *string `yaml:"upstream_keepalive"`
 	UpstreamKeepaliveMaxFailures *int    `yaml:"upstream_keepalive_max_failures"`
+	StatsAddr                    *string `yaml:"stats_addr"`
+	WebAddr                      *string `yaml:"web_addr"`
+	WebLogMax                    *int    `yaml:"web_log_max"`
 }
 
 // fileConfig 与命令行 flag 一一对应，字段均为指针类型：
@@ -181,6 +188,9 @@ type fileConfig struct {
 	IdleTimeout *string `yaml:"idle_timeout"`
 	LogLevel    *string `yaml:"log_level"`
 	Quiet       *bool   `yaml:"quiet"`
+	StatsAddr   *string `yaml:"stats_addr"`
+	WebAddr     *string `yaml:"web_addr"`
+	WebLogMax   *int    `yaml:"web_log_max"`
 	Lang        *string `yaml:"lang"`
 }
 
@@ -259,6 +269,9 @@ func loadTopConfig(path string) (*Config, error) {
 			IdleTimeout: flat.IdleTimeout,
 			LogLevel:    flat.LogLevel,
 			Quiet:       flat.Quiet,
+			StatsAddr:   flat.StatsAddr,
+			WebAddr:     flat.WebAddr,
+			WebLogMax:   flat.WebLogMax,
 		}},
 		Lang: flat.Lang,
 	}
@@ -291,6 +304,9 @@ func loadForwardConfig(path string) (*fileConfig, error) {
 		out.IdleTimeout = fw.IdleTimeout
 		out.LogLevel = fw.LogLevel
 		out.Quiet = fw.Quiet
+		out.StatsAddr = fw.StatsAddr
+		out.WebAddr = fw.WebAddr
+		out.WebLogMax = fw.WebLogMax
 	}
 	return out, nil
 }
@@ -357,6 +373,11 @@ func applyProxyConfig(opt *proxyOptions, pc *ProxyConfig, setFlags map[string]bo
 	if pc.UpstreamIdentity != nil && !setFlags["upstream-identity"] {
 		opt.upstreamIdentity = *pc.UpstreamIdentity
 	}
+	// upstream_identity_passphrase 无对应命令行 flag（安全考虑），故不参与
+	// setFlags 门控；环境变量优先级更高，在 resolveIdentityPassphrase 中处理。
+	if pc.UpstreamIdentityPassphrase != nil {
+		opt.upstreamIdentityPassphrase = *pc.UpstreamIdentityPassphrase
+	}
 	if pc.UpstreamKnownHosts != nil && !setFlags["upstream-known-hosts"] {
 		opt.upstreamKnownHosts = *pc.UpstreamKnownHosts
 	}
@@ -372,6 +393,15 @@ func applyProxyConfig(opt *proxyOptions, pc *ProxyConfig, setFlags map[string]bo
 	}
 	if pc.UpstreamKeepaliveMaxFailures != nil && !setFlags["upstream-keepalive-max-failures"] {
 		opt.upstreamKeepaliveMaxFailures = *pc.UpstreamKeepaliveMaxFailures
+	}
+	if pc.StatsAddr != nil && !setFlags["stats-addr"] {
+		opt.statsAddr = *pc.StatsAddr
+	}
+	if pc.WebAddr != nil && !setFlags["web-addr"] {
+		opt.webAddr = *pc.WebAddr
+	}
+	if pc.WebLogMax != nil && !setFlags["web-log-max"] {
+		opt.webLogMax = *pc.WebLogMax
 	}
 	return nil
 }
@@ -438,6 +468,15 @@ func mergeConfig(opt *options, cfg *fileConfig, setFlags map[string]bool) error 
 	if cfg.Quiet != nil && !setFlags["quiet"] {
 		opt.quiet = *cfg.Quiet
 	}
+	if cfg.StatsAddr != nil && !setFlags["stats-addr"] {
+		opt.statsAddr = *cfg.StatsAddr
+	}
+	if cfg.WebAddr != nil && !setFlags["web-addr"] {
+		opt.webAddr = *cfg.WebAddr
+	}
+	if cfg.WebLogMax != nil && !setFlags["web-log-max"] {
+		opt.webLogMax = *cfg.WebLogMax
+	}
 	if cfg.Lang != nil && !setFlags["lang"] {
 		opt.lang = *cfg.Lang
 	}
@@ -495,6 +534,15 @@ func applyForwardConfig(opt *options, fc *ForwardConfig, setFlags map[string]boo
 	}
 	if fc.Quiet != nil && !setFlags["quiet"] {
 		opt.quiet = *fc.Quiet
+	}
+	if fc.StatsAddr != nil && !setFlags["stats-addr"] {
+		opt.statsAddr = *fc.StatsAddr
+	}
+	if fc.WebAddr != nil && !setFlags["web-addr"] {
+		opt.webAddr = *fc.WebAddr
+	}
+	if fc.WebLogMax != nil && !setFlags["web-log-max"] {
+		opt.webLogMax = *fc.WebLogMax
 	}
 	if fc.DialTimeout != nil && !setFlags["dial-timeout"] {
 		d, err := time.ParseDuration(*fc.DialTimeout)

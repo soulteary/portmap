@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"strings"
+	"time"
 
 	"github.com/soulteary/portmap/internal/i18n"
 	"github.com/soulteary/portmap/internal/netutil"
@@ -60,6 +61,7 @@ func (s *Server) handleConnect(ctx context.Context, conn net.Conn, reader *bufio
 	}
 	remote, err := s.dialer.DialContext(dialCtx, "tcp", target)
 	if err != nil {
+		s.Stats().DialError()
 		writeHTTPError(conn, http.StatusBadGateway)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPConnectDial), target, err)
 	}
@@ -84,7 +86,11 @@ func (s *Server) handleConnect(ctx context.Context, conn net.Conn, reader *bufio
 	if !s.beginRelay(conn, remote) {
 		return context.Canceled
 	}
-	netutil.RelayReader(conn, reader, remote)
+	start := time.Now()
+	up, down := netutil.RelayReaderCount(conn, reader, remote)
+	s.Stats().AddUp(up)
+	s.Stats().AddDown(down)
+	s.logEvent("close", "http", conn.RemoteAddr().String(), target, up, down, time.Since(start).Milliseconds(), 0)
 	return nil
 }
 
@@ -106,6 +112,7 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 	}
 	remote, err := s.dialer.DialContext(dialCtx, "tcp", host)
 	if err != nil {
+		s.Stats().DialError()
 		writeHTTPError(conn, http.StatusBadGateway)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPDial), host, err)
 	}
@@ -124,7 +131,7 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 	if !s.beginRelay(conn, remote) {
 		return context.Canceled
 	}
-
+	start := time.Now()
 	// 改写为源站可识别的相对路径请求，并清理逐跳首部。
 	req.RequestURI = ""
 	requestConnectionOptions := connectionOptionNames(req.Header)
@@ -134,14 +141,18 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 	req.Close = true
 	req.Header.Set("Connection", "close")
 
-	if err := req.Write(remote); err != nil {
+	upCounter := &countingWriter{w: remote}
+	if err := req.Write(upCounter); err != nil {
+		s.Stats().AddUp(upCounter.n)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPForward), host, err)
 	}
+	s.Stats().AddUp(upCounter.n)
 
 	s.logf(i18n.T(i18n.KeyLogProxyHTTPPlain), req.Method, conn.RemoteAddr(), host)
 
 	// 解析响应后清理响应侧逐跳首部并追加 Via；1xx（101 除外）可能在最终
 	// 响应之前出现，因此需要逐个转发。
+	downCounter := &countingWriter{w: conn}
 	remoteReader := newProxyResponseReader(remote)
 	for {
 		resp, connectionOptions, err := remoteReader.read(req)
@@ -164,16 +175,32 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 			resp.Close = true
 			resp.Header.Set("Connection", "close")
 		}
-		writeErr := resp.Write(conn)
+		writeErr := resp.Write(downCounter)
 		_ = resp.Body.Close()
 		if writeErr != nil {
+			s.Stats().AddDown(downCounter.n)
 			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), writeErr)
 		}
 		if !informational {
 			break
 		}
 	}
+	s.Stats().AddDown(downCounter.n)
+	s.logEvent("close", "http", conn.RemoteAddr().String(), host, upCounter.n, downCounter.n, time.Since(start).Milliseconds(), 0)
 	return nil
+}
+
+// countingWriter 包装一个 io.Writer 并累计成功写出的字节数，用于明文 HTTP
+// 代理路径统计上/下行流量（该路径不经 netutil.RelayReaderCount）。
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
 }
 
 const maxProxyResponseHeaderBytes = 10 << 20

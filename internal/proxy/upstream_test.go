@@ -33,6 +33,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/soulteary/portmap/internal/i18n"
 )
 
 func TestParseUpstreamURL(t *testing.T) {
@@ -241,6 +243,24 @@ func generateClientKey(t *testing.T) ([]byte, ssh.PublicKey) {
 	block, err := ssh.MarshalPrivateKey(key, "")
 	if err != nil {
 		t.Fatalf("序列化私钥失败: %v", err)
+	}
+	signer, err := ssh.NewSignerFromKey(key)
+	if err != nil {
+		t.Fatalf("构造客户端 signer 失败: %v", err)
+	}
+	return pem.EncodeToMemory(block), signer.PublicKey()
+}
+
+// generateEncryptedClientKey 返回一个用 passphrase 加密的 PEM 私钥与对应公钥。
+func generateEncryptedClientKey(t *testing.T, passphrase string) ([]byte, ssh.PublicKey) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("生成客户端私钥失败: %v", err)
+	}
+	block, err := ssh.MarshalPrivateKeyWithPassphrase(key, "", []byte(passphrase))
+	if err != nil {
+		t.Fatalf("序列化加密私钥失败: %v", err)
 	}
 	signer, err := ssh.NewSignerFromKey(key)
 	if err != nil {
@@ -474,6 +494,79 @@ func TestSSHDialerBadIdentityFile(t *testing.T) {
 	}, 5*time.Second, 30*time.Second, log.New(io.Discard, "", 0))
 	if err == nil {
 		t.Fatal("期望私钥文件缺失时返回错误")
+	}
+}
+
+// TestSSHDialerEncryptedIdentityWithPassphrase 验证：加密私钥 + 正确 passphrase
+// 时能成功构造 SSH 上游并拨号可达后端。
+func TestSSHDialerEncryptedIdentityWithPassphrase(t *testing.T) {
+	backendAddr, stopBackend := startBackend(t)
+	defer stopBackend()
+
+	const passphrase = "correct horse battery staple"
+	clientPEM, clientPub := generateEncryptedClientKey(t, passphrase)
+	sshAddr, _, stopSSH := startSSHServer(t, clientPub)
+	defer stopSSH()
+
+	identity := writeIdentity(t, clientPEM)
+	dialer, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:             UpstreamSchemeSSH,
+		Addr:               sshAddr,
+		Username:           "tester",
+		IdentityFile:       identity,
+		IdentityPassphrase: passphrase,
+		Insecure:           true,
+	}, 5*time.Second, 30*time.Second, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("加密私钥 + 正确 passphrase 应成功: %v", err)
+	}
+	defer closeDialer(t, dialer)
+
+	assertDialerReachesBackend(t, dialer, backendAddr)
+}
+
+// TestSSHDialerEncryptedIdentityWrongPassphrase 验证：加密私钥 + 错误 passphrase
+// 时返回解析错误。
+func TestSSHDialerEncryptedIdentityWrongPassphrase(t *testing.T) {
+	clientPEM, clientPub := generateEncryptedClientKey(t, "right-pass")
+	sshAddr, _, stopSSH := startSSHServer(t, clientPub)
+	defer stopSSH()
+
+	identity := writeIdentity(t, clientPEM)
+	_, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:             UpstreamSchemeSSH,
+		Addr:               sshAddr,
+		Username:           "tester",
+		IdentityFile:       identity,
+		IdentityPassphrase: "wrong-pass",
+		Insecure:           true,
+	}, 5*time.Second, 30*time.Second, log.New(io.Discard, "", 0))
+	if err == nil {
+		t.Fatal("期望错误 passphrase 时返回错误")
+	}
+}
+
+// TestSSHDialerEncryptedIdentityMissingPassphrase 验证：加密私钥但未提供
+// passphrase 时返回明确的 "passphrase missing" 错误（i18n 文案），而非通用解析错误。
+func TestSSHDialerEncryptedIdentityMissingPassphrase(t *testing.T) {
+	clientPEM, clientPub := generateEncryptedClientKey(t, "some-pass")
+	sshAddr, _, stopSSH := startSSHServer(t, clientPub)
+	defer stopSSH()
+
+	identity := writeIdentity(t, clientPEM)
+	_, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:       UpstreamSchemeSSH,
+		Addr:         sshAddr,
+		Username:     "tester",
+		IdentityFile: identity,
+		Insecure:     true,
+	}, 5*time.Second, 30*time.Second, log.New(io.Discard, "", 0))
+	if err == nil {
+		t.Fatal("期望加密私钥但缺少 passphrase 时返回错误")
+	}
+	want := i18n.T(i18n.KeyErrProxyUpstreamSSHPassphraseMissing)
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("期望返回 passphrase missing 错误，实际: %v", err)
 	}
 }
 

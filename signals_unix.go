@@ -22,14 +22,21 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
-	"github.com/soulteary/portmap/internal/forward"
 	"github.com/soulteary/portmap/internal/i18n"
+	"github.com/soulteary/portmap/internal/stats"
 )
 
-// watchStatusSignal 在类 Unix 平台监听 SIGUSR1，收到后打印活跃/累计连接快照。
-// ctx 取消时停止监听。Windows 无 SIGUSR1，由同名 no-op 版本替代。
-func watchStatusSignal(ctx context.Context, srv *forward.Server) {
+// statusProvider 是能提供统计快照的服务（forward.Server / proxy.Server）。
+type statusProvider interface {
+	Snapshot() stats.Snapshot
+}
+
+// watchStatusSignal 在类 Unix 平台监听 SIGUSR1，收到后打印统计快照
+// （活跃/累计/拒绝连接、拨号失败、上下行字节、运行时长）。ctx 取消时停止监听。
+// Windows 无 SIGUSR1，由同名 no-op 版本替代。
+func watchStatusSignal(ctx context.Context, srv statusProvider) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGUSR1)
 	go func() {
@@ -39,7 +46,11 @@ func watchStatusSignal(ctx context.Context, srv *forward.Server) {
 			case <-ctx.Done():
 				return
 			case <-ch:
-				log.Printf(i18n.T(i18n.KeyLogStatus), srv.ActiveConns(), srv.TotalConns())
+				snap := srv.Snapshot()
+				log.Printf(i18n.T(i18n.KeyLogStatusFull),
+					snap.ActiveConns, snap.TotalConns, snap.RejectedConns,
+					snap.DialErrors, snap.UpBytes, snap.DownBytes,
+					snap.Uptime.Round(time.Second))
 			}
 		}
 	}()

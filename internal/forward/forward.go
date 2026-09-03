@@ -32,6 +32,7 @@ import (
 
 	"github.com/soulteary/portmap/internal/i18n"
 	"github.com/soulteary/portmap/internal/netutil"
+	"github.com/soulteary/portmap/internal/stats"
 )
 
 // Config 描述一次转发服务的配置。
@@ -58,6 +59,9 @@ type Config struct {
 	Debug bool
 	// Quiet 为 true 时抑制每连接的常规日志，只保留告警/错误。
 	Quiet bool
+	// Events 为可选的结构化连接事件缓冲区（供 Web 面板展示最近连接活动）。
+	// 为 nil 时所有事件写入均为零成本的空操作（EventLog.Append 对 nil 安全）。
+	Events *stats.EventLog
 }
 
 // Server 是一个端口转发服务。
@@ -68,9 +72,8 @@ type Server struct {
 	// sem 用于并发限流，nil 表示不限制。
 	sem chan struct{}
 
-	wg     sync.WaitGroup
-	active atomic.Int64 // 当前活跃连接数
-	total  atomic.Int64 // 累计处理连接数
+	wg    sync.WaitGroup
+	stats *stats.Counters // 运行时统计（连接/字节/拒绝/失败/uptime）
 }
 
 // New 根据配置创建一个转发服务。
@@ -85,7 +88,7 @@ func New(cfg Config) *Server {
 	if strings.TrimSpace(cfg.Network) == "" {
 		cfg.Network = "tcp"
 	}
-	s := &Server{cfg: cfg, logger: logger}
+	s := &Server{cfg: cfg, logger: logger, stats: stats.New()}
 	if cfg.MaxConns > 0 {
 		s.sem = make(chan struct{}, cfg.MaxConns)
 	}
@@ -93,10 +96,16 @@ func New(cfg Config) *Server {
 }
 
 // ActiveConns 返回当前活跃连接数。
-func (s *Server) ActiveConns() int64 { return s.active.Load() }
+func (s *Server) ActiveConns() int64 { return s.stats.ActiveConns() }
 
 // TotalConns 返回累计处理的连接数。
-func (s *Server) TotalConns() int64 { return s.total.Load() }
+func (s *Server) TotalConns() int64 { return s.stats.TotalConns() }
+
+// Stats 返回该实例的统计计数器，供快照/日志/HTTP 端点读取。
+func (s *Server) Stats() *stats.Counters { return s.stats }
+
+// Snapshot 返回该实例的统计快照。
+func (s *Server) Snapshot() stats.Snapshot { return s.stats.Snapshot() }
 
 // infof 输出常规信息日志（受 Quiet 抑制）。
 func (s *Server) infof(format string, args ...any) {
@@ -213,17 +222,34 @@ func (s *Server) handle(ctx context.Context, src net.Conn) {
 	dialer := net.Dialer{Timeout: s.cfg.DialTimeout}
 	dst, err := dialer.DialContext(ctx, "tcp", s.cfg.Target)
 	if err != nil {
+		s.stats.DialError()
+		s.cfg.Events.Append(stats.Event{
+			Time:   eventTime(),
+			Kind:   "dial-error",
+			Proto:  s.cfg.Network,
+			Client: src.RemoteAddr().String(),
+			Target: s.cfg.Target,
+		})
 		s.warnf(i18n.T(i18n.KeyLogDialFailed), s.cfg.Target, err)
 		return
 	}
 	defer func() { _ = dst.Close() }()
 
-	connID := s.total.Add(1)
-	active := s.active.Add(1)
-	defer s.active.Add(-1)
+	s.stats.ConnOpened()
+	defer s.stats.ConnClosed()
+	connID := s.stats.TotalConns()
+	active := s.stats.ActiveConns()
 
 	start := time.Now()
 	s.infof(i18n.T(i18n.KeyLogConnOpen), connID, src.RemoteAddr(), dst.RemoteAddr(), active)
+	s.cfg.Events.Append(stats.Event{
+		Time:   eventTime(),
+		Kind:   "open",
+		Proto:  s.cfg.Network,
+		Client: src.RemoteAddr().String(),
+		Target: dst.RemoteAddr().String(),
+		ConnID: connID,
+	})
 
 	// 可取消的子 ctx：ctx.Done 或转发结束时主动关闭两端。
 	cctx, cancel := context.WithCancel(ctx)
@@ -249,9 +275,23 @@ func (s *Server) handle(ctx context.Context, src net.Conn) {
 	}()
 	wg.Wait()
 
+	s.stats.AddUp(atomic.LoadInt64(&upBytes))
+	s.stats.AddDown(atomic.LoadInt64(&downBytes))
+
 	s.infof(i18n.T(i18n.KeyLogConnClose),
 		connID, src.RemoteAddr(), dst.RemoteAddr(),
 		atomic.LoadInt64(&upBytes), atomic.LoadInt64(&downBytes), time.Since(start).Round(time.Millisecond))
+	s.cfg.Events.Append(stats.Event{
+		Time:       eventTime(),
+		Kind:       "close",
+		Proto:      s.cfg.Network,
+		Client:     src.RemoteAddr().String(),
+		Target:     dst.RemoteAddr().String(),
+		UpBytes:    atomic.LoadInt64(&upBytes),
+		DownBytes:  atomic.LoadInt64(&downBytes),
+		DurationMs: time.Since(start).Milliseconds(),
+		ConnID:     connID,
+	})
 }
 
 // pipe 将 src 的数据拷贝到 dst，返回拷贝的字节数；
@@ -267,6 +307,11 @@ func (s *Server) pipe(connID int64, dir string, dst, src net.Conn) int64 {
 		s.debugf(i18n.T(i18n.KeyLogPipeError), connID, dir, err)
 	}
 	return n
+}
+
+// eventTime 返回当前时间，格式化为 stats.Event 约定的 "2006-01-02 15:04:05"。
+func eventTime() string {
+	return time.Now().Format("2006-01-02 15:04:05")
 }
 
 // isNormalClose 判断错误是否属于连接正常关闭/取消一类，不应作为异常记录。

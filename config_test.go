@@ -197,6 +197,29 @@ func TestMergeConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("stats_addr 在命令行未设置时由配置文件生效", func(t *testing.T) {
+		opt := options{}
+		cfg := &fileConfig{StatsAddr: strPtr("127.0.0.1:9090")}
+		if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
+			t.Fatalf("mergeConfig 返回错误: %v", err)
+		}
+		if opt.statsAddr != "127.0.0.1:9090" {
+			t.Errorf("statsAddr 期望 127.0.0.1:9090，实际 %q", opt.statsAddr)
+		}
+	})
+
+	t.Run("命令行显式 stats-addr 优先于配置文件", func(t *testing.T) {
+		opt := options{statsAddr: "127.0.0.1:1111"}
+		cfg := &fileConfig{StatsAddr: strPtr("127.0.0.1:9090")}
+		setFlags := map[string]bool{"stats-addr": true}
+		if err := mergeConfig(&opt, cfg, setFlags); err != nil {
+			t.Fatalf("mergeConfig 返回错误: %v", err)
+		}
+		if opt.statsAddr != "127.0.0.1:1111" {
+			t.Errorf("命令行应优先，statsAddr 期望 127.0.0.1:1111，实际 %q", opt.statsAddr)
+		}
+	})
+
 	t.Run("全部字段均可被配置文件覆盖", func(t *testing.T) {
 		opt := options{}
 		cfg := &fileConfig{
@@ -212,6 +235,7 @@ func TestMergeConfig(t *testing.T) {
 			IdleTimeout: strPtr("90s"),
 			LogLevel:    strPtr("debug"),
 			Quiet:       boolPtr(true),
+			StatsAddr:   strPtr("127.0.0.1:9090"),
 			Lang:        strPtr("de"),
 		}
 		if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
@@ -230,6 +254,7 @@ func TestMergeConfig(t *testing.T) {
 			idleTimeout: 90 * time.Second,
 			logLevel:    "debug",
 			quiet:       true,
+			statsAddr:   "127.0.0.1:9090",
 			lang:        "de",
 		}
 		if opt != want {
@@ -423,6 +448,7 @@ func TestMergeProxyConfigAllFields(t *testing.T) {
 				DialTimeout:                  strPtr("20s"),
 				Upstream:                     strPtr("ssh://root@host:22"),
 				UpstreamIdentity:             strPtr("/tmp/id_rsa"),
+				UpstreamIdentityPassphrase:   strPtr("s3cret"),
 				UpstreamKnownHosts:           strPtr("/tmp/known_hosts"),
 				UpstreamInsecure:             boolPtr(true),
 				UpstreamKeepalive:            strPtr("45s"),
@@ -438,6 +464,9 @@ func TestMergeProxyConfigAllFields(t *testing.T) {
 		if opt.upstream != "ssh://root@host:22" || opt.upstreamIdentity != "/tmp/id_rsa" ||
 			opt.upstreamKnownHosts != "/tmp/known_hosts" || !opt.upstreamInsecure {
 			t.Fatalf("上游字段合并错误: %+v", opt)
+		}
+		if opt.upstreamIdentityPassphrase != "s3cret" {
+			t.Fatalf("upstream_identity_passphrase 未合并: %+v", opt)
 		}
 		if opt.upstreamKeepalive != 45*time.Second || opt.upstreamKeepaliveMaxFailures != 5 {
 			t.Fatalf("keepalive 字段合并错误: %+v", opt)
@@ -474,6 +503,25 @@ func TestMergeProxyConfigAllFields(t *testing.T) {
 		cfg := &Config{Proxy: ProxyConfigList{{UpstreamKeepalive: strPtr("bad")}}}
 		if err := mergeProxyConfig(&proxyOptions{}, cfg, map[string]bool{}); err == nil {
 			t.Fatal("非法 upstream_keepalive 应返回错误")
+		}
+	})
+
+	t.Run("stats_addr 合并与命令行优先", func(t *testing.T) {
+		opt := proxyOptions{}
+		cfg := &Config{Proxy: ProxyConfigList{{StatsAddr: strPtr("127.0.0.1:9090")}}}
+		if err := mergeProxyConfig(&opt, cfg, map[string]bool{}); err != nil {
+			t.Fatalf("mergeProxyConfig: %v", err)
+		}
+		if opt.statsAddr != "127.0.0.1:9090" {
+			t.Fatalf("statsAddr 期望 127.0.0.1:9090，实际 %q", opt.statsAddr)
+		}
+
+		opt2 := proxyOptions{statsAddr: "127.0.0.1:1111"}
+		if err := mergeProxyConfig(&opt2, cfg, map[string]bool{"stats-addr": true}); err != nil {
+			t.Fatalf("mergeProxyConfig: %v", err)
+		}
+		if opt2.statsAddr != "127.0.0.1:1111" {
+			t.Fatalf("命令行应优先，statsAddr=%q", opt2.statsAddr)
 		}
 	})
 

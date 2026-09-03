@@ -16,9 +16,12 @@ package main
 
 import (
 	"context"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -394,4 +397,100 @@ func freeLoopbackPort(t *testing.T) int {
 	port := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
 	return port
+}
+
+// TestStatsAddrFromConfigParsed 验证配置文件中的 stats_addr 会经 loadForwardConfig
+// 与 mergeConfig 合并进 options（新旧布局均覆盖）。
+func TestStatsAddrFromConfigParsed(t *testing.T) {
+	writeCfg := func(t *testing.T, content string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("写入临时配置失败: %v", err)
+		}
+		return path
+	}
+
+	t.Run("平铺布局", func(t *testing.T) {
+		path := writeCfg(t, "stats_addr: 127.0.0.1:9090\n")
+		cfg, err := loadForwardConfig(path)
+		if err != nil {
+			t.Fatalf("loadForwardConfig: %v", err)
+		}
+		opt := options{}
+		if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
+			t.Fatalf("mergeConfig: %v", err)
+		}
+		if opt.statsAddr != "127.0.0.1:9090" {
+			t.Fatalf("statsAddr=%q，期望 127.0.0.1:9090", opt.statsAddr)
+		}
+	})
+
+	t.Run("嵌套布局", func(t *testing.T) {
+		path := writeCfg(t, "forward:\n  stats_addr: 127.0.0.1:9091\n")
+		cfg, err := loadForwardConfig(path)
+		if err != nil {
+			t.Fatalf("loadForwardConfig: %v", err)
+		}
+		opt := options{}
+		if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
+			t.Fatalf("mergeConfig: %v", err)
+		}
+		if opt.statsAddr != "127.0.0.1:9091" {
+			t.Fatalf("statsAddr=%q，期望 127.0.0.1:9091", opt.statsAddr)
+		}
+	})
+}
+
+// TestStartForwardInstancesWithStatsEndpoint 验证多实例 forward 携带 stats-addr
+// 时会并发启动统计 HTTP 端点（/stats、/metrics），并在 ctx 取消时优雅关闭。
+func TestStartForwardInstancesWithStatsEndpoint(t *testing.T) {
+	p1 := freeLoopbackPort(t)
+	statsPort := freeLoopbackPort(t)
+	statsAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(statsPort))
+	instances := []options{
+		{listenPort: p1, listenHost: "127.0.0.1", target: "127.0.0.1:1", proto: "tcp", reuseAddr: true, dialTimeout: time.Second, logLevel: "info", quiet: true, statsAddr: statsAddr},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- startForwardInstances(ctx, instances) }()
+
+	// 轮询等待统计端点就绪。
+	var body string
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get("http://" + statsAddr + "/stats")
+		if err == nil {
+			b, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			body = string(b)
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(body, "total_conns") {
+		t.Fatalf("统计端点 /stats 未返回预期 JSON: %q", body)
+	}
+
+	// /metrics 应返回 Prometheus 文本。
+	resp, err := http.Get("http://" + statsAddr + "/metrics")
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	mb, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if !strings.Contains(string(mb), "portmap_total_connections") {
+		t.Fatalf("/metrics 未返回预期 Prometheus 文本: %q", mb)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("带统计端点的实例优雅关闭应返回 nil，实际 %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("未在超时内退出")
+	}
 }

@@ -47,6 +47,7 @@ const (
 	KeyLogSocatIgnore     = "log.socat-ignore"
 	KeyLogSocatExec       = "log.socat-exec"
 	KeyLogStatus          = "log.status"
+	KeyLogStatusFull      = "log.status-full"
 
 	// forward 包日志/错误。
 	KeyErrUnsupportedNet  = "err.unsupported-net"

@@ -35,10 +35,14 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/soulteary/portmap/internal/forward"
 	"github.com/soulteary/portmap/internal/i18n"
 	"github.com/soulteary/portmap/internal/proxy"
 	"github.com/soulteary/portmap/internal/socat"
+	"github.com/soulteary/portmap/internal/stats"
+	"github.com/soulteary/portmap/internal/web"
 )
 
 // 以下变量通过 -ldflags "-X main.version=... -X main.commit=... -X main.date=..." 注入。
@@ -64,6 +68,9 @@ type options struct {
 	showVersion bool
 	configPath  string
 	lang        string
+	statsAddr   string
+	webAddr     string
+	webLogMax   int
 }
 
 // String 返回最终生效配置的可读摘要，用于启动时打印，便于确认合并后的实际参数。
@@ -153,6 +160,9 @@ func runForward(argv []string) error {
 	fs.BoolVar(&opt.showVersion, "version", false, i18n.T(i18n.KeyFlagVersion))
 	fs.StringVar(&opt.configPath, "config", "", i18n.T(i18n.KeyFlagConfig))
 	fs.StringVar(&opt.lang, "lang", "", i18n.T(i18n.KeyFlagLang, strings.Join(i18n.Codes(), "/")))
+	fs.StringVar(&opt.statsAddr, "stats-addr", "", i18n.T(i18n.KeyFlagStatsAddr))
+	fs.StringVar(&opt.webAddr, "web-addr", "", i18n.T(i18n.KeyFlagWebAddr))
+	fs.IntVar(&opt.webLogMax, "web-log-max", 1000, i18n.T(i18n.KeyFlagWebLogMax))
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "%s\n\n", i18n.T(i18n.KeyUsageTitle))
@@ -287,6 +297,12 @@ func preScanLang(argv []string) string {
 func runGo(ctx context.Context, opt options) error {
 	log.Print(i18n.T(i18n.KeyLogEffectiveConfig, opt))
 	listen := net.JoinHostPort(opt.listenHost, strconv.Itoa(opt.listenPort))
+	// 仅当启用 Web 面板（-web-addr 非空）时创建事件日志并注入 forward，
+	// 未启用时保持 nil，避免无谓的内存与插桩开销。
+	var events *stats.EventLog
+	if strings.TrimSpace(opt.webAddr) != "" {
+		events = stats.NewEventLog(opt.webLogMax)
+	}
 	srv := forward.New(forward.Config{
 		Listen:      listen,
 		Target:      opt.target,
@@ -297,10 +313,46 @@ func runGo(ctx context.Context, opt options) error {
 		IdleTimeout: opt.idleTimeout,
 		Debug:       strings.EqualFold(opt.logLevel, "debug"),
 		Quiet:       opt.quiet,
+		Events:      events,
 	})
 	watchStatusSignal(ctx, srv)
-	if err := srv.ListenAndServe(ctx); err != nil {
-		return fmt.Errorf(i18n.T(i18n.KeyErrServeExit), err)
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	// forward 无 allow-public 概念，统计端点默认仅回环。
+	// 统计端点启动失败（如非回环拒绝）会 cancel ctx，从而中止 forward。
+	statsWait, statsErrCh := startStatsEndpoint(ctx, cancel, opt.statsAddr, false, srv)
+	defer statsWait()
+	// Web 面板同样默认仅回环（allowPublic=false），与 stats-addr 行为一致。
+	webWait, webErrCh := startWebEndpoint(ctx, cancel, opt.webAddr, false, events, srv)
+	defer webWait()
+
+	serveErr := srv.ListenAndServe(ctx)
+	cancel()
+	statsWait()
+	webWait()
+	statsErr := drainStatsErr(statsErrCh)
+	webErr := drainStatsErr(webErrCh)
+	if serveErr != nil {
+		return fmt.Errorf(i18n.T(i18n.KeyErrServeExit), serveErr)
+	}
+	if statsErr != nil {
+		return statsErr
+	}
+	if webErr != nil {
+		return webErr
+	}
+	return nil
+}
+
+// drainStatsErr 在统计端点 goroutine 已退出后，非阻塞地取出可能存在的错误。
+func drainStatsErr(ch <-chan error) error {
+	select {
+	case err, ok := <-ch:
+		if ok {
+			return err
+		}
+	default:
 	}
 	return nil
 }
@@ -394,6 +446,7 @@ func defaultForwardOptions() options {
 		maxConns:    0,
 		idleTimeout: 0,
 		logLevel:    "info",
+		webLogMax:   1000,
 	}
 }
 
@@ -454,6 +507,23 @@ func startForwardInstances(ctx context.Context, instances []options) error {
 
 	errCh := make(chan error, len(instances))
 	var wg sync.WaitGroup
+	providers := make([]stats.Provider, 0, len(instances))
+	statsAddr := ""
+	// Web 面板：若任一实例设置了 -web-addr，则创建一份共享事件日志并注入所有
+	// 实例，使多实例聚合到同一个面板。取第一个非空 webAddr 与其 webLogMax。
+	webAddr := ""
+	webLogMax := 1000
+	for _, opt := range instances {
+		if strings.TrimSpace(opt.webAddr) != "" {
+			webAddr = opt.webAddr
+			webLogMax = opt.webLogMax
+			break
+		}
+	}
+	var events *stats.EventLog
+	if webAddr != "" {
+		events = stats.NewEventLog(webLogMax)
+	}
 	for i, opt := range instances {
 		i, opt := i, opt
 		listen := forwardListenAddr(opt)
@@ -468,7 +538,12 @@ func startForwardInstances(ctx context.Context, instances []options) error {
 			IdleTimeout: opt.idleTimeout,
 			Debug:       strings.EqualFold(opt.logLevel, "debug"),
 			Quiet:       opt.quiet,
+			Events:      events,
 		})
+		providers = append(providers, srv)
+		if statsAddr == "" && strings.TrimSpace(opt.statsAddr) != "" {
+			statsAddr = opt.statsAddr
+		}
 		watchStatusSignal(ctx, srv)
 		wg.Add(1)
 		go func() {
@@ -483,10 +558,21 @@ func startForwardInstances(ctx context.Context, instances []options) error {
 		}()
 	}
 
+	statsWait, statsErrCh := startStatsEndpoint(ctx, cancel, statsAddr, false, providers...)
+	webWait, webErrCh := startWebEndpoint(ctx, cancel, webAddr, false, events, providers...)
+
 	wg.Wait()
+	statsWait()
+	webWait()
 	close(errCh)
 	if err := <-errCh; err != nil {
 		return err
+	}
+	if statsErr := drainStatsErr(statsErrCh); statsErr != nil {
+		return statsErr
+	}
+	if webErr := drainStatsErr(webErrCh); webErr != nil {
+		return webErr
 	}
 	return nil
 }
@@ -501,6 +587,7 @@ type proxyOptions struct {
 	allowPublic                  bool
 	upstream                     string
 	upstreamIdentity             string
+	upstreamIdentityPassphrase   string
 	upstreamKnownHosts           string
 	upstreamInsecure             bool
 	upstreamKeepalive            time.Duration
@@ -508,6 +595,9 @@ type proxyOptions struct {
 	showVersion                  bool
 	configPath                   string
 	lang                         string
+	statsAddr                    string
+	webAddr                      string
+	webLogMax                    int
 }
 
 // runProxy 实现 proxy 子命令：单端口 SOCKS5 + HTTP 应用层代理。
@@ -530,6 +620,9 @@ func runProxy(argv []string) error {
 	fs.BoolVar(&opt.showVersion, "version", false, i18n.T(i18n.KeyFlagVersion))
 	fs.StringVar(&opt.configPath, "config", "", i18n.T(i18n.KeyFlagConfig))
 	fs.StringVar(&opt.lang, "lang", "", i18n.T(i18n.KeyFlagLang, strings.Join(i18n.Codes(), "/")))
+	fs.StringVar(&opt.statsAddr, "stats-addr", "", i18n.T(i18n.KeyFlagStatsAddr))
+	fs.StringVar(&opt.webAddr, "web-addr", "", i18n.T(i18n.KeyFlagWebAddr))
+	fs.IntVar(&opt.webLogMax, "web-log-max", 1000, i18n.T(i18n.KeyFlagWebLogMax))
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "%s\n\n", i18n.T(i18n.KeyProxyUsageTitle))
@@ -584,6 +677,7 @@ func runProxy(argv []string) error {
 	}
 
 	// 解析上游代理配置（留空表示直连，保持向后兼容）。
+	resolveIdentityPassphrase(&opt)
 	upstream, err := buildProxyUpstream(&opt)
 	if err != nil {
 		return err
@@ -593,7 +687,13 @@ func runProxy(argv []string) error {
 	defer stop()
 
 	srv := newProxyServer(opt, upstream)
-	return serveProxy(ctx, srv)
+	// 仅当启用 Web 面板时创建事件日志并注入 proxy 服务。
+	var events *stats.EventLog
+	if strings.TrimSpace(opt.webAddr) != "" {
+		events = stats.NewEventLog(opt.webLogMax)
+		srv.Events = events
+	}
+	return serveProxy(ctx, srv, opt.statsAddr, opt.allowPublic, opt.webAddr, opt.allowPublic, events)
 }
 
 // validateProxyOptions 校验单个 proxy 实例的运行参数（地址非空、各超时非负、
@@ -617,6 +717,39 @@ func validateProxyOptions(opt *proxyOptions) error {
 	return nil
 }
 
+// resolveIdentityPassphrase 按优先级填充 opt.upstreamIdentityPassphrase：
+//
+//	环境变量 PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE > 已有值（来自 YAML 配置）
+//	> 交互式终端输入。
+//
+// 交互式输入仅在以下条件同时满足时触发：环境变量与已有值均为空、配置了
+// -upstream-identity 私钥文件、且 stdin 是 TTY。读取使用 term.ReadPassword，
+// 不回显。passphrase 不会写入日志。出于安全考虑不提供命令行 flag，避免明文
+// 出现在进程列表或 shell 历史中。
+func resolveIdentityPassphrase(opt *proxyOptions) {
+	if env := os.Getenv("PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE"); env != "" {
+		opt.upstreamIdentityPassphrase = env
+		return
+	}
+	if opt.upstreamIdentityPassphrase != "" {
+		return
+	}
+	// 仅当配置了私钥文件且 stdin 是交互式终端时才提示输入。
+	if strings.TrimSpace(opt.upstreamIdentity) == "" {
+		return
+	}
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return
+	}
+	fmt.Fprint(os.Stderr, i18n.T(i18n.KeyPromptUpstreamIdentityPassphrase, opt.addr))
+	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return
+	}
+	opt.upstreamIdentityPassphrase = string(pw)
+}
+
 // buildProxyUpstream 依据 proxyOptions 解析上游代理链配置；upstream 为空表示
 // 直连（返回 nil, nil），保持向后兼容。
 func buildProxyUpstream(opt *proxyOptions) (*proxy.UpstreamConfig, error) {
@@ -628,6 +761,7 @@ func buildProxyUpstream(opt *proxyOptions) (*proxy.UpstreamConfig, error) {
 		return nil, err
 	}
 	u.IdentityFile = opt.upstreamIdentity
+	u.IdentityPassphrase = opt.upstreamIdentityPassphrase
 	u.KnownHostsFile = opt.upstreamKnownHosts
 	u.Insecure = opt.upstreamInsecure
 	u.KeepaliveInterval = opt.upstreamKeepalive
@@ -647,8 +781,78 @@ func newProxyServer(opt proxyOptions, upstream *proxy.UpstreamConfig) *proxy.Ser
 	return srv
 }
 
+// startStatsEndpoint 在 addr 非空时并发启动统计 HTTP 端点（/stats、/metrics），
+// 聚合 providers 的快照。ctx 取消时优雅关闭。启动/运行出错时调用 onErr（通常为
+// ctx 的 cancel），使主服务随之退出，并把错误送入返回的通道供调用方读取。
+// addr 为空时返回的 wait 为 no-op、错误通道立即关闭。allowPublic 控制是否允许
+// 非回环监听。
+func startStatsEndpoint(ctx context.Context, onErr context.CancelFunc, addr string, allowPublic bool, providers ...stats.Provider) (wait func(), errCh <-chan error) {
+	ch := make(chan error, 1)
+	if strings.TrimSpace(addr) == "" {
+		close(ch)
+		return func() {}, ch
+	}
+	srv := &stats.Server{
+		Addr:        addr,
+		AllowPublic: allowPublic,
+		Providers:   providers,
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := srv.ListenAndServe(ctx); err != nil {
+			ch <- err
+			if onErr != nil {
+				onErr()
+			}
+		}
+	}()
+	return func() { <-done }, ch
+}
+
+// startWebEndpoint 在 addr 非空时并发启动 Web 面板 HTTP 端点（/、/api/stats、
+// /api/logs），聚合 providers 的快照并展示 events 中的连接事件。ctx 取消时优雅
+// 关闭。启动/运行出错时调用 onErr（通常为 ctx 的 cancel），使主服务随之退出，
+// 并把错误送入返回的通道供调用方读取。addr 为空时返回的 wait 为 no-op、错误通道
+// 立即关闭。allowPublic 控制是否允许非回环监听。
+func startWebEndpoint(ctx context.Context, onErr context.CancelFunc, addr string, allowPublic bool, events *stats.EventLog, providers ...stats.Provider) (wait func(), errCh <-chan error) {
+	ch := make(chan error, 1)
+	if strings.TrimSpace(addr) == "" {
+		close(ch)
+		return func() {}, ch
+	}
+	srv := &web.Server{
+		Addr:        addr,
+		AllowPublic: allowPublic,
+		Providers:   providers,
+		Events:      events,
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := srv.ListenAndServe(ctx); err != nil {
+			ch <- err
+			if onErr != nil {
+				onErr()
+			}
+		}
+	}()
+	return func() { <-done }, ch
+}
+
 // serveProxy 启动单个 proxy.Server 并处理优雅关闭：ctx 取消时对其 Shutdown。
-func serveProxy(ctx context.Context, srv *proxy.Server) error {
+// 若 statsAddr 非空则并发启动统计 HTTP 端点，聚合该 proxy 的快照；若 webAddr
+// 非空则并发启动 Web 面板端点，聚合该 proxy 的快照与其 events 事件日志。
+func serveProxy(ctx context.Context, srv *proxy.Server, statsAddr string, statsAllowPublic bool, webAddr string, webAllowPublic bool, events *stats.EventLog) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	statsWait, statsErrCh := startStatsEndpoint(ctx, cancel, statsAddr, statsAllowPublic, srv)
+	defer statsWait()
+
+	webWait, webErrCh := startWebEndpoint(ctx, cancel, webAddr, webAllowPublic, events, srv)
+	defer webWait()
+
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
@@ -662,11 +866,22 @@ func serveProxy(ctx context.Context, srv *proxy.Server) error {
 	}()
 
 	err := srv.ListenAndServe()
+	cancel()
 	if ctx.Err() != nil {
 		<-shutdownDone
 	}
+	statsWait()
+	webWait()
+	statsErr := drainStatsErr(statsErrCh)
+	webErr := drainStatsErr(webErrCh)
 	if err != nil {
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyExit), err)
+	}
+	if statsErr != nil {
+		return statsErr
+	}
+	if webErr != nil {
+		return webErr
 	}
 	return nil
 }
@@ -688,6 +903,7 @@ func defaultProxyOptions() proxyOptions {
 		maxConns:         256,
 		handshakeTimeout: 10 * time.Second,
 		idleTimeout:      5 * time.Minute,
+		webLogMax:        1000,
 	}
 }
 
@@ -729,6 +945,7 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 			return errors.New(i18n.T(i18n.KeyErrDuplicateListen, opt.addr))
 		}
 		seen[opt.addr] = struct{}{}
+		resolveIdentityPassphrase(&opt)
 		upstream, err := buildProxyUpstream(&opt)
 		if err != nil {
 			return err
@@ -745,14 +962,41 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 
 	errCh := make(chan error, len(instances))
 	var wg sync.WaitGroup
+	providers := make([]stats.Provider, 0, len(instances))
+	statsAddr := ""
+	statsAllowPublic := false
+	// Web 面板：若任一实例设置了 -web-addr，则创建一份共享事件日志并注入所有
+	// 实例，聚合到同一个面板。取第一个非空 webAddr 及其 webLogMax/allowPublic。
+	webAddr := ""
+	webAllowPublic := false
+	webLogMax := 1000
+	for _, inst := range instances {
+		if strings.TrimSpace(inst.opt.webAddr) != "" {
+			webAddr = inst.opt.webAddr
+			webAllowPublic = inst.opt.allowPublic
+			webLogMax = inst.opt.webLogMax
+			break
+		}
+	}
+	var events *stats.EventLog
+	if webAddr != "" {
+		events = stats.NewEventLog(webLogMax)
+	}
 	for i, inst := range instances {
 		i, inst := i, inst
 		log.Print(i18n.T(i18n.KeyLogInstanceStarting, i+1, inst.opt.addr))
 		srv := newProxyServer(inst.opt, inst.upstream)
+		srv.Events = events
+		providers = append(providers, srv)
+		if statsAddr == "" && strings.TrimSpace(inst.opt.statsAddr) != "" {
+			statsAddr = inst.opt.statsAddr
+			statsAllowPublic = inst.opt.allowPublic
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := serveProxy(ctx, srv); err != nil {
+			// per-instance 禁用 stats/web 端点，改为循环后聚合启动一份。
+			if err := serveProxy(ctx, srv, "", false, "", false, nil); err != nil {
 				if ctx.Err() == nil {
 					errCh <- fmt.Errorf(i18n.T(i18n.KeyErrInstanceFailed), inst.opt.addr, err)
 					cancel()
@@ -761,10 +1005,21 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 		}()
 	}
 
+	statsWait, statsErrCh := startStatsEndpoint(ctx, cancel, statsAddr, statsAllowPublic, providers...)
+	webWait, webErrCh := startWebEndpoint(ctx, cancel, webAddr, webAllowPublic, events, providers...)
+
 	wg.Wait()
+	statsWait()
+	webWait()
 	close(errCh)
 	if err := <-errCh; err != nil {
 		return err
+	}
+	if statsErr := drainStatsErr(statsErrCh); statsErr != nil {
+		return statsErr
+	}
+	if webErr := drainStatsErr(webErrCh); webErr != nil {
+		return webErr
 	}
 	return nil
 }

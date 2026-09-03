@@ -74,6 +74,31 @@ func RelayReader(client net.Conn, clientReader io.Reader, remote net.Conn) {
 	<-done
 }
 
+// RelayReaderCount 与 RelayReader 行为一致（在 client 与 remote 之间双向拷贝
+// 数据直到任一方关闭），但额外返回两个方向的字节数：
+//   - up：client -> remote（上行）方向拷贝的字节数；
+//   - down：remote -> client（下行）方向拷贝的字节数。
+//
+// 与 RelayReader 分开实现，以免改变后者签名破坏既有调用方（如 forward.pipe）。
+func RelayReaderCount(client net.Conn, clientReader io.Reader, remote net.Conn) (up, down int64) {
+	done := make(chan struct{}, 2)
+
+	go func() {
+		up, _ = io.Copy(remote, clientReader)
+		closeWrite(remote)
+		done <- struct{}{}
+	}()
+	go func() {
+		down, _ = io.Copy(client, remote)
+		closeWrite(client)
+		done <- struct{}{}
+	}()
+
+	<-done
+	<-done
+	return up, down
+}
+
 // Relay 在 a 与 b 之间双向拷贝数据，是 RelayReader 在无缓冲读取源时的简写。
 func Relay(a, b net.Conn) {
 	RelayReader(a, a, b)

@@ -89,15 +89,19 @@ const (
 	KeyErrProxyHTTPRelayResp    = "err.proxy-http-relay-resp"
 
 	// proxy 上游代理链错误（upstream.go / main.go）。
-	KeyErrProxyUpstreamScheme        = "err.proxy-upstream-scheme"
-	KeyErrProxyUpstreamParse         = "err.proxy-upstream-parse"
-	KeyErrProxyUpstreamEmptyHost     = "err.proxy-upstream-empty-host"
-	KeyErrProxyUpstreamSocks5        = "err.proxy-upstream-socks5"
-	KeyErrProxyUpstreamHTTPConnect   = "err.proxy-upstream-http-connect"
-	KeyErrProxyUpstreamHTTPStatus    = "err.proxy-upstream-http-status"
-	KeyErrProxyUpstreamSSHNoAuth     = "err.proxy-upstream-ssh-no-auth"
-	KeyErrProxyUpstreamSSHIdentity   = "err.proxy-upstream-ssh-identity"
-	KeyErrProxyUpstreamSSHParseKey   = "err.proxy-upstream-ssh-parse-key"
+	KeyErrProxyUpstreamScheme      = "err.proxy-upstream-scheme"
+	KeyErrProxyUpstreamParse       = "err.proxy-upstream-parse"
+	KeyErrProxyUpstreamEmptyHost   = "err.proxy-upstream-empty-host"
+	KeyErrProxyUpstreamSocks5      = "err.proxy-upstream-socks5"
+	KeyErrProxyUpstreamHTTPConnect = "err.proxy-upstream-http-connect"
+	KeyErrProxyUpstreamHTTPStatus  = "err.proxy-upstream-http-status"
+	KeyErrProxyUpstreamSSHNoAuth   = "err.proxy-upstream-ssh-no-auth"
+	KeyErrProxyUpstreamSSHIdentity = "err.proxy-upstream-ssh-identity"
+	KeyErrProxyUpstreamSSHParseKey = "err.proxy-upstream-ssh-parse-key"
+
+	KeyErrProxyUpstreamSSHPassphraseMissing = "err.proxy-upstream-ssh-passphrase-missing"
+	KeyPromptUpstreamIdentityPassphrase     = "prompt.proxy-upstream-identity-passphrase"
+
 	KeyErrProxyUpstreamSSHKnownHosts = "err.proxy-upstream-ssh-known-hosts"
 	KeyErrProxyUpstreamSSHDial       = "err.proxy-upstream-ssh-dial"
 	KeyErrProxyUpstreamSSHChannel    = "err.proxy-upstream-ssh-channel"

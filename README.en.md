@@ -110,6 +110,9 @@ flags:
   -idle-timeout duration  idle timeout; reclaim a direction once it stays idle past the threshold, 0 to disable (go mode only)
   -log-level string       log level: info or debug (go mode only, default "info")
   -quiet                  quiet mode, suppress per-connection routine logs (go mode only)
+  -stats-addr string      optional HTTP stats endpoint address (e.g. 127.0.0.1:9090), empty disables; loopback only
+  -web-addr string        optional Web panel listen address (e.g. 127.0.0.1:8080), empty disables; loopback only
+  -web-log-max int        max number of connection events kept in the Web panel ring buffer (default 1000)
   -config string          path to a YAML config file
   -lang string            interface language: en/zh/ja/ko/fr/de (auto-detected from the system by default)
   -version                print version information and exit
@@ -165,12 +168,38 @@ Important proxy flags:
 - `-handshake-timeout 10s`: bound protocol detection and handshake time.
 - `-idle-timeout 5m`: close tunnels that remain idle in either direction.
 - `-allow-public`: explicitly allow a non-loopback listen address.
+- `-stats-addr 127.0.0.1:9090`: optional read-only HTTP stats endpoint (empty disables; loopback only unless `-allow-public`).
+- `-web-addr 127.0.0.1:8080`: optional Web panel (empty disables; loopback only unless `-allow-public`).
+- `-web-log-max 1000`: max number of connection events kept in the Web panel ring buffer.
 
 The proxy has no authentication, so it rejects non-loopback listen addresses by
 default. Only use `-allow-public` behind an appropriate firewall or equivalent
 access boundary. Requests that resolve back to the proxy's own listener are also
 rejected to prevent recursive connection storms. On shutdown, existing connections
 have up to 10 seconds to finish before they are closed.
+
+#### SSH upstream private key passphrase
+
+When `upstream` is `ssh://` and the private key given via `-upstream-identity` is
+**encrypted**, a passphrase is required to decrypt it. The passphrase is resolved
+in the following priority order (highest → lowest):
+
+1. the `PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE` environment variable;
+2. the `upstream_identity_passphrase` config field;
+3. an interactive terminal prompt (only when the two above are empty,
+   `-upstream-identity` is set, and stdin is a TTY; input is read without echo).
+
+For security there is **no command-line flag** (to avoid leaking the passphrase
+into the process list or shell history). Prefer the **environment variable**; if
+you store it as plaintext in YAML, control the config file permissions yourself.
+The passphrase never appears in logs. When the key is encrypted but no passphrase
+is provided, a clear error is returned.
+
+```bash
+# Environment variable (recommended)
+export PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE='your-passphrase'
+./portmap proxy -upstream ssh://root@host:22 -upstream-identity ~/.ssh/id_rsa
+```
 
 ## Interface Language
 
@@ -213,6 +242,9 @@ max_conns: 0
 idle_timeout: 0s
 log_level: info
 quiet: false
+stats_addr: ""
+web_addr: ""
+web_log_max: 1000
 lang: en
 ```
 
@@ -288,10 +320,33 @@ In `go` mode:
 
 ```bash
 kill -USR1 <pid>
-# log output: status: active=<current active connections> total=<cumulative connections processed>
+# log output: status: active=<current active connections> total=<cumulative connections> rejected=<rejected> dial-errors=<dial failures> up=<upload bytes> down=<download bytes> uptime=<uptime>
 ```
 
   Windows has no `SIGUSR1`, so this feature is automatically skipped (without affecting compilation or execution).
+
+- With `-stats-addr` you can additionally expose a read-only HTTP stats endpoint (both `forward` and `proxy`), e.g.:
+
+```bash
+./portmap -stats-addr 127.0.0.1:9090
+# or ./portmap proxy -stats-addr 127.0.0.1:9090
+
+curl http://127.0.0.1:9090/stats     # JSON snapshot
+curl http://127.0.0.1:9090/metrics   # Prometheus text
+```
+
+  The endpoint is disabled by default and, for safety, only binds to loopback addresses; under `proxy` you must pass `-allow-public` to bind a non-loopback address. In multi-instance (multi-mapping) setups a single aggregated endpoint is started, summing the snapshots of all instances.
+
+- With `-web-addr` you can enable an optional **Web panel** (both `forward` and `proxy`) to view live performance stats and access/connection logs in your browser:
+
+```bash
+./portmap -web-addr 127.0.0.1:8080
+# or ./portmap proxy -web-addr 127.0.0.1:8080
+```
+
+  Then open `http://127.0.0.1:8080/` in a browser: the top of the page shows live performance cards (active/total/rejected connections, dial errors, up/down bytes, uptime), followed by a structured connection-event log table, all refreshed by automatic polling. It is a browser page rather than a `curl` endpoint, but it also exposes `/api/stats` and `/api/logs` JSON endpoints for programmatic access.
+
+  The panel is disabled by default and, for safety (connection logs include target addresses), only binds to loopback addresses; under `proxy` you must pass `-allow-public` to bind a non-loopback address. Use `-web-log-max` to tune how many connection events the ring buffer keeps (default 1000).
 
 - `-quiet` suppresses routine logs; `-log-level debug` outputs more detailed information (such as `pipe`-layer anomalies).
 

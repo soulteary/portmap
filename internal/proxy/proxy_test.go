@@ -55,6 +55,32 @@ func startTestProxy(t *testing.T) (string, func()) {
 	return ln.Addr().String(), func() { _ = ln.Close() }
 }
 
+// startTestProxyRef 与 startTestProxy 相同，但额外返回 *Server 以便断言统计快照。
+func startTestProxyRef(t *testing.T) (string, *Server, func()) {
+	t.Helper()
+	srv := New("127.0.0.1:0")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("监听失败: %v", err)
+	}
+	srv.listener = ln
+	srv.Addr = ln.Addr().String()
+	srv.DialTimeout = 5 * time.Second
+	srv.dialer = NewDirectDialer(srv.DialTimeout, defaultKeepAlive)
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go srv.serveConn(conn)
+		}
+	}()
+
+	return ln.Addr().String(), srv, func() { _ = ln.Close() }
+}
+
 // startBackend 启动一个简单的后端 HTTP 服务。
 func startBackend(t *testing.T) (string, func()) {
 	t.Helper()
@@ -180,6 +206,38 @@ func TestHTTPProxy(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "hello from backend") {
 		t.Fatalf("响应内容不符: %q", body)
+	}
+}
+
+// TestHTTPProxyByteAccounting 验证普通 HTTP 转发在完成后累计上/下行字节数。
+func TestHTTPProxyByteAccounting(t *testing.T) {
+	proxyAddr, srv, stopProxy := startTestProxyRef(t)
+	defer stopProxy()
+	backendAddr, stopBackend := startBackend(t)
+	defer stopBackend()
+
+	proxyURL, _ := url.Parse("http://" + proxyAddr)
+	client := &http.Client{
+		Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)},
+		Timeout:   5 * time.Second,
+	}
+
+	resp, err := client.Get("http://" + backendAddr + "/")
+	if err != nil {
+		t.Fatalf("通过 HTTP 代理请求失败: %v", err)
+	}
+	_, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	snap := srv.Snapshot()
+	if snap.UpBytes <= 0 {
+		t.Fatalf("UpBytes=%d, 期望 > 0", snap.UpBytes)
+	}
+	if snap.DownBytes <= 0 {
+		t.Fatalf("DownBytes=%d, 期望 > 0", snap.DownBytes)
+	}
+	if snap.TotalConns < 1 {
+		t.Fatalf("TotalConns=%d, 期望 >= 1", snap.TotalConns)
 	}
 }
 

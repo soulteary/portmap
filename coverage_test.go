@@ -127,7 +127,7 @@ func TestNormalizeForwardOptions(t *testing.T) {
 	})
 
 	cases := []struct {
-		name  string
+		name   string
 		mutate func(*options)
 	}{
 		{"端口为 0", func(o *options) { o.listenPort = 0 }},
@@ -173,6 +173,7 @@ func TestBuildProxyUpstream(t *testing.T) {
 		opt := &proxyOptions{
 			upstream:                     "ssh://root@host:22",
 			upstreamIdentity:             "/tmp/id_rsa",
+			upstreamIdentityPassphrase:   "s3cret",
 			upstreamKnownHosts:           "/tmp/known_hosts",
 			upstreamInsecure:             true,
 			upstreamKeepalive:            45 * time.Second,
@@ -190,6 +191,9 @@ func TestBuildProxyUpstream(t *testing.T) {
 		}
 		if u.IdentityFile != "/tmp/id_rsa" || u.KnownHostsFile != "/tmp/known_hosts" || !u.Insecure {
 			t.Fatalf("SSH 字段回填错误: %+v", u)
+		}
+		if u.IdentityPassphrase != "s3cret" {
+			t.Fatalf("passphrase 未透传: %+v", u)
 		}
 		if u.KeepaliveInterval != 45*time.Second || u.KeepaliveMaxFailures != 5 {
 			t.Fatalf("keepalive 字段回填错误: %+v", u)
@@ -295,7 +299,7 @@ func TestServeProxyGracefulShutdown(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- serveProxy(ctx, srv) }()
+	go func() { done <- serveProxy(ctx, srv, "", false, "", false, nil) }()
 
 	// 轮询等待端口开始监听后再触发关闭。
 	waitProxyListening(t, port)
@@ -323,7 +327,7 @@ func TestServeProxyBindErrorReturnsError(t *testing.T) {
 	srv := newProxyServer(proxyOptions{addr: busyAddr, dialTimeout: time.Second}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := serveProxy(ctx, srv); err == nil {
+	if err := serveProxy(ctx, srv, "", false, "", false, nil); err == nil {
 		t.Fatal("绑定已占用端口应返回错误")
 	}
 }

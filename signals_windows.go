@@ -19,8 +19,13 @@ package main
 import (
 	"context"
 
-	"github.com/soulteary/portmap/internal/forward"
+	"github.com/soulteary/portmap/internal/stats"
 )
 
+// statusProvider 是能提供统计快照的服务（forward.Server / proxy.Server）。
+type statusProvider interface {
+	Snapshot() stats.Snapshot
+}
+
 // watchStatusSignal 在 Windows 上无 SIGUSR1，为 no-op 以保证跨平台编译通过。
-func watchStatusSignal(ctx context.Context, srv *forward.Server) {}
+func watchStatusSignal(ctx context.Context, srv statusProvider) {}

@@ -131,6 +131,9 @@ flags:
   -idle-timeout duration  空闲超时，任一方向空闲超过阈值即回收该方向连接，0 表示不启用（仅 go 模式）
   -log-level string       日志级别：info 或 debug（仅 go 模式，默认 "info"）
   -quiet                  安静模式，抑制每连接的常规日志（仅 go 模式）
+  -stats-addr string      可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭；仅允许回环地址
+  -web-addr string        可选的 Web 面板监听地址（如 127.0.0.1:8080），留空表示关闭；仅允许回环地址
+  -web-log-max int        Web 面板连接事件环形缓冲保留的最大条数 (默认 1000)
   -config string          YAML 配置文件路径（读取 forward: 段）
   -lang string            界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
   -version                打印版本信息后退出
@@ -153,6 +156,9 @@ flags:
                           协议握手超时，0 表示不限制 (默认 10s)
   -idle-timeout duration  双向空闲超时，0 表示不限制 (默认 5m0s)
   -max-conns int          代理最大并发连接数，0 表示不限制 (默认 256)
+  -stats-addr string      可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭；除非 -allow-public 否则仅允许回环地址
+  -web-addr string        可选的 Web 面板监听地址（如 127.0.0.1:8080），留空表示关闭；除非 -allow-public 否则仅允许回环地址
+  -web-log-max int        Web 面板连接事件环形缓冲保留的最大条数 (默认 1000)
   -config string          YAML 配置文件路径（读取 proxy: 段）
   -lang string            界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
   -version                打印版本信息后退出
@@ -170,6 +176,26 @@ flags:
 > 安全提示：代理不提供身份认证，默认拒绝监听 `0.0.0.0`、`::` 等非回环地址。
 > 只有在网络访问已由防火墙或其它边界保护时，才应显式添加 `-allow-public`。
 > 指向代理自身监听地址的 HTTP/SOCKS5 请求会被拒绝，以避免递归连接风暴。
+
+#### SSH 上游私钥 passphrase（证书密码）
+
+当 `upstream` 为 `ssh://` 且 `-upstream-identity` 指向的私钥是**加密私钥**时，
+需要提供 passphrase 才能解密。passphrase 按以下优先级解析（高 → 低）：
+
+1. 环境变量 `PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE`；
+2. 配置文件字段 `upstream_identity_passphrase`；
+3. 交互式终端输入（仅当上面两者都为空、且配置了 `-upstream-identity`、
+   且 stdin 是 TTY 时触发，读取时不回显）。
+
+出于安全考虑**不提供命令行 flag**（避免明文出现在进程列表 / shell 历史中）。
+**推荐使用环境变量**；若写入 YAML 明文，请自行控制配置文件权限。passphrase
+不会进入日志。加密私钥但未提供 passphrase 时会给出明确的错误提示。
+
+```bash
+# 环境变量方式（推荐）
+export PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE='your-passphrase'
+./portmap proxy -upstream ssh://root@host:22 -upstream-identity ~/.ssh/id_rsa
+```
 
 ## 示例
 
@@ -256,6 +282,9 @@ forward:
   idle_timeout: 0s
   log_level: info
   quiet: false
+  stats_addr: ""
+  web_addr: ""
+  web_log_max: 1000
 proxy:
   addr: 127.0.0.1:1080
   dial_timeout: 30s
@@ -263,6 +292,9 @@ proxy:
   handshake_timeout: 10s
   idle_timeout: 5m
   allow_public: false
+  stats_addr: ""
+  web_addr: ""
+  web_log_max: 1000
 lang: en
 ```
 
@@ -341,10 +373,33 @@ UDP 无连接，`go` 模式以「客户端地址 → 一条到目标的 UDP 连�
 
 ```bash
 kill -USR1 <pid>
-# 日志输出：status: active=<当前活跃连接数> total=<累计处理连接数>
+# 日志输出：status: active=<当前活跃连接数> total=<累计处理连接数> rejected=<拒绝数> dial-errors=<拨号失败数> up=<上行字节> down=<下行字节> uptime=<运行时长>
 ```
 
   Windows 无 `SIGUSR1`，该功能自动跳过（不影响编译与运行）。
+
+- 通过 `-stats-addr` 可另外开启一个只读 HTTP 统计端点（forward 与 proxy 均支持），例如：
+
+```bash
+./portmap -stats-addr 127.0.0.1:9090
+# 或 ./portmap proxy -stats-addr 127.0.0.1:9090
+
+curl http://127.0.0.1:9090/stats     # JSON 快照
+curl http://127.0.0.1:9090/metrics   # Prometheus 文本
+```
+
+  该端点默认关闭；出于安全考虑仅允许绑定回环地址，proxy 下需显式 `-allow-public` 才能绑定非回环地址。多实例（多端口映射）场景下会启动单个聚合端点，汇总所有实例的快照。
+
+- 通过 `-web-addr` 可开启一个可选的 **Web 面板**（forward 与 proxy 均支持），在浏览器中实时查看性能统计与访问/连接日志：
+
+```bash
+./portmap -web-addr 127.0.0.1:8080
+# 或 ./portmap proxy -web-addr 127.0.0.1:8080
+```
+
+  随后用浏览器打开 `http://127.0.0.1:8080/` 即可：页面顶部展示实时性能卡片（活跃/累计/拒绝连接、拨号失败、上下行字节、运行时长），下方为结构化的连接事件日志表格，并会自动轮询刷新。它是一个网页而非 `curl` 接口，但同时提供 `/api/stats` 与 `/api/logs` 两个 JSON 端点供程序化读取。
+
+  面板默认关闭；出于安全考虑（连接日志含目标地址）仅允许绑定回环地址，proxy 下需显式 `-allow-public` 才能绑定非回环地址。可用 `-web-log-max` 调整连接事件环形缓冲保留的条数（默认 1000）。
 
 - `-quiet` 抑制常规日志；`-log-level debug` 输出更详细信息（如 `pipe` 层异常）。
 

@@ -149,7 +149,42 @@ func TestForward(t *testing.T) {
 	}
 }
 
-// TestContextCancelGracefulExit 验证 ctx 取消后 ListenAndServe 优雅退出。
+// TestForwardByteAccounting 验证 TCP 转发在连接关闭后正确累计上/下行字节数。
+func TestForwardByteAccounting(t *testing.T) {
+	target, closeEcho := startEchoServer(t)
+	defer closeEcho()
+
+	addr, srv, wait := startServerRef(t, Config{Target: target, ReuseAddr: true})
+	defer wait()
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial forwarder: %v", err)
+	}
+
+	want := []byte("hello-byte-accounting")
+	if _, err := conn.Write(want); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	got := make([]byte, len(want))
+	if _, err := io.ReadFull(conn, got); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	// 关闭客户端连接，促使转发的 relay goroutine 结束并累加字节。
+	_ = conn.Close()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		snap := srv.Snapshot()
+		if snap.UpBytes >= int64(len(want)) && snap.DownBytes >= int64(len(want)) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	snap := srv.Snapshot()
+	t.Fatalf("字节统计未达预期: up=%d down=%d, 期望各 >= %d", snap.UpBytes, snap.DownBytes, len(want))
+}
 func TestContextCancelGracefulExit(t *testing.T) {
 	target, closeEcho := startEchoServer(t)
 	defer closeEcho()

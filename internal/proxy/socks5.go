@@ -24,6 +24,7 @@ import (
 	"net"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/soulteary/portmap/internal/i18n"
 	"github.com/soulteary/portmap/internal/netutil"
@@ -116,6 +117,7 @@ func (s *Server) handleSOCKS5WithReader(ctx context.Context, conn net.Conn, read
 	}
 	remote, err := s.dialer.DialContext(dialCtx, "tcp", target)
 	if err != nil {
+		s.Stats().DialError()
 		_ = s.sendSOCKSReply(conn, socksReplyForDialError(err))
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxySocksDial), target, err)
 	}
@@ -141,7 +143,11 @@ func (s *Server) handleSOCKS5WithReader(ctx context.Context, conn net.Conn, read
 	if !s.beginRelay(conn, remote) {
 		return context.Canceled
 	}
-	netutil.RelayReader(conn, reader, remote)
+	start := time.Now()
+	up, down := netutil.RelayReaderCount(conn, reader, remote)
+	s.Stats().AddUp(up)
+	s.Stats().AddDown(down)
+	s.logEvent("close", "socks5", conn.RemoteAddr().String(), target, up, down, time.Since(start).Milliseconds(), 0)
 	return nil
 }
 
