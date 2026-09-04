@@ -30,7 +30,7 @@ sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222
 
 端口转发支持两种模式：
 
-- **`go`（默认）**：纯 Go 实现，不依赖系统 `socat`，跨平台，对应 `TCP-LISTEN`/`fork`/`reuseaddr`，并扩展了 UDP、并发限流、空闲超时与连接级日志（见下）。
+- **`go`（默认）**：纯 Go 实现，不依赖系统 `socat`，支持 Linux 与 macOS，对应 `TCP-LISTEN`/`fork`/`reuseaddr`，并扩展了 UDP、并发限流、空闲超时与连接级日志（见下）。
 - **`socat`**：直接调用本机的 `socat` 命令（可选 `-sudo`），生成等价命令行（支持 TCP/UDP）。
 
 ## 为什么写这个工具
@@ -244,7 +244,7 @@ UDP 转发（如 DNS）：
 
 帮助文本、日志与错误消息支持多语言：`en`（英文）、`zh`（简体中文）、`ja`（日文）、`ko`（韩文）、`fr`（法文）、`de`（德文），无法识别时回退英文。
 
-默认按系统区域自动检测，检测优先级为：`PORTMAP_LANG` > `LC_ALL` > `LC_MESSAGES` > `LANG` > `LANGUAGE` > 系统区域（Windows 平台）。也可显式覆盖：
+默认从环境变量自动检测，检测优先级为：`PORTMAP_LANG` > `LC_ALL` > `LC_MESSAGES` > `LANG` > `LANGUAGE`。也可显式覆盖：
 
 ```bash
 ./portmap -lang zh -version          # 命令行显式指定
@@ -376,8 +376,6 @@ kill -USR1 <pid>
 # 日志输出：status: active=<当前活跃连接数> total=<累计处理连接数> rejected=<拒绝数> dial-errors=<拨号失败数> up=<上行字节> down=<下行字节> uptime=<运行时长>
 ```
 
-  Windows 无 `SIGUSR1`，该功能自动跳过（不影响编译与运行）。
-
 - 通过 `-stats-addr` 可另外开启一个只读 HTTP 统计端点（forward 与 proxy 均支持），例如：
 
 ```bash
@@ -488,7 +486,7 @@ make release   # 交叉编译多平台产物到 dist/
 make snapshot  # 用 GoReleaser 本地试跑发布流程（不推送、不发布）
 ```
 
-CI 见 `.github/workflows/ci.yml`：在 linux/macOS/windows 上运行 `go vet` 与
+CI 见 `.github/workflows/ci.yml`：在 Linux/macOS 上运行 `go vet` 与
 `go test -race`，对全部发布平台做交叉编译，并独立运行 `golangci-lint`、
 `go mod tidy -diff` 与 `govulncheck`。
 
@@ -499,7 +497,7 @@ CI 见 `.github/workflows/ci.yml`：在 linux/macOS/windows 上运行 `go vet` �
 - **触发**：推送 `v*` 形式的 tag（如 `v1.0.0`）自动发布；手动
   `workflow_dispatch` 也必须从 `v*` tag 发起。
 - **发布门禁**：发布前重新运行 race test、模块整洁检查与 `govulncheck`。
-- **二进制产物**：`linux`/`darwin`/`windows` × `amd64`/`arm64`
+- **二进制产物**：`linux`/`darwin` × `amd64`/`arm64`
   连同 `checksums.txt` 一并上传到 GitHub Release。
 - **容器镜像**：构建多架构（`linux/amd64` + `linux/arm64`）镜像并推送到
   `ghcr.io/soulteary/portmap` 与 `docker.io/soulteary/portmap`，
@@ -526,7 +524,6 @@ CI 见 `.github/workflows/ci.yml`：在 linux/macOS/windows 上运行 `go vet` �
 ├── config_test.go                   # 配置文件加载/合并测试
 ├── config.example.yaml              # 配置文件示例
 ├── signals_unix.go                  # 类 Unix 平台 SIGUSR1 状态打印
-├── signals_windows.go               # Windows 平台 no-op（无 SIGUSR1）
 ├── cmd
 │   └── loadtest                     # 独立压测工具（自包含链路 + TCP/UDP 压测）
 │       └── main.go
@@ -543,8 +540,7 @@ CI 见 `.github/workflows/ci.yml`：在 linux/macOS/windows 上运行 `go vet` �
     │   ├── forward.go               # TCP 转发、限流、空闲超时、日志
     │   ├── forward_test.go          # forward 单元测试
     │   ├── udp.go                   # UDP 会话转发
-    │   ├── reuseaddr_unix.go        # 类 Unix 平台 SO_REUSEADDR
-    │   └── reuseaddr_windows.go     # Windows 平台 SO_REUSEADDR
+    │   └── reuseaddr_unix.go        # 类 Unix 平台 SO_REUSEADDR
     ├── proxy                        # 单端口 SOCKS5 + HTTP 代理
     │   ├── server.go                # 监听、首字节协议探测、连接分发
     │   ├── socks5.go                # SOCKS5 握手与 CONNECT
@@ -556,8 +552,7 @@ CI 见 `.github/workflows/ci.yml`：在 linux/macOS/windows 上运行 `go vet` �
     ├── socat                        # 调用系统 socat 的 fallback
     │   ├── socat.go                 # 构造并执行 socat 命令
     │   ├── socat_test.go            # socat 单元测试
-    │   ├── socat_cancel_unix.go     # 类 Unix 平台 SIGTERM 优雅取消
-    │   └── socat_cancel_windows.go  # Windows 平台 no-op（无 SIGTERM）
+    │   └── socat_cancel_unix.go     # 类 Unix 平台 SIGTERM 优雅取消
     └── i18n                         # 多语言（i18n）支持
         ├── i18n.go                  # 语言检测、解析与查表
         ├── i18n_test.go             # i18n 单元测试
@@ -565,7 +560,6 @@ CI 见 `.github/workflows/ci.yml`：在 linux/macOS/windows 上运行 `go vet` �
         ├── keys_forward.go          # forward 子命令消息 key
         ├── keys_proxy.go            # proxy 子命令消息 key
         ├── locale_unix.go           # 类 Unix 平台区域探测（no-op）
-        ├── locale_windows.go        # Windows 平台区域探测
         └── messages_*.go            # 各语言消息（en/zh/ja/ko/fr/de）
 ```
 

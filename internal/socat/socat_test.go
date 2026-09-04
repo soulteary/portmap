@@ -18,7 +18,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -172,9 +171,6 @@ func TestArgsPortUpperBound(t *testing.T) {
 // 使 exec.LookPath 能找到它。返回清理函数。
 func stubSocat(t *testing.T, name string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("stub 可执行脚本在 Windows 上不适用")
-	}
 	dir := t.TempDir()
 	script := "#!/bin/sh\nexit 0\n"
 	path := filepath.Join(dir, name)
@@ -230,9 +226,6 @@ func TestCommandInvalidArgs(t *testing.T) {
 
 // TestCommandNotFound 验证 socat 不存在于 PATH 时返回错误。
 func TestCommandNotFound(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("PATH 清空行为在 Windows 上不稳定")
-	}
 	t.Setenv("PATH", t.TempDir())
 	o := Options{ListenPort: 22, Target: "127.0.0.1:2222"}
 	if _, err := o.Command(context.Background()); err == nil {
@@ -257,11 +250,8 @@ func TestRunInvalidReturnsError(t *testing.T) {
 	}
 }
 
-// TestSetGracefulCancel 验证非 Windows 平台设置了 Cancel 回调（发送 SIGTERM）。
+// TestSetGracefulCancel 验证类 Unix 平台设置了 Cancel 回调（发送 SIGTERM）。
 func TestSetGracefulCancel(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Cancel 语义在 Windows 上不同")
-	}
 	stubSocat(t, "socat")
 	o := Options{ListenPort: 22, Target: "127.0.0.1:2222"}
 	cmd, err := o.Command(context.Background())

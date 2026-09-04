@@ -70,9 +70,9 @@ make build  # build with version info injected
 make security # govulncheck
 ```
 
-CI runs `go vet` and `go test -race` on Linux, macOS, and Windows, plus separate
-lint, module-hygiene, and vulnerability jobs. It cross-compiles every release
-target, including `windows/arm64`, so please keep the code portable across platforms.
+CI runs `go vet` and `go test -race` on Linux and macOS, plus separate lint,
+module-hygiene, and vulnerability jobs. It cross-compiles every supported release
+target, so please keep the code portable across those platforms.
 
 ### Coding Guidelines
 
@@ -81,11 +81,8 @@ target, including `windows/arm64`, so please keep the code portable across platf
   [`.golangci.yml`](.golangci.yml)).
 - **Tests** — add or update tests for any behavior change. New packages should
   ship with `_test.go` coverage. Existing tests must keep passing under `-race`.
-- **Cross-platform** — this project targets Unix-like systems and Windows.
-  Platform-specific code uses build tags and split files (e.g.
-  `signals_unix.go` / `signals_windows.go`,
-  `reuseaddr_unix.go` / `reuseaddr_windows.go`). Follow this pattern rather than
-  runtime OS checks where possible.
+- **Cross-platform** — this project targets Linux and macOS. Platform-specific code
+  uses build tags; prefer them over runtime OS checks where needed.
 - **Comments** — explain intent and trade-offs, not the obvious.
 
 ### Internationalization (i18n)
@@ -185,9 +182,9 @@ make build  # 注入版本信息编译
 make security # govulncheck
 ```
 
-CI 会在 Linux、macOS、Windows 上运行 `go vet` 与 `go test -race`，并单独运行
-lint、模块整洁与漏洞检查；同时会交叉编译包括 `windows/arm64` 在内的全部发布目标。
-请确保代码在各平台间保持可移植。
+CI 会在 Linux、macOS 上运行 `go vet` 与 `go test -race`，并单独运行 lint、
+模块整洁与漏洞检查；同时会交叉编译全部受支持的发布目标。请确保代码在这些平台间
+保持可移植。
 
 ### 代码规范
 
@@ -196,10 +193,8 @@ lint、模块整洁与漏洞检查；同时会交叉编译包括 `windows/arm64`
   [`.golangci.yml`](.golangci.yml)）。
 - **测试** —— 任何行为变更都应新增或更新测试；新包应附带 `_test.go`。现有测试需在
   `-race` 下持续通过。
-- **跨平台** —— 本项目同时面向类 Unix 系统与 Windows。平台相关代码使用构建标签与
-  拆分文件实现（如 `signals_unix.go` / `signals_windows.go`、
-  `reuseaddr_unix.go` / `reuseaddr_windows.go`）。请优先沿用该模式，而非运行时
-  判断操作系统。
+- **跨平台** —— 本项目面向 Linux 与 macOS。需要平台特定逻辑时使用构建标签，
+  不要在运行时判断操作系统。
 - **注释** —— 解释意图与取舍，而非复述显而易见的代码。
 
 ### 多语言（i18n）

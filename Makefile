@@ -45,13 +45,11 @@ release:
 	@mkdir -p dist
 	@set -eu; for target in \
 		linux/amd64 linux/arm64 \
-		darwin/amd64 darwin/arm64 \
-		windows/amd64 windows/arm64; do \
+		darwin/amd64 darwin/arm64; do \
 		os=$${target%/*}; arch=$${target#*/}; \
-		ext=""; [ "$$os" = "windows" ] && ext=".exe"; \
 		echo "building $$os/$$arch"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "$(LDFLAGS)" \
-			-o dist/$(BINARY)-$$os-$$arch$$ext . ; \
+			-o dist/$(BINARY)-$$os-$$arch . ; \
 	done
 
 # snapshot 使用 GoReleaser 在本地试跑发布流程（不推送、不发布）。

@@ -26,7 +26,7 @@ sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222
 
 It supports two modes:
 
-- **`go` (default)**: A pure Go implementation that does not depend on the system `socat`. It is cross-platform, maps to `TCP-LISTEN`/`fork`/`reuseaddr`, and extends this with UDP, concurrency limiting, idle timeouts, and per-connection logging (see below).
+- **`go` (default)**: A pure Go implementation that does not depend on the system `socat`. It supports Linux and macOS, maps to `TCP-LISTEN`/`fork`/`reuseaddr`, and extends this with UDP, concurrency limiting, idle timeouts, and per-connection logging (see below).
 - **`socat`**: Directly invokes the local `socat` command (optionally with `-sudo`), generating an equivalent command line (supports TCP/UDP).
 
 ## Why This Tool Exists
@@ -205,7 +205,7 @@ export PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE='your-passphrase'
 
 Help text, logs, and error messages are localized: `en` (English), `zh` (Simplified Chinese), `ja` (Japanese), `ko` (Korean), `fr` (French), `de` (German), falling back to English when unrecognized.
 
-The language is auto-detected from the system locale by default, with the following precedence: `PORTMAP_LANG` > `LC_ALL` > `LC_MESSAGES` > `LANG` > `LANGUAGE` > system locale (on Windows). You can also override it explicitly:
+The language is auto-detected from environment variables by default, with the following precedence: `PORTMAP_LANG` > `LC_ALL` > `LC_MESSAGES` > `LANG` > `LANGUAGE`. You can also override it explicitly:
 
 ```bash
 ./portmap -lang zh -version          # via command-line flag
@@ -323,8 +323,6 @@ kill -USR1 <pid>
 # log output: status: active=<current active connections> total=<cumulative connections> rejected=<rejected> dial-errors=<dial failures> up=<upload bytes> down=<download bytes> uptime=<uptime>
 ```
 
-  Windows has no `SIGUSR1`, so this feature is automatically skipped (without affecting compilation or execution).
-
 - With `-stats-addr` you can additionally expose a read-only HTTP stats endpoint (both `forward` and `proxy`), e.g.:
 
 ```bash
@@ -437,7 +435,7 @@ make snapshot  # dry-run the release flow locally via GoReleaser (no push, no pu
 ```
 
 See CI at `.github/workflows/ci.yml`: it runs `go vet` and `go test -race` on
-linux/macOS/windows, cross-builds every release target, and independently runs
+Linux/macOS, cross-builds every release target, and independently runs
 `golangci-lint`, `go mod tidy -diff`, and `govulncheck`.
 
 ## Release
@@ -447,7 +445,7 @@ Releases are driven by GoReleaser, see `.github/workflows/release.yml`:
 - **Trigger**: pushing a `v*` tag (e.g. `v1.0.0`) publishes automatically; a manual
   `workflow_dispatch` must also be run from a `v*` tag.
 - **Release gate**: race tests, module hygiene, and `govulncheck` run again before publishing.
-- **Binaries**: `linux`/`darwin`/`windows` x `amd64`/`arm64`,
+- **Binaries**: `linux`/`darwin` x `amd64`/`arm64`,
   uploaded to the GitHub Release together with `checksums.txt`.
 - **Container images**: multi-arch (`linux/amd64` + `linux/arm64`) images are built and
   pushed to `ghcr.io/soulteary/portmap` and `docker.io/soulteary/portmap`, tagged with
@@ -475,7 +473,6 @@ Prerequisites:
 ├── config_test.go                   # config file loading/merging tests
 ├── config.example.yaml              # config file example
 ├── signals_unix.go                  # SIGUSR1 status print on Unix-like platforms
-├── signals_windows.go               # Windows no-op (no SIGUSR1)
 ├── cmd
 │   └── loadtest                     # standalone load-test tool (self-contained chain + TCP/UDP stress)
 │       └── main.go
@@ -492,19 +489,16 @@ Prerequisites:
     │   ├── forward.go               # TCP forwarding, limiting, idle timeout, logging
     │   ├── forward_test.go          # forward unit tests
     │   ├── udp.go                   # UDP session forwarding
-    │   ├── reuseaddr_unix.go        # SO_REUSEADDR on Unix-like platforms
-    │   └── reuseaddr_windows.go     # SO_REUSEADDR on Windows
+    │   └── reuseaddr_unix.go        # SO_REUSEADDR on Unix-like platforms
     ├── socat                        # fallback that invokes the system socat
         ├── socat.go                 # construct and execute the socat command
         ├── socat_test.go            # socat unit tests
-        ├── socat_cancel_unix.go     # graceful SIGTERM cancellation on Unix-like platforms
-        └── socat_cancel_windows.go  # Windows no-op (no SIGTERM)
+        └── socat_cancel_unix.go     # graceful SIGTERM cancellation on Unix-like platforms
     └── i18n                         # internationalization (i18n) support
         ├── i18n.go                  # language detection, parsing, and lookup
         ├── i18n_test.go             # i18n unit tests
         ├── keys.go                  # message key constants and language tables
         ├── locale_unix.go           # locale probing on Unix-like platforms (no-op)
-        ├── locale_windows.go        # locale probing on Windows
         └── messages_*.go            # per-language messages (en/zh/ja/ko/fr/de)
 ```
 

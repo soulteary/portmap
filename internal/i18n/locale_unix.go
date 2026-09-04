@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !windows
+//go:build unix
 
 package i18n
 
-// systemLocale 在非 Windows 平台不做额外探测：类 Unix 系统的区域信息
-// 已通过 LC_*/LANG 环境变量覆盖（见 Detect）。
+// systemLocale 不做额外探测：类 Unix 系统的区域信息已通过
+// LC_*/LANG 环境变量覆盖（见 Detect）。
 func systemLocale() string { return "" }
