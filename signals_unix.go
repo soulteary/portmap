@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !windows
+//go:build unix
 
 package main
 
@@ -35,7 +35,6 @@ type statusProvider interface {
 
 // watchStatusSignal 在类 Unix 平台监听 SIGUSR1，收到后打印统计快照
 // （活跃/累计/拒绝连接、拨号失败、上下行字节、运行时长）。ctx 取消时停止监听。
-// Windows 无 SIGUSR1，由同名 no-op 版本替代。
 func watchStatusSignal(ctx context.Context, srv statusProvider) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGUSR1)
