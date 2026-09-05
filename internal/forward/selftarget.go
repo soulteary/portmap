@@ -39,6 +39,9 @@ func targetMatchesListener(ctx context.Context, target string, listener net.Addr
 	}
 
 	host = strings.Trim(host, "[]")
+	if host == "" {
+		host = net.IPv4(127, 0, 0, 1).String()
+	}
 	if ip, zone := parseIPZone(host); ip != nil {
 		return listenerContainsIP(listenIP, ip, listenZone, zone, dualStack)
 	}

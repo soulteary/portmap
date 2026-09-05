@@ -26,7 +26,7 @@ import (
 func TestTargetMatchesListener(t *testing.T) {
 	listener := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 12345}
 	ctx := context.Background()
-	for _, target := range []string{"127.0.0.1:12345", "127.0.0.1:012345", "localhost:12345"} {
+	for _, target := range []string{"127.0.0.1:12345", "127.0.0.1:012345", "localhost:12345", ":12345"} {
 		if !targetMatchesListener(ctx, target, listener, false) {
 			t.Fatalf("targetMatchesListener(%q) = false, want true", target)
 		}
@@ -132,6 +132,18 @@ func TestTCPForwardRejectsUnspecifiedSelfTarget(t *testing.T) {
 	defer cancel()
 	if err := srv.ListenAndServe(ctx); err == nil || !strings.Contains(err.Error(), targetAddr) {
 		t.Fatalf("ListenAndServe() error = %v, want unspecified self-target error", err)
+	}
+}
+
+func TestTCPForwardRejectsOmittedHostSelfTarget(t *testing.T) {
+	port := freePort(t)
+	listenAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	targetAddr := net.JoinHostPort("", strconv.Itoa(port))
+	srv := New(Config{Listen: listenAddr, Target: targetAddr, Network: "tcp"})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := srv.ListenAndServe(ctx); err == nil || !strings.Contains(err.Error(), targetAddr) {
+		t.Fatalf("ListenAndServe() error = %v, want omitted-host self-target error", err)
 	}
 }
 
