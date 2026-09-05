@@ -713,7 +713,7 @@ func TestIdleTimeoutClosesBothDirections(t *testing.T) {
 	}
 }
 
-func TestIdleTimeoutDoesNotExpireActiveForwardWrites(t *testing.T) {
+func TestIdleTimeoutUsesSharedTunnelActivity(t *testing.T) {
 	clientSide, clientPeer := net.Pipe()
 	targetSide, targetPeer := net.Pipe()
 	defer func() { _ = clientSide.Close() }()
@@ -721,20 +721,20 @@ func TestIdleTimeoutDoesNotExpireActiveForwardWrites(t *testing.T) {
 	defer func() { _ = targetSide.Close() }()
 	defer func() { _ = targetPeer.Close() }()
 
-	// The reverse direction remains silent and reaches its read timeout. Its
-	// half-close is a no-op here so the test isolates whether that read deadline
-	// incorrectly poisons active writes on the same target connection.
+	// The reverse direction remains silent while the forward direction stays
+	// active for much longer than the idle timeout.
 	client := &noOpHalfCloseConn{Conn: clientSide}
 	target := &noOpHalfCloseConn{Conn: targetSide}
 	const idleTimeout = 80 * time.Millisecond
 	srv := New(Config{IdleTimeout: idleTimeout})
+	clientConn, targetConn := srv.tunnelConns(client, target)
 	done := make(chan struct{}, 2)
 	go func() {
-		srv.pipe(1, "target<-client", target, client)
+		srv.pipe(1, "target<-client", targetConn, clientConn)
 		done <- struct{}{}
 	}()
 	go func() {
-		srv.pipe(1, "client<-target", client, target)
+		srv.pipe(1, "client<-target", clientConn, targetConn)
 		done <- struct{}{}
 	}()
 
@@ -753,6 +753,26 @@ func TestIdleTimeoutDoesNotExpireActiveForwardWrites(t *testing.T) {
 			t.Fatalf("目标读取持续上传失败: %v", err)
 		}
 		time.Sleep(idleTimeout / 4)
+	}
+
+	// Reverse traffic must still work because the tunnel as a whole stayed active.
+	reverseWrite := make(chan error, 1)
+	go func() {
+		_, err := targetPeer.Write([]byte("pong"))
+		reverseWrite <- err
+	}()
+	if err := clientPeer.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]byte, len("pong"))
+	if _, err := io.ReadFull(clientPeer, got); err != nil {
+		t.Fatalf("持续单向流量后的反向读取失败: %v", err)
+	}
+	if string(got) != "pong" {
+		t.Fatalf("反向读取=%q，期望 pong", got)
+	}
+	if err := <-reverseWrite; err != nil {
+		t.Fatalf("反向写入失败: %v", err)
 	}
 
 	_ = clientPeer.Close()

@@ -254,14 +254,15 @@ func (s *Server) handle(ctx context.Context, src net.Conn) {
 	// 可取消的子 ctx：ctx.Done 或转发结束时主动关闭两端。
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go func() {
+	go func(src, dst net.Conn) {
 		<-cctx.Done()
 		_ = src.Close()
 		_ = dst.Close()
-	}()
+	}(src, dst)
 
 	var upBytes, downBytes int64
 	var wg sync.WaitGroup
+	src, dst = s.tunnelConns(src, dst)
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
@@ -294,15 +295,22 @@ func (s *Server) handle(ctx context.Context, src net.Conn) {
 	})
 }
 
+// tunnelConns 为隧道两端建立共享空闲状态。任一方向发生 I/O 都会刷新两端
+// 的截止时间，因此只有整条隧道均无活动时才会超时。
+func (s *Server) tunnelConns(src, dst net.Conn) (net.Conn, net.Conn) {
+	if s.cfg.IdleTimeout <= 0 {
+		return src, dst
+	}
+	srcIdle := &netutil.IdleConn{Conn: src}
+	dstIdle := &netutil.IdleConn{Conn: dst}
+	netutil.ShareIdleTimeout(srcIdle, dstIdle, s.cfg.IdleTimeout)
+	return srcIdle, dstIdle
+}
+
 // pipe 将 src 的数据拷贝到 dst，返回拷贝的字节数；
 // 结束后尝试半关闭 dst 的写方向，以便对端感知 EOF。
-// 若配置了 IdleTimeout，则用 netutil.IdleConn 包装 src 实现空闲断开。
 func (s *Server) pipe(connID int64, dir string, dst, src net.Conn) int64 {
-	var reader io.Reader = src
-	if s.cfg.IdleTimeout > 0 {
-		reader = &netutil.IdleConn{Conn: src, Timeout: s.cfg.IdleTimeout}
-	}
-	n, err := netutil.CopyAndCloseWrite(dst, reader)
+	n, err := netutil.CopyAndCloseWrite(dst, src)
 	if err != nil && !isNormalClose(err) {
 		s.debugf(i18n.T(i18n.KeyLogPipeError), connID, dir, err)
 	}
