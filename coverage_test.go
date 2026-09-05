@@ -109,11 +109,11 @@ func TestApplyForwardConfig(t *testing.T) {
 	})
 }
 
-// TestNormalizeForwardOptions 覆盖归一化与各校验错误分支，并验证 proto/log_level
-// 被规范化为小写。
+// TestNormalizeForwardOptions 覆盖归一化与各校验错误分支，并验证
+// proto/mode/log_level 被规范化为小写。
 func TestNormalizeForwardOptions(t *testing.T) {
 	base := func() options {
-		return options{listenPort: 22, target: "127.0.0.1:2222", proto: "TCP", logLevel: "INFO"}
+		return options{listenPort: 22, target: "127.0.0.1:2222", mode: "GO", proto: "TCP", logLevel: "INFO"}
 	}
 
 	t.Run("合法参数归一化大小写", func(t *testing.T) {
@@ -121,8 +121,8 @@ func TestNormalizeForwardOptions(t *testing.T) {
 		if err := normalizeForwardOptions(&opt); err != nil {
 			t.Fatalf("normalizeForwardOptions: %v", err)
 		}
-		if opt.proto != "tcp" || opt.logLevel != "info" {
-			t.Fatalf("未归一化: proto=%q log=%q", opt.proto, opt.logLevel)
+		if opt.proto != "tcp" || opt.mode != "go" || opt.logLevel != "info" {
+			t.Fatalf("未归一化: proto=%q mode=%q log=%q", opt.proto, opt.mode, opt.logLevel)
 		}
 	})
 
@@ -134,6 +134,7 @@ func TestNormalizeForwardOptions(t *testing.T) {
 		{"端口超范围", func(o *options) { o.listenPort = 70000 }},
 		{"target 为空", func(o *options) { o.target = "  " }},
 		{"未知 proto", func(o *options) { o.proto = "sctp" }},
+		{"未知 mode", func(o *options) { o.mode = "native" }},
 		{"idle 为负", func(o *options) { o.idleTimeout = -time.Second }},
 		{"max-conns 为负", func(o *options) { o.maxConns = -1 }},
 		{"dial 为负", func(o *options) { o.dialTimeout = -time.Second }},
@@ -199,6 +200,24 @@ func TestBuildProxyUpstream(t *testing.T) {
 			t.Fatalf("keepalive 字段回填错误: %+v", u)
 		}
 	})
+}
+
+func TestApplyProxyConfigAdminPublicIndependence(t *testing.T) {
+	opt := proxyOptions{}
+	cfg := &ProxyConfig{
+		AllowPublic:      boolp(true),
+		StatsAllowPublic: boolp(false),
+		WebAllowPublic:   boolp(false),
+	}
+	if err := applyProxyConfig(&opt, cfg, map[string]bool{}); err != nil {
+		t.Fatalf("applyProxyConfig: %v", err)
+	}
+	if !opt.allowPublic {
+		t.Fatal("代理监听器应允许公开")
+	}
+	if opt.statsAllowPublic || opt.webAllowPublic {
+		t.Fatal("管理端点不应继承代理监听器的公开权限")
+	}
 }
 
 // TestNewProxyServer 验证 newProxyServer 把 proxyOptions 与上游配置正确映射到

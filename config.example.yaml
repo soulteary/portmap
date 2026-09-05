@@ -78,11 +78,15 @@ proxy:
   # 连续保活探测失败多少次后判定断线并触发后台重连（仅 ssh 上游，默认 3）
   upstream_keepalive_max_failures: 3
   # 可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭。
-  # 暴露 /stats（JSON）与 /metrics（Prometheus 文本）；除非 allow_public 否则仅允许回环地址。
+  # 暴露 /stats（JSON）与 /metrics（Prometheus 文本）；默认仅允许回环地址。
   stats_addr: ""
+  # 是否允许统计端点监听非回环地址；与代理监听器的 allow_public 独立（默认 false）
+  stats_allow_public: false
   # 可选的 Web 面板监听地址（如 127.0.0.1:8080），留空表示关闭。
-  # 启用后可在浏览器查看实时性能统计与访问/连接日志；除非 allow_public 否则仅允许回环地址。
+  # 启用后可在浏览器查看实时性能统计与访问/连接日志；默认仅允许回环地址。
   web_addr: ""
+  # 是否允许 Web 面板监听非回环地址；与代理监听器的 allow_public 独立（默认 false）
+  web_allow_public: false
   # Web 面板连接事件环形缓冲保留的最大条数（默认 1000）
   web_log_max: 1000
 

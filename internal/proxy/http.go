@@ -50,7 +50,7 @@ func (s *Server) handleHTTP(ctx context.Context, conn net.Conn, reader *bufio.Re
 	if !s.completeHandshake(conn) {
 		return context.Canceled
 	}
-	ctx = s.serverContext()
+	ctx = context.WithValue(s.serverContext(), connIDContextKey{}, connIDFromContext(ctx))
 
 	if req.Method == http.MethodConnect {
 		return s.handleConnect(ctx, conn, reader, req)
@@ -117,7 +117,7 @@ func (s *Server) handleConnect(ctx context.Context, conn net.Conn, reader *bufio
 	}
 	remote, err := s.dialer.DialContext(dialCtx, "tcp", target)
 	if err != nil {
-		s.Stats().DialError()
+		s.recordDialError(ctx, "http", conn, target)
 		writeHTTPError(conn, http.StatusBadGateway)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPConnectDial), target, err)
 	}
@@ -146,7 +146,7 @@ func (s *Server) handleConnect(ctx context.Context, conn net.Conn, reader *bufio
 	up, down := netutil.RelayReaderCount(conn, reader, remote)
 	s.Stats().AddUp(up)
 	s.Stats().AddDown(down)
-	s.logEvent("close", "http", conn.RemoteAddr().String(), target, up, down, time.Since(start).Milliseconds(), 0)
+	s.logEvent("close", "http", conn.RemoteAddr().String(), target, up, down, time.Since(start).Milliseconds(), connIDFromContext(ctx))
 	return nil
 }
 
@@ -168,7 +168,7 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 	}
 	remote, err := s.dialer.DialContext(dialCtx, "tcp", host)
 	if err != nil {
-		s.Stats().DialError()
+		s.recordDialError(ctx, "http", conn, host)
 		writeHTTPError(conn, http.StatusBadGateway)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPDial), host, err)
 	}
@@ -242,7 +242,7 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 		}
 	}
 	s.Stats().AddDown(downCounter.n)
-	s.logEvent("close", "http", conn.RemoteAddr().String(), host, upCounter.n, downCounter.n, time.Since(start).Milliseconds(), 0)
+	s.logEvent("close", "http", conn.RemoteAddr().String(), host, upCounter.n, downCounter.n, time.Since(start).Milliseconds(), connIDFromContext(ctx))
 	return nil
 }
 

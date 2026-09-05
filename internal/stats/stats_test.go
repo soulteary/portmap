@@ -88,6 +88,15 @@ func TestSnapshotActiveAccounting(t *testing.T) {
 	}
 }
 
+func TestConnOpenedReturnsProcessUniqueID(t *testing.T) {
+	a, b := New(), New()
+	first := a.ConnOpened()
+	second := b.ConnOpened()
+	if first <= 0 || second <= 0 || first == second {
+		t.Fatalf("连接编号必须跨实例唯一且非零: first=%d second=%d", first, second)
+	}
+}
+
 func TestSnapshotAddAggregation(t *testing.T) {
 	a := Snapshot{ActiveConns: 1, TotalConns: 2, RejectedConns: 3, DialErrors: 4, UpBytes: 5, DownBytes: 6, Uptime: 10 * time.Second}
 	b := Snapshot{ActiveConns: 10, TotalConns: 20, RejectedConns: 30, DialErrors: 40, UpBytes: 50, DownBytes: 60, Uptime: 30 * time.Second}

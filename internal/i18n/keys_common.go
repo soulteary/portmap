@@ -32,10 +32,11 @@ const (
 	KeyErrUnknownSub    = "err.unknown-sub"
 
 	// 通用 flag 描述（各子命令共享）。
-	KeyFlagVersion   = "flag.version"
-	KeyFlagConfig    = "flag.config"
-	KeyFlagLang      = "flag.lang"
-	KeyFlagStatsAddr = "flag.stats-addr"
+	KeyFlagVersion          = "flag.version"
+	KeyFlagConfig           = "flag.config"
+	KeyFlagLang             = "flag.lang"
+	KeyFlagStatsAddr        = "flag.stats-addr"
+	KeyFlagStatsAllowPublic = "flag.stats-allow-public"
 
 	// 统计 HTTP 端点（stats.http）相关。
 	KeyLogStatsHTTPStarted = "log.stats-http-started"
@@ -44,12 +45,13 @@ const (
 	KeyErrStatsHTTPPublic  = "err.stats-http-public"
 
 	// Web 面板（web）相关：flag 描述、运行日志与错误。
-	KeyFlagWebAddr   = "flag.web-addr"
-	KeyFlagWebLogMax = "flag.web-log-max"
-	KeyLogWebStarted = "log.web-started"
-	KeyLogWebStopped = "log.web-stopped"
-	KeyErrWebServe   = "err.web-serve"
-	KeyErrWebPublic  = "err.web-public"
+	KeyFlagWebAddr        = "flag.web-addr"
+	KeyFlagWebAllowPublic = "flag.web-allow-public"
+	KeyFlagWebLogMax      = "flag.web-log-max"
+	KeyLogWebStarted      = "log.web-started"
+	KeyLogWebStopped      = "log.web-stopped"
+	KeyErrWebServe        = "err.web-serve"
+	KeyErrWebPublic       = "err.web-public"
 
 	// Web 面板页面 UI 文本（由服务端注入到 HTML 页面）。
 	KeyWebTitle         = "web.title"
@@ -89,6 +91,8 @@ const (
 	KeyLogInstanceStarting         = "log.instance-starting"
 	KeyErrInstanceFailed           = "err.instance-failed"
 	KeyErrDuplicateListen          = "err.duplicate-listen"
+	KeyErrConflictingMultiOption   = "err.conflicting-multi-option"
+	KeyErrMultiForwardMode         = "err.multi-forward-mode"
 	KeyLogMultiIgnoreFlags         = "log.multi-ignore-flags"
 )
 

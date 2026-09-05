@@ -335,6 +335,84 @@ func TestRunForwardMultiValidation(t *testing.T) {
 			t.Fatal("空 target 应返回错误")
 		}
 	})
+
+	t.Run("socat 模式不会被静默当作 go", func(t *testing.T) {
+		path := writeCfg(t, "forward:\n  - listen_port: 22\n    target: a:1\n    mode: go\n  - listen_port: 23\n    target: b:2\n    mode: socat\n")
+		err := run([]string{"-config", path})
+		if err == nil || !strings.Contains(err.Error(), "go") {
+			t.Fatalf("多实例 socat 应返回明确错误，实际: %v", err)
+		}
+	})
+}
+
+func TestForwardMultiInstanceIdentityAndGlobalFlags(t *testing.T) {
+	t.Run("TCP 和 UDP 可复用同一地址", func(t *testing.T) {
+		tcp := options{listenHost: "127.0.0.1", listenPort: 9000, proto: "tcp"}
+		udp := tcp
+		udp.proto = "udp"
+		if forwardInstanceKey(tcp) == forwardInstanceKey(udp) {
+			t.Fatal("实例标识必须包含网络类型")
+		}
+	})
+
+	t.Run("全局 CLI 管理参数覆盖实例配置", func(t *testing.T) {
+		opt := options{statsAddr: "127.0.0.1:1", webAddr: "127.0.0.1:2", webLogMax: 10}
+		base := options{statsAddr: "127.0.0.1:11", webAddr: "127.0.0.1:12", webLogMax: 99}
+		applyForwardGlobalFlags(&opt, base, map[string]bool{
+			"stats-addr":  true,
+			"web-addr":    true,
+			"web-log-max": true,
+		})
+		if opt.statsAddr != base.statsAddr || opt.webAddr != base.webAddr || opt.webLogMax != base.webLogMax {
+			t.Fatalf("全局 CLI 参数未应用: %+v", opt)
+		}
+		if !opt.webLogMaxSet {
+			t.Fatal("显式 CLI web-log-max 应保留显式配置状态")
+		}
+	})
+
+	t.Run("冲突的聚合端点返回错误", func(t *testing.T) {
+		_, err := collectForwardAdminOptions([]options{
+			{statsAddr: "127.0.0.1:9001"},
+			{statsAddr: "127.0.0.1:9002"},
+		})
+		if err == nil {
+			t.Fatal("不同 stats_addr 不应被静默取第一个")
+		}
+	})
+
+	t.Run("省略日志容量不与显式值冲突", func(t *testing.T) {
+		got, err := collectForwardAdminOptions([]options{
+			{webAddr: "127.0.0.1:9002", webLogMax: 1000},
+			{webAddr: "127.0.0.1:9002", webLogMax: 50, webLogMaxSet: true},
+		})
+		if err != nil {
+			t.Fatalf("省略默认值不应与显式值冲突: %v", err)
+		}
+		if got.webLogMax != 50 {
+			t.Fatalf("webLogMax = %d, want 50", got.webLogMax)
+		}
+	})
+
+	t.Run("不同显式日志容量返回错误", func(t *testing.T) {
+		_, err := collectForwardAdminOptions([]options{
+			{webAddr: "127.0.0.1:9002", webLogMax: 50, webLogMaxSet: true},
+			{webAddr: "127.0.0.1:9002", webLogMax: 100, webLogMaxSet: true},
+		})
+		if err == nil {
+			t.Fatal("不同显式 web_log_max 不应被静默取第一个")
+		}
+	})
+
+	t.Run("面板禁用时忽略日志容量冲突", func(t *testing.T) {
+		_, err := collectForwardAdminOptions([]options{
+			{webLogMax: 50, webLogMaxSet: true},
+			{webLogMax: 100, webLogMaxSet: true},
+		})
+		if err != nil {
+			t.Fatalf("未启用 Web 面板时不应校验 web_log_max: %v", err)
+		}
+	})
 }
 
 // TestStartForwardInstancesGracefulShutdown 以两个回环高位端口做集成式校验：
