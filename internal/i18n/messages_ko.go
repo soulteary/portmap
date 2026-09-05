@@ -34,7 +34,8 @@ var messagesKO = map[string]string{
 	KeyFlagVersion:     "버전 정보를 출력하고 종료",
 	KeyFlagConfig:      "YAML 설정 파일 경로",
 	KeyFlagLang:        "인터페이스 언어 (%s); 기본적으로 시스템에서 자동 감지",
-	KeyFlagStatsAddr:   "선택적 HTTP 통계 엔드포인트 주소 (예: 127.0.0.1:9090), 비우면 비활성화; -allow-public 없이는 루프백만 허용",
+	KeyFlagStatsAddr:   "선택적 HTTP 통계 엔드포인트 주소 (예: 127.0.0.1:9090), 비우면 비활성화; -stats-allow-public 없이는 루프백만 허용",
+	KeyFlagStatsAllowPublic: "통계 엔드포인트의 비루프백 수신 허용",
 
 	KeyErrListenPort:  "잘못된 수신 포트: %d",
 	KeyErrTargetEmpty: "target은 비어 있을 수 없습니다",
@@ -56,14 +57,15 @@ var messagesKO = map[string]string{
 	KeyLogStatsHTTPStarted: "통계 HTTP 엔드포인트가 %s 에서 수신 대기 중 (/stats, /metrics)",
 	KeyLogStatsHTTPStopped: "통계 HTTP 엔드포인트가 중지됨",
 	KeyErrStatsHTTPServe:   "통계 HTTP 엔드포인트가 종료됨: %w",
-	KeyErrStatsHTTPPublic:  "루프백이 아닌 주소 %s 에서 통계 엔드포인트를 거부함; 루프백에 바인딩하거나 -allow-public 을 사용하세요",
+	KeyErrStatsHTTPPublic:  "루프백이 아닌 주소 %s 에서 통계 엔드포인트를 거부함; 루프백에 바인딩하거나 -stats-allow-public 을 사용하세요",
 
-	KeyFlagWebAddr:   "선택적 웹 패널 주소(예: 127.0.0.1:8080), 비우면 비활성화; -allow-public 없으면 루프백만 허용",
+	KeyFlagWebAddr:   "선택적 웹 패널 주소(예: 127.0.0.1:8080), 비우면 비활성화; -web-allow-public 없으면 루프백만 허용",
+	KeyFlagWebAllowPublic: "웹 패널의 비루프백 수신 허용",
 	KeyFlagWebLogMax: "웹 패널이 메모리에 보관하는 연결 로그 항목 최대 개수",
 	KeyLogWebStarted: "웹 패널이 %s 에서 수신 대기 중",
 	KeyLogWebStopped: "웹 패널이 중지됨",
 	KeyErrWebServe:   "웹 패널이 종료됨: %v",
-	KeyErrWebPublic:  "루프백이 아닌 주소 %s 에서 웹 패널을 거부함; 루프백에 바인딩하거나 -allow-public 을 사용하세요",
+	KeyErrWebPublic:  "루프백이 아닌 주소 %s 에서 웹 패널을 거부함; 루프백에 바인딩하거나 -web-allow-public 을 사용하세요",
 
 	KeyWebTitle:         "portmap 패널",
 	KeyWebPerfSection:   "성능",

@@ -596,7 +596,9 @@ type proxyOptions struct {
 	configPath                   string
 	lang                         string
 	statsAddr                    string
+	statsAllowPublic             bool
 	webAddr                      string
+	webAllowPublic               bool
 	webLogMax                    int
 }
 
@@ -621,7 +623,9 @@ func runProxy(argv []string) error {
 	fs.StringVar(&opt.configPath, "config", "", i18n.T(i18n.KeyFlagConfig))
 	fs.StringVar(&opt.lang, "lang", "", i18n.T(i18n.KeyFlagLang, strings.Join(i18n.Codes(), "/")))
 	fs.StringVar(&opt.statsAddr, "stats-addr", "", i18n.T(i18n.KeyFlagStatsAddr))
+	fs.BoolVar(&opt.statsAllowPublic, "stats-allow-public", false, i18n.T(i18n.KeyFlagStatsAllowPublic))
 	fs.StringVar(&opt.webAddr, "web-addr", "", i18n.T(i18n.KeyFlagWebAddr))
+	fs.BoolVar(&opt.webAllowPublic, "web-allow-public", false, i18n.T(i18n.KeyFlagWebAllowPublic))
 	fs.IntVar(&opt.webLogMax, "web-log-max", 1000, i18n.T(i18n.KeyFlagWebLogMax))
 
 	fs.Usage = func() {
@@ -693,7 +697,7 @@ func runProxy(argv []string) error {
 		events = stats.NewEventLog(opt.webLogMax)
 		srv.Events = events
 	}
-	return serveProxy(ctx, srv, opt.statsAddr, opt.allowPublic, opt.webAddr, opt.allowPublic, events)
+	return serveProxy(ctx, srv, opt.statsAddr, opt.statsAllowPublic, opt.webAddr, opt.webAllowPublic, events)
 }
 
 // validateProxyOptions 校验单个 proxy 实例的运行参数（地址非空、各超时非负、
@@ -938,6 +942,21 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 		if err := applyProxyConfig(&opt, pc, map[string]bool{}); err != nil {
 			return err
 		}
+		if setFlags["stats-addr"] {
+			opt.statsAddr = base.statsAddr
+		}
+		if setFlags["stats-allow-public"] {
+			opt.statsAllowPublic = base.statsAllowPublic
+		}
+		if setFlags["web-addr"] {
+			opt.webAddr = base.webAddr
+		}
+		if setFlags["web-allow-public"] {
+			opt.webAllowPublic = base.webAllowPublic
+		}
+		if setFlags["web-log-max"] {
+			opt.webLogMax = base.webLogMax
+		}
 		if err := validateProxyOptions(&opt); err != nil {
 			return err
 		}
@@ -973,7 +992,7 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 	for _, inst := range instances {
 		if strings.TrimSpace(inst.opt.webAddr) != "" {
 			webAddr = inst.opt.webAddr
-			webAllowPublic = inst.opt.allowPublic
+			webAllowPublic = inst.opt.webAllowPublic
 			webLogMax = inst.opt.webLogMax
 			break
 		}
@@ -990,7 +1009,7 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 		providers = append(providers, srv)
 		if statsAddr == "" && strings.TrimSpace(inst.opt.statsAddr) != "" {
 			statsAddr = inst.opt.statsAddr
-			statsAllowPublic = inst.opt.allowPublic
+			statsAllowPublic = inst.opt.statsAllowPublic
 		}
 		wg.Add(1)
 		go func() {

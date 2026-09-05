@@ -34,7 +34,8 @@ var messagesJA = map[string]string{
 	KeyFlagVersion:     "バージョン情報を表示して終了",
 	KeyFlagConfig:      "YAML 設定ファイルのパス",
 	KeyFlagLang:        "インターフェース言語（%s）; 既定ではシステムから自動検出",
-	KeyFlagStatsAddr:   "任意の HTTP 統計エンドポイントアドレス（例 127.0.0.1:9090）、空で無効化; -allow-public を指定しない限りループバックのみ",
+	KeyFlagStatsAddr:   "任意の HTTP 統計エンドポイントアドレス（例 127.0.0.1:9090）、空で無効化; -stats-allow-public を指定しない限りループバックのみ",
+	KeyFlagStatsAllowPublic: "統計エンドポイントの非ループバック待受を許可",
 
 	KeyErrListenPort:  "不正な待ち受けポート: %d",
 	KeyErrTargetEmpty: "target は空にできません",
@@ -56,14 +57,15 @@ var messagesJA = map[string]string{
 	KeyLogStatsHTTPStarted: "統計 HTTP エンドポイントを %s で待機中（/stats, /metrics）",
 	KeyLogStatsHTTPStopped: "統計 HTTP エンドポイントを停止しました",
 	KeyErrStatsHTTPServe:   "統計 HTTP エンドポイントが終了しました: %w",
-	KeyErrStatsHTTPPublic:  "非ループバックアドレス %s での統計エンドポイントを拒否します; ループバックにバインドするか -allow-public を指定してください",
+	KeyErrStatsHTTPPublic:  "非ループバックアドレス %s での統計エンドポイントを拒否します; ループバックにバインドするか -stats-allow-public を指定してください",
 
-	KeyFlagWebAddr:   "任意の Web パネルアドレス（例: 127.0.0.1:8080）、空で無効; -allow-public 未指定時はループバックのみ",
+	KeyFlagWebAddr:   "任意の Web パネルアドレス（例: 127.0.0.1:8080）、空で無効; -web-allow-public 未指定時はループバックのみ",
+	KeyFlagWebAllowPublic: "Web パネルの非ループバック待受を許可",
 	KeyFlagWebLogMax: "Web パネルがメモリ内に保持する接続ログ件数の上限",
 	KeyLogWebStarted: "Web パネルを %s で待機中",
 	KeyLogWebStopped: "Web パネルを停止しました",
 	KeyErrWebServe:   "Web パネルが終了しました: %v",
-	KeyErrWebPublic:  "非ループバックアドレス %s での Web パネルを拒否します; ループバックにバインドするか -allow-public を指定してください",
+	KeyErrWebPublic:  "非ループバックアドレス %s での Web パネルを拒否します; ループバックにバインドするか -web-allow-public を指定してください",
 
 	KeyWebTitle:         "portmap パネル",
 	KeyWebPerfSection:   "パフォーマンス",

@@ -34,7 +34,8 @@ var messagesFR = map[string]string{
 	KeyFlagVersion:     "afficher les informations de version et quitter",
 	KeyFlagConfig:      "chemin du fichier de configuration YAML",
 	KeyFlagLang:        "langue de l'interface (%s) ; détectée automatiquement depuis le système par défaut",
-	KeyFlagStatsAddr:   "adresse optionnelle du point de terminaison HTTP de statistiques (p. ex. 127.0.0.1:9090), vide pour désactiver ; boucle locale uniquement sauf avec -allow-public",
+	KeyFlagStatsAddr:   "adresse optionnelle du point de terminaison HTTP de statistiques (p. ex. 127.0.0.1:9090), vide pour désactiver ; boucle locale uniquement sauf avec -stats-allow-public",
+	KeyFlagStatsAllowPublic: "autoriser le point de statistiques sur une adresse hors boucle locale",
 
 	KeyErrListenPort:  "port d'écoute invalide : %d",
 	KeyErrTargetEmpty: "target ne doit pas être vide",
@@ -56,14 +57,15 @@ var messagesFR = map[string]string{
 	KeyLogStatsHTTPStarted: "point de terminaison HTTP de statistiques en écoute sur %s (/stats, /metrics)",
 	KeyLogStatsHTTPStopped: "point de terminaison HTTP de statistiques arrêté",
 	KeyErrStatsHTTPServe:   "le point de terminaison HTTP de statistiques s'est arrêté : %w",
-	KeyErrStatsHTTPPublic:  "refus du point de terminaison de statistiques sur l'adresse non-boucle-locale %s ; liez à la boucle locale ou utilisez -allow-public",
+	KeyErrStatsHTTPPublic:  "refus du point de terminaison de statistiques sur l'adresse non-boucle-locale %s ; liez à la boucle locale ou utilisez -stats-allow-public",
 
-	KeyFlagWebAddr:   "adresse facultative du panneau Web (ex. 127.0.0.1:8080), vide pour désactiver ; boucle locale uniquement sauf avec -allow-public",
+	KeyFlagWebAddr:   "adresse facultative du panneau Web (ex. 127.0.0.1:8080), vide pour désactiver ; boucle locale uniquement sauf avec -web-allow-public",
+	KeyFlagWebAllowPublic: "autoriser le panneau Web sur une adresse hors boucle locale",
 	KeyFlagWebLogMax: "nombre maximal d'entrées de journal de connexion conservées en mémoire pour le panneau Web",
 	KeyLogWebStarted: "panneau Web en écoute sur %s",
 	KeyLogWebStopped: "panneau Web arrêté",
 	KeyErrWebServe:   "le panneau Web s'est arrêté : %v",
-	KeyErrWebPublic:  "refus du panneau Web sur l'adresse non-boucle-locale %s ; liez à la boucle locale ou utilisez -allow-public",
+	KeyErrWebPublic:  "refus du panneau Web sur l'adresse non-boucle-locale %s ; liez à la boucle locale ou utilisez -web-allow-public",
 
 	KeyWebTitle:         "panneau portmap",
 	KeyWebPerfSection:   "Performances",

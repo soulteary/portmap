@@ -15,6 +15,8 @@
 package proxy
 
 import (
+	"bufio"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -52,6 +54,51 @@ func startTestProxyWithEvents(t *testing.T) (string, *stats.EventLog, func()) {
 	}()
 
 	return ln.Addr().String(), events, func() { _ = ln.Close() }
+}
+
+func TestProxyDialErrorEventUsesConnectionID(t *testing.T) {
+	proxyAddr, events, stopProxy := startTestProxyWithEvents(t)
+	defer stopProxy()
+
+	closedLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("获取关闭端口失败: %v", err)
+	}
+	target := closedLn.Addr().String()
+	_ = closedLn.Close()
+
+	conn, err := net.DialTimeout("tcp", proxyAddr, time.Second)
+	if err != nil {
+		t.Fatalf("连接代理失败: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target); err != nil {
+		t.Fatalf("发送 CONNECT: %v", err)
+	}
+	_, _ = http.ReadResponse(bufio.NewReader(conn), nil)
+
+	var openID, dialErrorID int64
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		for _, ev := range events.Snapshot() {
+			if ev.Client != conn.LocalAddr().String() {
+				continue
+			}
+			if ev.Kind == "open" {
+				openID = ev.ConnID
+			}
+			if ev.Kind == "dial-error" {
+				dialErrorID = ev.ConnID
+			}
+		}
+		if openID != 0 && dialErrorID != 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if openID == 0 || dialErrorID != openID {
+		t.Fatalf("open/dial-error ConnID 不一致: %d vs %d；事件=%+v", openID, dialErrorID, events.Snapshot())
+	}
 }
 
 // TestProxyRecordsOpenCloseEvents 验证 HTTP 代理在连接开/关时写入事件，
@@ -102,6 +149,9 @@ func TestProxyRecordsOpenCloseEvents(t *testing.T) {
 	if openEv.Client == "" {
 		t.Errorf("open.Client 为空")
 	}
+	if openEv.ConnID == 0 {
+		t.Errorf("open.ConnID 不应为 0")
+	}
 	if closeEv == nil {
 		t.Fatalf("未记录 close 事件: %+v", events.Snapshot())
 	}
@@ -113,5 +163,8 @@ func TestProxyRecordsOpenCloseEvents(t *testing.T) {
 	}
 	if closeEv.DownBytes <= 0 {
 		t.Errorf("close.DownBytes=%d, 期望 > 0", closeEv.DownBytes)
+	}
+	if closeEv.ConnID != openEv.ConnID {
+		t.Errorf("open/close ConnID 不一致: %d vs %d", openEv.ConnID, closeEv.ConnID)
 	}
 }

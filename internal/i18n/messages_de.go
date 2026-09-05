@@ -34,7 +34,8 @@ var messagesDE = map[string]string{
 	KeyFlagVersion:     "Versionsinformationen ausgeben und beenden",
 	KeyFlagConfig:      "Pfad zur YAML-Konfigurationsdatei",
 	KeyFlagLang:        "Oberflächensprache (%s); standardmäßig automatisch vom System erkannt",
-	KeyFlagStatsAddr:   "optionale HTTP-Statistik-Endpunktadresse (z. B. 127.0.0.1:9090), leer deaktiviert; nur Loopback, sofern nicht -allow-public",
+	KeyFlagStatsAddr:   "optionale HTTP-Statistik-Endpunktadresse (z. B. 127.0.0.1:9090), leer deaktiviert; nur Loopback, sofern nicht -stats-allow-public",
+	KeyFlagStatsAllowPublic: "Statistik-Endpunkt auf einer Nicht-Loopback-Adresse zulassen",
 
 	KeyErrListenPort:  "ungültiger Lausch-Port: %d",
 	KeyErrTargetEmpty: "target darf nicht leer sein",
@@ -56,14 +57,15 @@ var messagesDE = map[string]string{
 	KeyLogStatsHTTPStarted: "Statistik-HTTP-Endpunkt lauscht auf %s (/stats, /metrics)",
 	KeyLogStatsHTTPStopped: "Statistik-HTTP-Endpunkt gestoppt",
 	KeyErrStatsHTTPServe:   "Statistik-HTTP-Endpunkt beendet: %w",
-	KeyErrStatsHTTPPublic:  "Statistik-Endpunkt auf Nicht-Loopback-Adresse %s abgelehnt; an Loopback binden oder -allow-public verwenden",
+	KeyErrStatsHTTPPublic:  "Statistik-Endpunkt auf Nicht-Loopback-Adresse %s abgelehnt; an Loopback binden oder -stats-allow-public verwenden",
 
-	KeyFlagWebAddr:   "optionale Web-Panel-Adresse (z. B. 127.0.0.1:8080), leer deaktiviert; nur Loopback, außer mit -allow-public",
+	KeyFlagWebAddr:   "optionale Web-Panel-Adresse (z. B. 127.0.0.1:8080), leer deaktiviert; nur Loopback, außer mit -web-allow-public",
+	KeyFlagWebAllowPublic: "Web-Panel auf einer Nicht-Loopback-Adresse zulassen",
 	KeyFlagWebLogMax: "maximale Anzahl der im Speicher gehaltenen Verbindungsprotokolleinträge für das Web-Panel",
 	KeyLogWebStarted: "Web-Panel lauscht auf %s",
 	KeyLogWebStopped: "Web-Panel gestoppt",
 	KeyErrWebServe:   "Web-Panel beendet: %v",
-	KeyErrWebPublic:  "Web-Panel auf Nicht-Loopback-Adresse %s abgelehnt; an Loopback binden oder -allow-public verwenden",
+	KeyErrWebPublic:  "Web-Panel auf Nicht-Loopback-Adresse %s abgelehnt; an Loopback binden oder -web-allow-public verwenden",
 
 	KeyWebTitle:         "portmap-Panel",
 	KeyWebPerfSection:   "Leistung",

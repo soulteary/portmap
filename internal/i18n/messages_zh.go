@@ -34,7 +34,8 @@ var messagesZH = map[string]string{
 	KeyFlagVersion:     "打印版本信息后退出",
 	KeyFlagConfig:      "YAML 配置文件路径",
 	KeyFlagLang:        "界面语言（%s）；默认自动检测系统语言",
-	KeyFlagStatsAddr:   "可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭；除非 -allow-public 否则仅允许回环地址",
+	KeyFlagStatsAddr:   "可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭；除非 -stats-allow-public 否则仅允许回环地址",
+	KeyFlagStatsAllowPublic: "允许统计端点监听非回环地址",
 
 	KeyErrListenPort:  "非法监听端口: %d",
 	KeyErrTargetEmpty: "target 不能为空",
@@ -56,14 +57,15 @@ var messagesZH = map[string]string{
 	KeyLogStatsHTTPStarted: "统计 HTTP 端点已启动，监听 %s（/stats, /metrics）",
 	KeyLogStatsHTTPStopped: "统计 HTTP 端点已停止",
 	KeyErrStatsHTTPServe:   "统计 HTTP 端点异常退出: %w",
-	KeyErrStatsHTTPPublic:  "拒绝在非回环地址 %s 启动统计端点；请绑定回环地址，或使用 -allow-public 显式开启",
+	KeyErrStatsHTTPPublic:  "拒绝在非回环地址 %s 启动统计端点；请绑定回环地址，或使用 -stats-allow-public 显式开启",
 
-	KeyFlagWebAddr:   "可选的 Web 面板地址（如 127.0.0.1:8080），留空则禁用；未使用 -allow-public 时仅限回环地址",
+	KeyFlagWebAddr:   "可选的 Web 面板地址（如 127.0.0.1:8080），留空则禁用；未使用 -web-allow-public 时仅限回环地址",
+	KeyFlagWebAllowPublic: "允许 Web 面板监听非回环地址",
 	KeyFlagWebLogMax: "Web 面板在内存中保留的连接日志条目上限",
 	KeyLogWebStarted: "Web 面板已启动，监听 %s",
 	KeyLogWebStopped: "Web 面板已停止",
 	KeyErrWebServe:   "Web 面板异常退出: %v",
-	KeyErrWebPublic:  "拒绝在非回环地址 %s 启动 Web 面板；请绑定回环地址，或使用 -allow-public 显式开启",
+	KeyErrWebPublic:  "拒绝在非回环地址 %s 启动 Web 面板；请绑定回环地址，或使用 -web-allow-public 显式开启",
 
 	KeyWebTitle:         "portmap 面板",
 	KeyWebPerfSection:   "性能",

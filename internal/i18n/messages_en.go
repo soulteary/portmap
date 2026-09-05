@@ -34,7 +34,8 @@ var messagesEN = map[string]string{
 	KeyFlagVersion:     "print version info and exit",
 	KeyFlagConfig:      "path to YAML config file",
 	KeyFlagLang:        "interface language (%s); auto-detected from the system by default",
-	KeyFlagStatsAddr:   "optional HTTP stats endpoint address (e.g. 127.0.0.1:9090), empty disables; loopback only unless -allow-public",
+	KeyFlagStatsAddr:   "optional HTTP stats endpoint address (e.g. 127.0.0.1:9090), empty disables; loopback only unless -stats-allow-public",
+	KeyFlagStatsAllowPublic: "allow the stats endpoint to listen on a non-loopback address",
 
 	KeyErrListenPort:  "invalid listen port: %d",
 	KeyErrTargetEmpty: "target must not be empty",
@@ -56,14 +57,15 @@ var messagesEN = map[string]string{
 	KeyLogStatsHTTPStarted: "stats HTTP endpoint listening on %s (/stats, /metrics)",
 	KeyLogStatsHTTPStopped: "stats HTTP endpoint stopped",
 	KeyErrStatsHTTPServe:   "stats HTTP endpoint exited: %w",
-	KeyErrStatsHTTPPublic:  "refusing stats endpoint on non-loopback address %s; bind to loopback or use -allow-public to opt in",
+	KeyErrStatsHTTPPublic:  "refusing stats endpoint on non-loopback address %s; bind to loopback or use -stats-allow-public to opt in",
 
-	KeyFlagWebAddr:   "optional Web panel address (e.g. 127.0.0.1:8080), empty disables; loopback only unless -allow-public",
+	KeyFlagWebAddr:   "optional Web panel address (e.g. 127.0.0.1:8080), empty disables; loopback only unless -web-allow-public",
+	KeyFlagWebAllowPublic: "allow the Web panel to listen on a non-loopback address",
 	KeyFlagWebLogMax: "max number of connection log entries retained in memory for the Web panel",
 	KeyLogWebStarted: "Web panel listening on %s",
 	KeyLogWebStopped: "Web panel stopped",
 	KeyErrWebServe:   "Web panel exited: %v",
-	KeyErrWebPublic:  "refusing Web panel on non-loopback address %s; bind to loopback or use -allow-public to opt in",
+	KeyErrWebPublic:  "refusing Web panel on non-loopback address %s; bind to loopback or use -web-allow-public to opt in",
 
 	KeyWebTitle:         "portmap panel",
 	KeyWebPerfSection:   "Performance",

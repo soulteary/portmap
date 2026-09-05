@@ -117,7 +117,7 @@ func (s *Server) handleSOCKS5WithReader(ctx context.Context, conn net.Conn, read
 	}
 	remote, err := s.dialer.DialContext(dialCtx, "tcp", target)
 	if err != nil {
-		s.Stats().DialError()
+		s.recordDialError(ctx, "socks5", conn, target)
 		_ = s.sendSOCKSReply(conn, socksReplyForDialError(err))
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxySocksDial), target, err)
 	}
@@ -147,7 +147,7 @@ func (s *Server) handleSOCKS5WithReader(ctx context.Context, conn net.Conn, read
 	up, down := netutil.RelayReaderCount(conn, reader, remote)
 	s.Stats().AddUp(up)
 	s.Stats().AddDown(down)
-	s.logEvent("close", "socks5", conn.RemoteAddr().String(), target, up, down, time.Since(start).Milliseconds(), 0)
+	s.logEvent("close", "socks5", conn.RemoteAddr().String(), target, up, down, time.Since(start).Milliseconds(), connIDFromContext(ctx))
 	return nil
 }
 

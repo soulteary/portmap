@@ -253,9 +253,9 @@ func (s *Server) closeDialer() {
 // serveConn 处理单个连接：先探测协议，再分发到对应处理器。
 func (s *Server) serveConn(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
-	s.Stats().ConnOpened()
+	connID := s.Stats().ConnOpened()
 	defer s.Stats().ConnClosed()
-	ctx := s.serverContext()
+	ctx := context.WithValue(s.serverContext(), connIDContextKey{}, connID)
 	if s.HandshakeTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, s.HandshakeTimeout)
@@ -278,7 +278,7 @@ func (s *Server) serveConn(conn net.Conn) {
 	clientAddr := conn.RemoteAddr().String()
 	if prefix[0] == socks5Version {
 		// 探测到 SOCKS5：记录 open 事件（目标在握手后由处理器补充到 close 事件）。
-		s.logEvent("open", "socks5", clientAddr, "", 0, 0, 0, 0)
+		s.logEvent("open", "socks5", clientAddr, "", 0, 0, 0, connID)
 		// 消费掉版本字节，交给 SOCKS5 处理器（它从 NMETHODS 继续）。
 		if _, err := reader.ReadByte(); err != nil {
 			return
@@ -290,10 +290,22 @@ func (s *Server) serveConn(conn net.Conn) {
 	}
 
 	// 否则按 HTTP/HTTPS 处理：记录 open 事件。
-	s.logEvent("open", "http", clientAddr, "", 0, 0, 0, 0)
+	s.logEvent("open", "http", clientAddr, "", 0, 0, 0, connID)
 	if err := s.handleHTTP(ctx, client, reader); err != nil {
 		s.logf(i18n.T(i18n.KeyLogProxyHTTPFailed), conn.RemoteAddr(), err)
 	}
+}
+
+type connIDContextKey struct{}
+
+func connIDFromContext(ctx context.Context) int64 {
+	connID, _ := ctx.Value(connIDContextKey{}).(int64)
+	return connID
+}
+
+func (s *Server) recordDialError(ctx context.Context, proto string, conn net.Conn, target string) {
+	s.Stats().DialError()
+	s.logEvent("dial-error", proto, conn.RemoteAddr().String(), target, 0, 0, 0, connIDFromContext(ctx))
 }
 
 // serverContext 返回所有握手与拨号共享的服务生命周期上下文。Server 仍可

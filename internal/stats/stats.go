@@ -23,6 +23,10 @@ import (
 	"time"
 )
 
+// nextConnID 为进程内所有 Counters 生成唯一连接编号，使多实例共享 EventLog
+// 时也不会出现编号碰撞。统计总数仍由各实例自己的 totalConns 维护。
+var nextConnID atomic.Int64
+
 // Counters 汇聚一个服务实例的运行时统计。零值不可直接使用，请经 New 构造以
 // 记录 StartTime。所有字段用 atomic.Int64 保证并发安全。
 type Counters struct {
@@ -41,10 +45,12 @@ func New() *Counters {
 	return &Counters{startTime: time.Now()}
 }
 
-// ConnOpened 记录一个新连接：活跃数 +1，累计数 +1。
-func (c *Counters) ConnOpened() {
+// ConnOpened 记录一个新连接：活跃数 +1，累计数 +1，并返回进程内唯一的
+// 连接编号。调用方可忽略返回值。
+func (c *Counters) ConnOpened() int64 {
 	c.activeConns.Add(1)
 	c.totalConns.Add(1)
+	return nextConnID.Add(1)
 }
 
 // ConnClosed 记录一个连接结束：活跃数 -1。

@@ -168,8 +168,10 @@ Important proxy flags:
 - `-handshake-timeout 10s`: bound protocol detection and handshake time.
 - `-idle-timeout 5m`: close tunnels that remain idle in either direction.
 - `-allow-public`: explicitly allow a non-loopback listen address.
-- `-stats-addr 127.0.0.1:9090`: optional read-only HTTP stats endpoint (empty disables; loopback only unless `-allow-public`).
-- `-web-addr 127.0.0.1:8080`: optional Web panel (empty disables; loopback only unless `-allow-public`).
+- `-stats-allow-public`: independently allow the stats endpoint on a non-loopback address.
+- `-web-allow-public`: independently allow the Web panel on a non-loopback address.
+- `-stats-addr 127.0.0.1:9090`: optional read-only HTTP stats endpoint (empty disables; loopback only unless `-stats-allow-public`).
+- `-web-addr 127.0.0.1:8080`: optional Web panel (empty disables; loopback only unless `-web-allow-public`).
 - `-web-log-max 1000`: max number of connection events kept in the Web panel ring buffer.
 
 The proxy has no authentication, so it rejects non-loopback listen addresses by
@@ -177,6 +179,8 @@ default. Only use `-allow-public` behind an appropriate firewall or equivalent
 access boundary. Requests that resolve back to the proxy's own listener are also
 rejected to prevent recursive connection storms. On shutdown, existing connections
 have up to 10 seconds to finish before they are closed.
+`-allow-public` applies only to the proxy listener; admin endpoints require their
+own explicit public-access flags.
 
 #### SSH upstream private key passphrase
 
@@ -333,7 +337,7 @@ curl http://127.0.0.1:9090/stats     # JSON snapshot
 curl http://127.0.0.1:9090/metrics   # Prometheus text
 ```
 
-  The endpoint is disabled by default and, for safety, only binds to loopback addresses; under `proxy` you must pass `-allow-public` to bind a non-loopback address. In multi-instance (multi-mapping) setups a single aggregated endpoint is started, summing the snapshots of all instances.
+  The endpoint is disabled by default and, for safety, only binds to loopback addresses; under `proxy` you must pass `-stats-allow-public` to bind a non-loopback address. In multi-instance (multi-mapping) setups a single aggregated endpoint is started, summing the snapshots of all instances.
 
 - With `-web-addr` you can enable an optional **Web panel** (both `forward` and `proxy`) to view live performance stats and access/connection logs in your browser:
 
@@ -344,7 +348,7 @@ curl http://127.0.0.1:9090/metrics   # Prometheus text
 
   Then open `http://127.0.0.1:8080/` in a browser: the top of the page shows live performance cards (active/total/rejected connections, dial errors, up/down bytes, uptime), followed by a structured connection-event log table, all refreshed by automatic polling. It is a browser page rather than a `curl` endpoint, but it also exposes `/api/stats` and `/api/logs` JSON endpoints for programmatic access.
 
-  The panel is disabled by default and, for safety (connection logs include target addresses), only binds to loopback addresses; under `proxy` you must pass `-allow-public` to bind a non-loopback address. Use `-web-log-max` to tune how many connection events the ring buffer keeps (default 1000).
+  The panel is disabled by default and, for safety (connection logs include target addresses), only binds to loopback addresses; under `proxy` you must pass `-web-allow-public` to bind a non-loopback address. Use `-web-log-max` to tune how many connection events the ring buffer keeps (default 1000).
 
 - `-quiet` suppresses routine logs; `-log-level debug` outputs more detailed information (such as `pipe`-layer anomalies).
 
