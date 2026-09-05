@@ -446,7 +446,7 @@ func TestUDPMaxConns(t *testing.T) {
 	defer closeEcho()
 
 	// idle 设大一些，确保测试期间第一个会话不会被回收。
-	addr, wait := startServer(t, Config{Network: "udp", Target: target, MaxConns: 1, IdleTimeout: 30 * time.Second})
+	addr, srv, wait := startServerRef(t, Config{Network: "udp", Target: target, MaxConns: 1, IdleTimeout: 30 * time.Second})
 	defer wait()
 
 	raddr, err := net.ResolveUDPAddr("udp", addr)
@@ -488,6 +488,9 @@ func TestUDPMaxConns(t *testing.T) {
 	_ = c2.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 	if _, err := c2.Read(got); err == nil {
 		t.Fatal("expected second client to be refused (read timeout), but got a reply")
+	}
+	if got := srv.Snapshot().RejectedConns; got != 1 {
+		t.Fatalf("RejectedConns=%d，期望 1", got)
 	}
 
 	// 第一个客户端应仍然可用。

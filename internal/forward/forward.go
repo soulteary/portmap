@@ -235,9 +235,8 @@ func (s *Server) handle(ctx context.Context, src net.Conn) {
 	}
 	defer func() { _ = dst.Close() }()
 
-	s.stats.ConnOpened()
+	connID := s.stats.ConnOpened()
 	defer s.stats.ConnClosed()
-	connID := s.stats.TotalConns()
 	active := s.stats.ActiveConns()
 
 	start := time.Now()

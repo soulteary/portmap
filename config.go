@@ -164,7 +164,9 @@ type ProxyConfig struct {
 	UpstreamKeepalive            *string `yaml:"upstream_keepalive"`
 	UpstreamKeepaliveMaxFailures *int    `yaml:"upstream_keepalive_max_failures"`
 	StatsAddr                    *string `yaml:"stats_addr"`
+	StatsAllowPublic             *bool   `yaml:"stats_allow_public"`
 	WebAddr                      *string `yaml:"web_addr"`
+	WebAllowPublic               *bool   `yaml:"web_allow_public"`
 	WebLogMax                    *int    `yaml:"web_log_max"`
 }
 
@@ -397,8 +399,14 @@ func applyProxyConfig(opt *proxyOptions, pc *ProxyConfig, setFlags map[string]bo
 	if pc.StatsAddr != nil && !setFlags["stats-addr"] {
 		opt.statsAddr = *pc.StatsAddr
 	}
+	if pc.StatsAllowPublic != nil && !setFlags["stats-allow-public"] {
+		opt.statsAllowPublic = *pc.StatsAllowPublic
+	}
 	if pc.WebAddr != nil && !setFlags["web-addr"] {
 		opt.webAddr = *pc.WebAddr
+	}
+	if pc.WebAllowPublic != nil && !setFlags["web-allow-public"] {
+		opt.webAllowPublic = *pc.WebAllowPublic
 	}
 	if pc.WebLogMax != nil && !setFlags["web-log-max"] {
 		opt.webLogMax = *pc.WebLogMax

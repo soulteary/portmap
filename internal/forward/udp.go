@@ -92,8 +92,12 @@ func (s *Server) serveUDP(ctx context.Context) error {
 		sess, err := sessions.get(ctx, client)
 		if err != nil {
 			if errors.Is(err, errSessionLimit) {
+				s.stats.Reject()
+				s.cfg.Events.Append(stats.Event{Time: eventTime(), Kind: "reject", Proto: "udp", Client: client.String(), Target: s.cfg.Target})
 				s.debugf(i18n.T(i18n.KeyLogUDPLimit), client)
 			} else {
+				s.stats.DialError()
+				s.cfg.Events.Append(stats.Event{Time: eventTime(), Kind: "dial-error", Proto: "udp", Client: client.String(), Target: s.cfg.Target})
 				s.warnf(i18n.T(i18n.KeyLogUDPDialFailed), s.cfg.Target, err)
 			}
 			continue
@@ -114,8 +118,12 @@ func (s *Server) serveUDP(ctx context.Context) error {
 			sess, err = sessions.get(ctx, client)
 			if err != nil {
 				if errors.Is(err, errSessionLimit) {
+					s.stats.Reject()
+					s.cfg.Events.Append(stats.Event{Time: eventTime(), Kind: "reject", Proto: "udp", Client: client.String(), Target: s.cfg.Target})
 					s.debugf(i18n.T(i18n.KeyLogUDPLimit), client)
 				} else {
+					s.stats.DialError()
+					s.cfg.Events.Append(stats.Event{Time: eventTime(), Kind: "dial-error", Proto: "udp", Client: client.String(), Target: s.cfg.Target})
 					s.warnf(i18n.T(i18n.KeyLogUDPDialFailed), s.cfg.Target, err)
 				}
 				continue
@@ -185,9 +193,7 @@ func (m *udpSessions) get(ctx context.Context, client *net.UDPAddr) (*udpSession
 	}
 
 	sctx, cancel := context.WithCancel(ctx)
-	m.server.stats.ConnOpened()
-	connID := m.server.stats.TotalConns()
-	ss := &udpSession{dst: dst, client: client, connID: connID, start: time.Now(), cancel: cancel, done: make(chan struct{})}
+	ss := &udpSession{dst: dst, client: client, start: time.Now(), cancel: cancel, done: make(chan struct{})}
 	ss.touch()
 
 	m.mu.Lock()
@@ -196,12 +202,13 @@ func (m *udpSessions) get(ctx context.Context, client *net.UDPAddr) (*udpSession
 		m.mu.Unlock()
 		cancel()
 		_ = dst.Close()
-		m.server.stats.ConnClosed()
 		if m.server.sem != nil {
 			<-m.server.sem
 		}
 		return existing, nil
 	}
+	connID := m.server.stats.ConnOpened()
+	ss.connID = connID
 	m.table[key] = ss
 	active := m.server.stats.ActiveConns()
 	m.mu.Unlock()

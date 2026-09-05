@@ -202,6 +202,24 @@ func TestBuildProxyUpstream(t *testing.T) {
 	})
 }
 
+func TestApplyProxyConfigAdminPublicIndependence(t *testing.T) {
+	opt := proxyOptions{}
+	cfg := &ProxyConfig{
+		AllowPublic:      boolp(true),
+		StatsAllowPublic: boolp(false),
+		WebAllowPublic:   boolp(false),
+	}
+	if err := applyProxyConfig(&opt, cfg, map[string]bool{}); err != nil {
+		t.Fatalf("applyProxyConfig: %v", err)
+	}
+	if !opt.allowPublic {
+		t.Fatal("代理监听器应允许公开")
+	}
+	if opt.statsAllowPublic || opt.webAllowPublic {
+		t.Fatal("管理端点不应继承代理监听器的公开权限")
+	}
+}
+
 // TestNewProxyServer 验证 newProxyServer 把 proxyOptions 与上游配置正确映射到
 // proxy.Server 字段。
 func TestNewProxyServer(t *testing.T) {
