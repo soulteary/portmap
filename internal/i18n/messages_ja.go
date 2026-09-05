@@ -100,6 +100,8 @@ var messagesJA = map[string]string{
 	KeyLogInstanceStarting:         "インスタンス #%d 起動: %s",
 	KeyErrInstanceFailed:           "インスタンス %s の起動に失敗しました: %w",
 	KeyErrDuplicateListen:          "設定内に重複する待受アドレスがあります: %s",
+	KeyErrConflictingMultiOption:   "マルチインスタンスのオプション %s が競合しています: %v と %v",
+	KeyErrMultiForwardMode:         "マルチインスタンス forward は go モードのみ対応しています: %q",
 	KeyLogMultiIgnoreFlags:         "注意: マルチインスタンス設定では次のインスタンス単位の CLI フラグを無視します: %s",
 
 	KeyErrUnsupportedNet:  "サポートされていないネットワーク: %q",

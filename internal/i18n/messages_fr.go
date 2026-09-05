@@ -100,6 +100,8 @@ var messagesFR = map[string]string{
 	KeyLogInstanceStarting:         "instance #%d démarrage : %s",
 	KeyErrInstanceFailed:           "échec de l'instance %s : %w",
 	KeyErrDuplicateListen:          "adresse d'écoute en double dans la configuration : %s",
+	KeyErrConflictingMultiOption:   "option multi-instance %s en conflit : %v et %v",
+	KeyErrMultiForwardMode:         "le transfert multi-instance prend uniquement en charge le mode go, reçu : %q",
 	KeyLogMultiIgnoreFlags:         "note : la configuration multi-instances ignore les drapeaux CLI par instance : %s",
 
 	KeyErrUnsupportedNet:  "réseau non pris en charge : %q",

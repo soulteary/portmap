@@ -335,6 +335,48 @@ func TestRunForwardMultiValidation(t *testing.T) {
 			t.Fatal("空 target 应返回错误")
 		}
 	})
+
+	t.Run("socat 模式不会被静默当作 go", func(t *testing.T) {
+		path := writeCfg(t, "forward:\n  - listen_port: 22\n    target: a:1\n    mode: go\n  - listen_port: 23\n    target: b:2\n    mode: socat\n")
+		err := run([]string{"-config", path})
+		if err == nil || !strings.Contains(err.Error(), "go") {
+			t.Fatalf("多实例 socat 应返回明确错误，实际: %v", err)
+		}
+	})
+}
+
+func TestForwardMultiInstanceIdentityAndGlobalFlags(t *testing.T) {
+	t.Run("TCP 和 UDP 可复用同一地址", func(t *testing.T) {
+		tcp := options{listenHost: "127.0.0.1", listenPort: 9000, proto: "tcp"}
+		udp := tcp
+		udp.proto = "udp"
+		if forwardInstanceKey(tcp) == forwardInstanceKey(udp) {
+			t.Fatal("实例标识必须包含网络类型")
+		}
+	})
+
+	t.Run("全局 CLI 管理参数覆盖实例配置", func(t *testing.T) {
+		opt := options{statsAddr: "127.0.0.1:1", webAddr: "127.0.0.1:2", webLogMax: 10}
+		base := options{statsAddr: "127.0.0.1:11", webAddr: "127.0.0.1:12", webLogMax: 99}
+		applyForwardGlobalFlags(&opt, base, map[string]bool{
+			"stats-addr":  true,
+			"web-addr":    true,
+			"web-log-max": true,
+		})
+		if opt.statsAddr != base.statsAddr || opt.webAddr != base.webAddr || opt.webLogMax != base.webLogMax {
+			t.Fatalf("全局 CLI 参数未应用: %+v", opt)
+		}
+	})
+
+	t.Run("冲突的聚合端点返回错误", func(t *testing.T) {
+		_, err := collectForwardAdminOptions([]options{
+			{statsAddr: "127.0.0.1:9001"},
+			{statsAddr: "127.0.0.1:9002"},
+		})
+		if err == nil {
+			t.Fatal("不同 stats_addr 不应被静默取第一个")
+		}
+	})
 }
 
 // TestStartForwardInstancesGracefulShutdown 以两个回环高位端口做集成式校验：

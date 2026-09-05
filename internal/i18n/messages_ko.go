@@ -100,6 +100,8 @@ var messagesKO = map[string]string{
 	KeyLogInstanceStarting:         "인스턴스 #%d 시작: %s",
 	KeyErrInstanceFailed:           "인스턴스 %s 시작 실패: %w",
 	KeyErrDuplicateListen:          "설정에 중복된 수신 주소가 있습니다: %s",
+	KeyErrConflictingMultiOption:   "다중 인스턴스 옵션 %s 충돌: %v 및 %v",
+	KeyErrMultiForwardMode:         "다중 인스턴스 forward는 go 모드만 지원합니다: %q",
 	KeyLogMultiIgnoreFlags:         "참고: 다중 인스턴스 설정에서는 인스턴스별 CLI 플래그를 무시합니다: %s",
 
 	KeyErrUnsupportedNet:  "지원되지 않는 네트워크: %q",
