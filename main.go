@@ -53,24 +53,25 @@ var (
 )
 
 type options struct {
-	listenPort  int
-	listenHost  string
-	target      string
-	mode        string
-	proto       string
-	reuseAddr   bool
-	useSudo     bool
-	dialTimeout time.Duration
-	maxConns    int
-	idleTimeout time.Duration
-	logLevel    string
-	quiet       bool
-	showVersion bool
-	configPath  string
-	lang        string
-	statsAddr   string
-	webAddr     string
-	webLogMax   int
+	listenPort   int
+	listenHost   string
+	target       string
+	mode         string
+	proto        string
+	reuseAddr    bool
+	useSudo      bool
+	dialTimeout  time.Duration
+	maxConns     int
+	idleTimeout  time.Duration
+	logLevel     string
+	quiet        bool
+	showVersion  bool
+	configPath   string
+	lang         string
+	statsAddr    string
+	webAddr      string
+	webLogMax    int
+	webLogMaxSet bool
 }
 
 // String 返回最终生效配置的可读摘要，用于启动时打印，便于确认合并后的实际参数。
@@ -455,6 +456,7 @@ func applyForwardGlobalFlags(opt *options, base options, setFlags map[string]boo
 	}
 	if setFlags["web-log-max"] {
 		opt.webLogMax = base.webLogMax
+		opt.webLogMaxSet = true
 	}
 }
 
@@ -505,6 +507,7 @@ func runForwardMulti(base options, cfg *Config, setFlags map[string]bool) error 
 		if err := applyForwardConfig(&opt, fc, map[string]bool{}); err != nil {
 			return err
 		}
+		opt.webLogMaxSet = fc != nil && fc.WebLogMax != nil
 		applyForwardGlobalFlags(&opt, base, setFlags)
 		if err := normalizeForwardOptions(&opt); err != nil {
 			return err
@@ -606,6 +609,7 @@ type forwardAdminOptions struct {
 // 地址或日志容量无法同时由一份聚合服务表达，因此显式报错而不是静默取第一个。
 func collectForwardAdminOptions(instances []options) (forwardAdminOptions, error) {
 	out := forwardAdminOptions{webLogMax: 1000}
+	webLogMaxSet := false
 	for _, opt := range instances {
 		if addr := strings.TrimSpace(opt.statsAddr); addr != "" {
 			if out.statsAddr != "" && out.statsAddr != addr {
@@ -617,11 +621,14 @@ func collectForwardAdminOptions(instances []options) (forwardAdminOptions, error
 			if out.webAddr != "" && out.webAddr != addr {
 				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_addr", out.webAddr, addr))
 			}
-			if out.webAddr != "" && out.webLogMax != opt.webLogMax {
+			out.webAddr = addr
+		}
+		if opt.webLogMaxSet {
+			if webLogMaxSet && out.webLogMax != opt.webLogMax {
 				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_log_max", out.webLogMax, opt.webLogMax))
 			}
-			out.webAddr = addr
 			out.webLogMax = opt.webLogMax
+			webLogMaxSet = true
 		}
 	}
 	return out, nil

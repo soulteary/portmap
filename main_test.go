@@ -366,6 +366,9 @@ func TestForwardMultiInstanceIdentityAndGlobalFlags(t *testing.T) {
 		if opt.statsAddr != base.statsAddr || opt.webAddr != base.webAddr || opt.webLogMax != base.webLogMax {
 			t.Fatalf("全局 CLI 参数未应用: %+v", opt)
 		}
+		if !opt.webLogMaxSet {
+			t.Fatal("显式 CLI web-log-max 应保留显式配置状态")
+		}
 	})
 
 	t.Run("冲突的聚合端点返回错误", func(t *testing.T) {
@@ -375,6 +378,29 @@ func TestForwardMultiInstanceIdentityAndGlobalFlags(t *testing.T) {
 		})
 		if err == nil {
 			t.Fatal("不同 stats_addr 不应被静默取第一个")
+		}
+	})
+
+	t.Run("省略日志容量不与显式值冲突", func(t *testing.T) {
+		got, err := collectForwardAdminOptions([]options{
+			{webAddr: "127.0.0.1:9002", webLogMax: 1000},
+			{webAddr: "127.0.0.1:9002", webLogMax: 50, webLogMaxSet: true},
+		})
+		if err != nil {
+			t.Fatalf("省略默认值不应与显式值冲突: %v", err)
+		}
+		if got.webLogMax != 50 {
+			t.Fatalf("webLogMax = %d, want 50", got.webLogMax)
+		}
+	})
+
+	t.Run("不同显式日志容量返回错误", func(t *testing.T) {
+		_, err := collectForwardAdminOptions([]options{
+			{webAddr: "127.0.0.1:9002", webLogMax: 50, webLogMaxSet: true},
+			{webAddr: "127.0.0.1:9002", webLogMax: 100, webLogMaxSet: true},
+		})
+		if err == nil {
+			t.Fatal("不同显式 web_log_max 不应被静默取第一个")
 		}
 	})
 }
