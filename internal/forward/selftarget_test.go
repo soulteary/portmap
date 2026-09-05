@@ -27,12 +27,12 @@ func TestTargetMatchesListener(t *testing.T) {
 	listener := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 12345}
 	ctx := context.Background()
 	for _, target := range []string{"127.0.0.1:12345", "127.0.0.1:012345", "localhost:12345"} {
-		if !targetMatchesListener(ctx, target, listener) {
+		if !targetMatchesListener(ctx, target, listener, false) {
 			t.Fatalf("targetMatchesListener(%q) = false, want true", target)
 		}
 	}
 	for _, target := range []string{"127.0.0.1:12346", "192.0.2.1:12345", "malformed"} {
-		if targetMatchesListener(ctx, target, listener) {
+		if targetMatchesListener(ctx, target, listener, false) {
 			t.Fatalf("targetMatchesListener(%q) = true, want false", target)
 		}
 	}
@@ -40,21 +40,27 @@ func TestTargetMatchesListener(t *testing.T) {
 
 func TestWildcardListenerOnlyMatchesItsAddressFamily(t *testing.T) {
 	ctx := context.Background()
-	if !targetMatchesListener(ctx, "127.0.0.1:12345", &net.TCPAddr{IP: net.IPv4zero, Port: 12345}) {
+	if !targetMatchesListener(ctx, "127.0.0.1:12345", &net.TCPAddr{IP: net.IPv4zero, Port: 12345}, false) {
 		t.Fatal("IPv4 wildcard did not match an IPv4 loopback target")
 	}
-	if targetMatchesListener(ctx, "[::1]:12345", &net.TCPAddr{IP: net.IPv4zero, Port: 12345}) {
+	if targetMatchesListener(ctx, "[::1]:12345", &net.TCPAddr{IP: net.IPv4zero, Port: 12345}, false) {
 		t.Fatal("IPv4 wildcard matched an IPv6 loopback target")
 	}
-	if targetMatchesListener(ctx, "127.0.0.1:12345", &net.TCPAddr{IP: net.IPv6unspecified, Port: 12345}) {
+	if targetMatchesListener(ctx, "127.0.0.1:12345", &net.TCPAddr{IP: net.IPv6unspecified, Port: 12345}, false) {
 		t.Fatal("IPv6 wildcard matched an IPv4 loopback target")
+	}
+	if !targetMatchesListener(ctx, "127.0.0.1:12345", &net.TCPAddr{IP: net.IPv6unspecified, Port: 12345}, true) {
+		t.Fatal("dual-stack IPv6 wildcard did not match an IPv4 loopback target")
+	}
+	if !targetMatchesListener(ctx, "0.0.0.0:12345", &net.TCPAddr{IP: net.IPv4zero, Port: 12345}, false) {
+		t.Fatal("IPv4 wildcard did not match an unspecified IPv4 target")
 	}
 }
 
 func TestResolvedTargetAddressMatchesListener(t *testing.T) {
 	listener := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 12345}
 	target := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 12345}
-	if !addressMatchesListener(target, listener) {
+	if !addressMatchesListener(target, listener, false) {
 		t.Fatal("resolved target did not match listener")
 	}
 }

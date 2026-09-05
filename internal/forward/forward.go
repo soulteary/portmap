@@ -167,7 +167,8 @@ func (s *Server) serveTCP(ctx context.Context) error {
 		return err
 	}
 	defer func() { _ = ln.Close() }()
-	if targetMatchesListener(ctx, s.cfg.Target, ln.Addr()) {
+	dualStack := listenerDualStack(ln)
+	if targetMatchesListener(ctx, s.cfg.Target, ln.Addr(), dualStack) {
 		return fmt.Errorf(i18n.T(i18n.KeyErrFwdSelfTarget), s.cfg.Target)
 	}
 	s.infof(i18n.T(i18n.KeyLogTCPListening),
@@ -214,13 +215,13 @@ func (s *Server) serveTCP(ctx context.Context) error {
 			if s.sem != nil {
 				defer func() { <-s.sem }()
 			}
-			s.handle(ctx, conn, ln.Addr())
+			s.handle(ctx, conn, ln.Addr(), dualStack)
 		}()
 	}
 }
 
 // handle 处理单个入站 TCP 连接：拨号到目标并双向转发。
-func (s *Server) handle(ctx context.Context, src net.Conn, listenAddr net.Addr) {
+func (s *Server) handle(ctx context.Context, src net.Conn, listenAddr net.Addr, dualStack bool) {
 	defer func() { _ = src.Close() }()
 
 	dialer := net.Dialer{Timeout: s.cfg.DialTimeout}
@@ -240,7 +241,7 @@ func (s *Server) handle(ctx context.Context, src net.Conn, listenAddr net.Addr) 
 	defer func() { _ = dst.Close() }()
 	// DNS may change between the preflight check and the actual dial. Verify the
 	// connected peer as well so a rebinding cannot turn a forwarder into itself.
-	if connMatchesListener(dst, listenAddr) {
+	if connMatchesListener(dst, listenAddr, dualStack) {
 		s.stats.DialError()
 		s.warnf(i18n.T(i18n.KeyErrFwdSelfTarget), s.cfg.Target)
 		return

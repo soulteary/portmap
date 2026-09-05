@@ -24,7 +24,7 @@ import (
 // targetMatchesListener resolves a configured target and reports whether it
 // points back to the active listener. Wildcard listeners cover every local
 // interface address, while specifically bound listeners only match that IP.
-func targetMatchesListener(ctx context.Context, target string, listener net.Addr) bool {
+func targetMatchesListener(ctx context.Context, target string, listener net.Addr, dualStack bool) bool {
 	host, port, err := net.SplitHostPort(target)
 	if err != nil {
 		return false
@@ -40,14 +40,14 @@ func targetMatchesListener(ctx context.Context, target string, listener net.Addr
 
 	host = strings.Trim(host, "[]")
 	if ip := net.ParseIP(host); ip != nil {
-		return listenerContainsIP(listenIP, ip)
+		return listenerContainsIP(listenIP, ip, dualStack)
 	}
 	resolved, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
 		return false
 	}
 	for _, addr := range resolved {
-		if listenerContainsIP(listenIP, net.IP(addr.AsSlice())) {
+		if listenerContainsIP(listenIP, net.IP(addr.AsSlice()), dualStack) {
 			return true
 		}
 	}
@@ -63,17 +63,17 @@ func resolvePort(ctx context.Context, network, port string) (int, error) {
 }
 
 // connMatchesListener performs the post-dial half of the self-target guard.
-func connMatchesListener(conn net.Conn, listener net.Addr) bool {
-	return addressMatchesListener(conn.RemoteAddr(), listener)
+func connMatchesListener(conn net.Conn, listener net.Addr, dualStack bool) bool {
+	return addressMatchesListener(conn.RemoteAddr(), listener, dualStack)
 }
 
-func addressMatchesListener(target, listener net.Addr) bool {
+func addressMatchesListener(target, listener net.Addr, dualStack bool) bool {
 	remoteIP, remotePort, ok := networkAddress(target)
 	if !ok {
 		return false
 	}
 	listenIP, listenPort, ok := networkAddress(listener)
-	return ok && remotePort == listenPort && listenerContainsIP(listenIP, remoteIP)
+	return ok && remotePort == listenPort && listenerContainsIP(listenIP, remoteIP, dualStack)
 }
 
 func networkAddress(addr net.Addr) (net.IP, int, bool) {
@@ -87,9 +87,10 @@ func networkAddress(addr net.Addr) (net.IP, int, bool) {
 	}
 }
 
-func listenerContainsIP(listenIP, targetIP net.IP) bool {
+func listenerContainsIP(listenIP, targetIP net.IP, dualStack bool) bool {
 	if listenIP.IsUnspecified() {
-		return sameIPFamily(listenIP, targetIP) && isLocalIP(targetIP)
+		familyMatches := sameIPFamily(listenIP, targetIP) || (dualStack && listenIP.To4() == nil && targetIP.To4() != nil)
+		return familyMatches && isLocalIP(targetIP)
 	}
 	return listenIP.Equal(targetIP)
 }
@@ -99,7 +100,7 @@ func sameIPFamily(a, b net.IP) bool {
 }
 
 func isLocalIP(target net.IP) bool {
-	if target.IsLoopback() {
+	if target.IsUnspecified() || target.IsLoopback() {
 		return true
 	}
 	addrs, err := net.InterfaceAddrs()
