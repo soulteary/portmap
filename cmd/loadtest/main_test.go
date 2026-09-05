@@ -17,10 +17,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -36,6 +38,12 @@ func TestParseFlagsValidatesTerminationAndLimits(t *testing.T) {
 		{name: "negative max conns", args: []string{"-max-conns", "-1"}},
 		{name: "negative idle timeout", args: []string{"-idle-timeout", "-1s"}},
 		{name: "oversized udp datagram", args: []string{"-proto", "udp", "-payload", "65508"}},
+		{name: "bad output format", args: []string{"-format", "xml"}},
+		{name: "zero samples", args: []string{"-max-samples", "0"}},
+		{name: "negative p95", args: []string{"-max-p95", "-1ms"}},
+		{name: "error rate over 100", args: []string{"-max-error-rate", "101"}},
+		{name: "NaN error rate", args: []string{"-max-error-rate", "NaN"}},
+		{name: "infinite error rate", args: []string{"-max-error-rate", "+Inf"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -181,8 +189,104 @@ func TestParseFlagsDefaults(t *testing.T) {
 		t.Fatalf("parseFlags(nil): %v", err)
 	}
 	if o.proto != "tcp" || o.conns != 50 || o.duration != 10*time.Second ||
-		o.payload != 1024 || o.mode != "throughput" || o.warmup != time.Second {
+		o.payload != 1024 || o.mode != "throughput" || o.warmup != time.Second ||
+		o.format != "text" || o.maxSamples != defaultMaxLatencySamples || o.errorRateSet {
 		t.Fatalf("默认值不符: %+v", o)
+	}
+}
+
+func TestLatencySamplerIsBounded(t *testing.T) {
+	sampler := newLatencySampler(10)
+	state := uint64(1)
+	for i := 1; i <= 10000; i++ {
+		sampler.add(time.Duration(i), &state)
+	}
+	if sampler.seen.Load() != 10000 {
+		t.Fatalf("seen=%d，期望 10000", sampler.seen.Load())
+	}
+	if samples := sampler.values(); len(samples) != 10 {
+		t.Fatalf("samples=%d，期望 10", len(samples))
+	}
+	minRTT, maxRTT := sampler.extrema()
+	if minRTT != 1 || maxRTT != 10000 {
+		t.Fatalf("exact extrema=(%s,%s), want (1ns,10µs)", minRTT, maxRTT)
+	}
+}
+
+func TestLatencySamplerUsesGlobalConcurrentLimit(t *testing.T) {
+	sampler := newLatencySampler(7)
+	var wg sync.WaitGroup
+	for worker := 0; worker < 20; worker++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			state := uint64(worker + 1)
+			for i := 0; i < 1000; i++ {
+				sampler.add(time.Duration(worker*1000+i), &state)
+			}
+		}(worker)
+	}
+	wg.Wait()
+	if sampler.seen.Load() != 20000 {
+		t.Fatalf("seen=%d, want 20000", sampler.seen.Load())
+	}
+	if samples := sampler.values(); len(samples) != 7 {
+		t.Fatalf("samples=%d, want global limit 7", len(samples))
+	}
+}
+
+func TestThresholds(t *testing.T) {
+	res := result{
+		requests: 90,
+		errors:   10,
+		lat:      []time.Duration{time.Millisecond, 2 * time.Millisecond, 3 * time.Millisecond},
+	}
+	if err := checkThresholds(&options{errorRateSet: true, maxErrorRate: 10, maxP95: 3 * time.Millisecond}, res); err != nil {
+		t.Fatalf("边界值应通过: %v", err)
+	}
+	if err := checkThresholds(&options{errorRateSet: true, maxErrorRate: 9}, res); err == nil {
+		t.Fatal("错误率超限应失败")
+	}
+	if err := checkThresholds(&options{maxP95: 2 * time.Millisecond}, res); err == nil {
+		t.Fatal("p95 超限应失败")
+	}
+	if err := checkThresholds(&options{maxP95: time.Second}, result{}); err == nil {
+		t.Fatal("无成功样本时不能通过 p95 阈值")
+	}
+}
+
+func TestJSONReport(t *testing.T) {
+	o := &options{proto: "tcp", mode: "throughput", conns: 2, payload: 64, maxSamples: 7}
+	res := result{
+		elapsed:  time.Second,
+		requests: 3,
+		bytes:    192,
+		newConns: 2,
+		lat:      []time.Duration{time.Millisecond, 2 * time.Millisecond, 3 * time.Millisecond},
+		latMin:   500 * time.Microsecond,
+		latMax:   5 * time.Millisecond,
+	}
+	var buf bytes.Buffer
+	if err := printJSONReport(&buf, o, collectHostInfo(), res, true, 0, true, true); err != nil {
+		t.Fatalf("printJSONReport: %v", err)
+	}
+	var decoded struct {
+		Results struct {
+			Requests    int64 `json:"requests"`
+			SampleCount int   `json:"latency_sample_count"`
+			MinUs       int64 `json:"min_us"`
+			MaxUs       int64 `json:"max_us"`
+		} `json:"results"`
+		ThresholdsPassed bool `json:"thresholds_passed"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+		t.Fatalf("JSON 无法解析: %v\n%s", err, buf.String())
+	}
+	if decoded.Results.Requests != 3 || decoded.Results.SampleCount != 3 || !decoded.ThresholdsPassed {
+		t.Fatalf("JSON 内容不符: %+v", decoded)
+	}
+	if decoded.Results.MinUs != 500 || decoded.Results.MaxUs != 5000 {
+		t.Fatalf("JSON extrema 不符: %+v", decoded.Results)
 	}
 }
 

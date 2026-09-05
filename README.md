@@ -429,6 +429,9 @@ go run ./cmd/loadtest -proto tcp -conns 20 -requests 1000 -duration 30s -max-con
 
 # 压测外部已运行的 portmap（需自备目标服务）
 go run ./cmd/loadtest -external 127.0.0.1:13000 -proto tcp -duration 10s
+
+# CI：输出 JSON，并在错误率超过 0.1% 或 p95 超过 5ms 时退出 1
+go run ./cmd/loadtest -format json -max-error-rate 0.1 -max-p95 5ms
 ```
 
 参数说明：
@@ -447,13 +450,17 @@ flags:
   -max-conns int            内建转发服务最大并发连接数，0 表示不限制
   -idle-timeout duration    内建转发服务空闲超时，0 表示不启用
   -warmup duration          预热时间，预热期数据不计入统计 (默认 1s)
+  -format text|json         输出格式 (默认 text)
+  -max-samples int          最多保留的 RTT 样本数，使用蓄水池采样 (默认 100000)
+  -max-error-rate float     允许的最大错误率百分比，设置后超限退出 1
+  -max-p95 duration         允许的最大 p95 RTT，0 表示不设置阈值
 ```
 
 `-requests` 是成功请求数的提前结束条件，并不会禁用 `-duration`。即使目标持续
 拨号失败、超时或返回错误，压测也会在 `-duration` 到期时结束；连续失败会短暂
 退避，避免不可达目标导致忙循环。
 
-报告包含三块：**主机环境**（GOOS/GOARCH、CPU 数、Go 版本、主机名、内存分配）、**配置**、**结果**（吞吐 MB/s 与 Gbps、req/s、connrate 模式下的 conns/s、延迟 min/p50/p95/p99/max、错误率与分类计数，以及压测后 `ActiveConns()` 是否归零的可靠性校验）。所有输出走标准库，不引入新依赖。
+报告包含三块：**主机环境**（GOOS/GOARCH、CPU 数、Go 版本、主机名、内存分配）、**配置**、**结果**（吞吐 MB/s 与 Gbps、req/s、connrate 模式下的 conns/s、延迟 min/p50/p95/p99/max、错误率与分类计数，以及压测后 `ActiveConns()` 是否归零的可靠性校验）。RTT 使用有界蓄水池采样，长时间压测不会随请求数持续增长内存；`-format json` 提供机器可读结果。所有输出走标准库，不引入新依赖。
 
 样例输出（节选）：
 

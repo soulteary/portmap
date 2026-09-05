@@ -24,14 +24,17 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net"
 	"os"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -41,16 +44,21 @@ import (
 
 // options 保存命令行参数。
 type options struct {
-	proto       string
-	conns       int
-	duration    time.Duration
-	requests    int
-	payload     int
-	mode        string
-	external    string
-	maxConns    int
-	idleTimeout time.Duration
-	warmup      time.Duration
+	proto        string
+	conns        int
+	duration     time.Duration
+	requests     int
+	payload      int
+	mode         string
+	external     string
+	maxConns     int
+	idleTimeout  time.Duration
+	warmup       time.Duration
+	format       string
+	maxSamples   int
+	maxErrorRate float64
+	errorRateSet bool
+	maxP95       time.Duration
 }
 
 func parseFlags(args []string) (*options, error) {
@@ -66,10 +74,19 @@ func parseFlags(args []string) (*options, error) {
 	fs.IntVar(&o.maxConns, "max-conns", 0, "内建转发服务的最大并发连接数，0 表示不限制")
 	fs.DurationVar(&o.idleTimeout, "idle-timeout", 0, "内建转发服务的空闲超时，0 表示不启用")
 	fs.DurationVar(&o.warmup, "warmup", time.Second, "预热时间，预热期数据不计入统计")
+	fs.StringVar(&o.format, "format", "text", "输出格式：text 或 json")
+	fs.IntVar(&o.maxSamples, "max-samples", defaultMaxLatencySamples, "最多保留的 RTT 样本数（使用蓄水池采样）")
+	fs.Float64Var(&o.maxErrorRate, "max-error-rate", 0, "允许的最大错误率百分比，设置后超限退出 1")
+	fs.DurationVar(&o.maxP95, "max-p95", 0, "允许的最大 p95 RTT，0 表示不设置阈值")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "max-error-rate" {
+			o.errorRateSet = true
+		}
+	})
 	if o.proto != "tcp" && o.proto != "udp" {
 		return nil, fmt.Errorf("invalid -proto %q: must be tcp or udp", o.proto)
 	}
@@ -90,6 +107,18 @@ func parseFlags(args []string) (*options, error) {
 	}
 	if o.warmup < 0 {
 		return nil, fmt.Errorf("invalid -warmup %s: must be >= 0", o.warmup)
+	}
+	if o.format != "text" && o.format != "json" {
+		return nil, fmt.Errorf("invalid -format %q: must be text or json", o.format)
+	}
+	if o.maxSamples <= 0 {
+		return nil, fmt.Errorf("invalid -max-samples %d: must be > 0", o.maxSamples)
+	}
+	if o.errorRateSet && (math.IsNaN(o.maxErrorRate) || math.IsInf(o.maxErrorRate, 0) || o.maxErrorRate < 0 || o.maxErrorRate > 100) {
+		return nil, fmt.Errorf("invalid -max-error-rate %.4g: must be between 0 and 100", o.maxErrorRate)
+	}
+	if o.maxP95 < 0 {
+		return nil, fmt.Errorf("invalid -max-p95 %s: must be >= 0", o.maxP95)
 	}
 	if o.maxConns < 0 {
 		return nil, fmt.Errorf("invalid -max-conns %d: must be >= 0", o.maxConns)
@@ -312,6 +341,17 @@ type result struct {
 	errRead   int64
 	errMismat int64
 	lat       []time.Duration // 已排序的 RTT
+	latMin    time.Duration   // 全量成功请求的精确最小 RTT
+	latMax    time.Duration   // 全量成功请求的精确最大 RTT
+}
+
+const defaultMaxLatencySamples = 100000
+
+func latencySampleLimit(o *options) int {
+	if o.maxSamples > 0 {
+		return o.maxSamples
+	}
+	return defaultMaxLatencySamples
 }
 
 // run 执行一次完整压测。
@@ -349,10 +389,11 @@ func runWithOutput(o *options, stdout, stderr io.Writer) error {
 	defer cancel()
 
 	start := time.Now()
-	lats := runWorkers(ctx, o, listenAddr, s, true)
+	latency := runWorkers(ctx, o, listenAddr, s, true)
 	elapsed := time.Since(start)
 	cancel()
 
+	lats := latency.samples
 	sort.Slice(lats, func(i, j int) bool { return lats[i] < lats[j] })
 
 	res := result{
@@ -366,6 +407,8 @@ func runWithOutput(o *options, stdout, stderr io.Writer) error {
 		errRead:   s.errRead.Load(),
 		errMismat: s.errMismatch.Load(),
 		lat:       lats,
+		latMin:    latency.min,
+		latMax:    latency.max,
 	}
 
 	// 校验 ActiveConns 归零（仅自建链路可观测）。
@@ -383,44 +426,160 @@ func runWithOutput(o *options, stdout, stderr io.Writer) error {
 		activeZero = activeAfter == 0
 	}
 
-	printReport(stdout, o, hi, res, activeZero, activeAfter, ch != nil)
-	return nil
+	thresholdErr := checkThresholds(o, res)
+	if o.format == "json" {
+		if err := printJSONReport(stdout, o, hi, res, activeZero, activeAfter, ch != nil, thresholdErr == nil); err != nil {
+			return err
+		}
+	} else {
+		printReport(stdout, o, hi, res, activeZero, activeAfter, ch != nil)
+	}
+	return thresholdErr
 }
 
 // runWorkers 启动 o.conns 个 worker 并发发压，返回合并后的 RTT 切片。
 // record 为 false 时（预热）不收集 RTT。
-func runWorkers(ctx context.Context, o *options, addr string, s *stats, record bool) []time.Duration {
+type latencyResult struct {
+	samples []time.Duration
+	min     time.Duration
+	max     time.Duration
+}
+
+func runWorkers(ctx context.Context, o *options, addr string, s *stats, record bool) latencyResult {
 	var wg sync.WaitGroup
-	perWorker := make([][]time.Duration, o.conns)
+	maxSamples := latencySampleLimit(o)
+	sampler := newLatencySampler(maxSamples)
 	for i := 0; i < o.conns; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			var local []time.Duration
-			w := &worker{o: o, addr: addr, s: s, record: record}
-			if o.proto == "tcp" {
-				local = w.runTCP(ctx)
-			} else {
-				local = w.runUDP(ctx)
+			w := &worker{
+				o: o, addr: addr, s: s, record: record, sampler: sampler,
+				sampleState: uint64(idx+1) * 0x9e3779b97f4a7c15,
 			}
-			perWorker[idx] = local
+			if o.proto == "tcp" {
+				w.runTCP(ctx)
+			} else {
+				w.runUDP(ctx)
+			}
 		}(i)
 	}
 	wg.Wait()
 
-	var merged []time.Duration
-	for _, l := range perWorker {
-		merged = append(merged, l...)
-	}
-	return merged
+	minRTT, maxRTT := sampler.extrema()
+	return latencyResult{samples: sampler.values(), min: minRTT, max: maxRTT}
 }
 
 // worker 表示单个并发压测协程。
 type worker struct {
-	o      *options
-	addr   string
-	s      *stats
-	record bool
+	o       *options
+	addr    string
+	s       *stats
+	record  bool
+	sampler *latencySampler
+	// sampleState is private to this worker, so random admission never contends.
+	sampleState uint64
+}
+
+type latencySample struct {
+	sequence uint64
+	value    time.Duration
+}
+
+// latencySampler uses lock-free reservoir admission over the combined RTT
+// stream. Slots keep the highest sequence admitted to them, which preserves
+// sequential reservoir replacement even when workers finish out of order.
+type latencySampler struct {
+	slots   []atomic.Pointer[latencySample]
+	initial []latencySample
+	seen    atomic.Uint64
+	limit   uint64
+	min     atomic.Int64
+	max     atomic.Int64
+}
+
+func newLatencySampler(limit int) *latencySampler {
+	sampler := &latencySampler{
+		slots:   make([]atomic.Pointer[latencySample], limit),
+		initial: make([]latencySample, limit),
+		limit:   uint64(limit),
+	}
+	sampler.min.Store(1<<63 - 1)
+	return sampler
+}
+
+func (s *latencySampler) add(v time.Duration, state *uint64) {
+	updateAtomicMin(&s.min, int64(v))
+	updateAtomicMax(&s.max, int64(v))
+	sequence := s.seen.Add(1)
+	index := sequence - 1
+	if sequence > s.limit {
+		index = nextSampleRandom(state) % sequence
+		if index >= s.limit {
+			return
+		}
+	}
+
+	var candidate *latencySample
+	if sequence <= s.limit {
+		candidate = &s.initial[index]
+		candidate.sequence = sequence
+		candidate.value = v
+	} else {
+		candidate = &latencySample{sequence: sequence, value: v}
+	}
+	for {
+		current := s.slots[index].Load()
+		if current != nil && current.sequence > sequence {
+			return
+		}
+		if s.slots[index].CompareAndSwap(current, candidate) {
+			return
+		}
+	}
+}
+
+func updateAtomicMin(value *atomic.Int64, candidate int64) {
+	for current := value.Load(); candidate < current; current = value.Load() {
+		if value.CompareAndSwap(current, candidate) {
+			return
+		}
+	}
+}
+
+func updateAtomicMax(value *atomic.Int64, candidate int64) {
+	for current := value.Load(); candidate > current; current = value.Load() {
+		if value.CompareAndSwap(current, candidate) {
+			return
+		}
+	}
+}
+
+func (s *latencySampler) extrema() (time.Duration, time.Duration) {
+	if s.seen.Load() == 0 {
+		return 0, 0
+	}
+	return time.Duration(s.min.Load()), time.Duration(s.max.Load())
+}
+
+func (s *latencySampler) values() []time.Duration {
+	values := make([]time.Duration, 0, min(int(s.seen.Load()), int(s.limit)))
+	for i := range s.slots {
+		if sample := s.slots[i].Load(); sample != nil {
+			values = append(values, sample.value)
+		}
+	}
+	return values
+}
+
+func nextSampleRandom(state *uint64) uint64 {
+	if *state == 0 {
+		*state = 1
+	}
+	*state ^= *state << 13
+	*state ^= *state >> 7
+	*state ^= *state << 17
+	return *state
 }
 
 // makePayload 构造校验用的确定性负载。
@@ -474,10 +633,9 @@ func operationDeadline(ctx context.Context, limit time.Duration) time.Time {
 }
 
 // runTCP 执行 TCP 压测：throughput 复用同一连接循环收发；connrate 每次新建/关闭连接。
-func (w *worker) runTCP(ctx context.Context) []time.Duration {
+func (w *worker) runTCP(ctx context.Context) {
 	payload := makePayload(w.o.payload)
 	buf := make([]byte, w.o.payload)
-	var lat []time.Duration
 	budget := w.budget()
 	done := 0
 	dialer := net.Dialer{Timeout: 5 * time.Second}
@@ -486,7 +644,7 @@ func (w *worker) runTCP(ctx context.Context) []time.Duration {
 		conn, err := dialer.DialContext(ctx, "tcp", w.addr)
 		if err != nil {
 			w.s.errDial.Add(1)
-			return lat
+			return
 		}
 		w.s.newConns.Add(1)
 		defer func() { _ = conn.Close() }()
@@ -496,14 +654,14 @@ func (w *worker) runTCP(ctx context.Context) []time.Duration {
 			}
 			rtt, ok := tcpRoundTrip(ctx, conn, payload, buf, w.s)
 			if !ok {
-				return lat
+				return
 			}
 			if w.record {
-				lat = append(lat, rtt)
+				w.sampler.add(rtt, &w.sampleState)
 			}
 			done++
 		}
-		return lat
+		return
 	}
 
 	// connrate：每次请求新建连接、收发一轮、关闭。
@@ -532,11 +690,10 @@ func (w *worker) runTCP(ctx context.Context) []time.Duration {
 			continue
 		}
 		if w.record {
-			lat = append(lat, time.Since(start))
+			w.sampler.add(time.Since(start), &w.sampleState)
 		}
 		done++
 	}
-	return lat
 }
 
 // tcpRoundTrip 写入 payload 并 ReadFull 读回等量字节，校验数据完整性。
@@ -565,10 +722,9 @@ func tcpRoundTrip(ctx context.Context, conn net.Conn, payload, buf []byte, s *st
 }
 
 // runUDP 执行 UDP 压测：发送数据报并按超时读回，校验回显内容；丢包/超时按错误统计。
-func (w *worker) runUDP(ctx context.Context) []time.Duration {
+func (w *worker) runUDP(ctx context.Context) {
 	payload := makePayload(w.o.payload)
 	buf := make([]byte, w.o.payload+64)
-	var lat []time.Duration
 	budget := w.budget()
 	done := 0
 
@@ -593,7 +749,7 @@ func (w *worker) runUDP(ctx context.Context) []time.Duration {
 	if w.o.mode == "throughput" {
 		conn = dial()
 		if conn == nil {
-			return lat
+			return
 		}
 		defer func() { _ = conn.Close() }()
 	}
@@ -618,14 +774,13 @@ func (w *worker) runUDP(ctx context.Context) []time.Duration {
 		}
 		if ok {
 			if w.record {
-				lat = append(lat, rtt)
+				w.sampler.add(rtt, &w.sampleState)
 			}
 			done++
 		} else if !waitBeforeRetry(ctx) {
 			break
 		}
 	}
-	return lat
 }
 
 // udpRoundTrip 发送一个数据报并按超时读回，校验回显内容。
@@ -683,6 +838,129 @@ func percentile(sorted []time.Duration, p float64) time.Duration {
 	return sorted[idx]
 }
 
+func resultErrorRate(res result) float64 {
+	total := res.requests + res.errors
+	if total == 0 {
+		return 0
+	}
+	return float64(res.errors) / float64(total) * 100
+}
+
+func checkThresholds(o *options, res result) error {
+	var failures []string
+	if o.errorRateSet {
+		if rate := resultErrorRate(res); rate > o.maxErrorRate {
+			failures = append(failures, fmt.Sprintf("error rate %.4f%% exceeds %.4f%%", rate, o.maxErrorRate))
+		}
+	}
+	if o.maxP95 > 0 {
+		if len(res.lat) == 0 {
+			failures = append(failures, "p95 threshold cannot be evaluated without successful samples")
+		} else if p95 := percentile(res.lat, 95); p95 > o.maxP95 {
+			failures = append(failures, fmt.Sprintf("p95 %s exceeds %s", p95, o.maxP95))
+		}
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("threshold failed: %s", strings.Join(failures, "; "))
+	}
+	return nil
+}
+
+type jsonReport struct {
+	Host struct {
+		Hostname  string `json:"hostname"`
+		OS        string `json:"os"`
+		Arch      string `json:"arch"`
+		CPUs      int    `json:"cpus"`
+		GoVersion string `json:"go_version"`
+	} `json:"host"`
+	Config struct {
+		Chain      string `json:"chain"`
+		Target     string `json:"target"`
+		Protocol   string `json:"protocol"`
+		Mode       string `json:"mode"`
+		Conns      int    `json:"conns"`
+		Payload    int    `json:"payload_bytes"`
+		MaxSamples int    `json:"max_latency_samples"`
+	} `json:"config"`
+	Results struct {
+		ElapsedMs   float64 `json:"elapsed_ms"`
+		Requests    int64   `json:"requests"`
+		NewConns    int64   `json:"new_connections"`
+		Bytes       int64   `json:"bytes"`
+		RequestsPS  float64 `json:"requests_per_second"`
+		Throughput  float64 `json:"throughput_bytes_per_second"`
+		SampleCount int     `json:"latency_sample_count"`
+		MinUs       int64   `json:"min_us"`
+		P50Us       int64   `json:"p50_us"`
+		P95Us       int64   `json:"p95_us"`
+		P99Us       int64   `json:"p99_us"`
+		MaxUs       int64   `json:"max_us"`
+	} `json:"results"`
+	Reliability struct {
+		Errors               int64   `json:"errors"`
+		ErrorRate            float64 `json:"error_rate_percent"`
+		Dial                 int64   `json:"dial_errors"`
+		Write                int64   `json:"write_errors"`
+		Read                 int64   `json:"read_errors"`
+		Mismatch             int64   `json:"mismatch_errors"`
+		ActiveAfter          *int64  `json:"active_connections_after,omitempty"`
+		ActiveReturnedToZero *bool   `json:"active_connections_returned_to_zero,omitempty"`
+	} `json:"reliability"`
+	ThresholdsPassed bool `json:"thresholds_passed"`
+}
+
+func printJSONReport(w io.Writer, o *options, hi hostInfo, res result, activeZero bool, activeAfter int64, builtin, passed bool) error {
+	report := jsonReport{ThresholdsPassed: passed}
+	report.Host.Hostname = hi.Hostname
+	report.Host.OS = hi.GOOS
+	report.Host.Arch = hi.GOARCH
+	report.Host.CPUs = hi.NumCPU
+	report.Host.GoVersion = hi.GoVersion
+	report.Config.Chain = "external"
+	report.Config.Target = o.external
+	if builtin {
+		report.Config.Chain = "built-in"
+		report.Config.Target = "built-in echo"
+	}
+	report.Config.Protocol = o.proto
+	report.Config.Mode = o.mode
+	report.Config.Conns = o.conns
+	report.Config.Payload = o.payload
+	report.Config.MaxSamples = latencySampleLimit(o)
+
+	sec := res.elapsed.Seconds()
+	if sec <= 0 {
+		sec = 1e-9
+	}
+	report.Results.ElapsedMs = float64(res.elapsed) / float64(time.Millisecond)
+	report.Results.Requests = res.requests
+	report.Results.NewConns = res.newConns
+	report.Results.Bytes = res.bytes
+	report.Results.RequestsPS = float64(res.requests) / sec
+	report.Results.Throughput = float64(res.bytes) / sec
+	report.Results.SampleCount = len(res.lat)
+	report.Results.MinUs = res.latMin.Microseconds()
+	report.Results.P50Us = percentile(res.lat, 50).Microseconds()
+	report.Results.P95Us = percentile(res.lat, 95).Microseconds()
+	report.Results.P99Us = percentile(res.lat, 99).Microseconds()
+	report.Results.MaxUs = res.latMax.Microseconds()
+
+	report.Reliability.Errors = res.errors
+	report.Reliability.ErrorRate = resultErrorRate(res)
+	report.Reliability.Dial = res.errDial
+	report.Reliability.Write = res.errWrite
+	report.Reliability.Read = res.errRead
+	report.Reliability.Mismatch = res.errMismat
+	if builtin {
+		report.Reliability.ActiveAfter = &activeAfter
+		report.Reliability.ActiveReturnedToZero = &activeZero
+	}
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(report)
+}
+
 // printReport 打印文本报告：主机环境块 + 配置块 + 结果块。
 func printReport(w io.Writer, o *options, hi hostInfo, res result, activeZero bool, activeAfter int64, builtin bool) {
 	sec := res.elapsed.Seconds()
@@ -694,11 +972,7 @@ func printReport(w io.Writer, o *options, hi hostInfo, res result, activeZero bo
 	reqps := float64(res.requests) / sec
 	connps := float64(res.newConns) / sec
 
-	total := res.requests + res.errors
-	errRate := 0.0
-	if total > 0 {
-		errRate = float64(res.errors) / float64(total) * 100
-	}
+	errRate := resultErrorRate(res)
 
 	// p / pf 将报告写入 w，忽略写标准输出时不可恢复的错误。
 	p := func(s string) { _, _ = fmt.Fprintln(w, s) }
@@ -749,12 +1023,13 @@ func printReport(w io.Writer, o *options, hi hostInfo, res result, activeZero bo
 	if len(res.lat) == 0 {
 		p("  (no successful samples)")
 	} else {
-		pf("  min          : %s\n", percentile(res.lat, 0).Round(time.Microsecond))
+		pf("  min          : %s\n", res.latMin.Round(time.Microsecond))
 		pf("  p50          : %s\n", percentile(res.lat, 50).Round(time.Microsecond))
 		pf("  p95          : %s\n", percentile(res.lat, 95).Round(time.Microsecond))
 		pf("  p99          : %s\n", percentile(res.lat, 99).Round(time.Microsecond))
-		pf("  max          : %s\n", percentile(res.lat, 100).Round(time.Microsecond))
+		pf("  max          : %s\n", res.latMax.Round(time.Microsecond))
 	}
+	pf("  samples      : %d/%d successful RTTs retained\n", len(res.lat), res.requests)
 
 	p("[ Reliability ]")
 	pf("  errors       : %d (rate %.4f%%)\n", res.errors, errRate)
