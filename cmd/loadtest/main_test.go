@@ -22,6 +22,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -207,23 +208,24 @@ func TestLatencySamplerIsBounded(t *testing.T) {
 	}
 }
 
-func TestMergeLatencySamplersUsesCombinedStream(t *testing.T) {
-	empty := newLatencySampler(1, 1)
-	busy := newLatencySampler(1, 2)
-	busy.add(42 * time.Millisecond)
-	got := mergeLatencySamplers([]*latencySampler{empty, busy}, 1, 3)
-	if len(got) != 1 || got[0] != 42*time.Millisecond {
-		t.Fatalf("merged samples=%v, want [42ms]", got)
+func TestLatencySamplerUsesGlobalConcurrentLimit(t *testing.T) {
+	sampler := newLatencySampler(7, 1)
+	var wg sync.WaitGroup
+	for worker := 0; worker < 20; worker++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			for i := 0; i < 1000; i++ {
+				sampler.add(time.Duration(worker*1000 + i))
+			}
+		}(worker)
 	}
-
-	first := newLatencySampler(10, 4)
-	second := newLatencySampler(10, 5)
-	for i := 0; i < 10; i++ {
-		first.add(time.Duration(i))
-		second.add(time.Duration(i + 10))
+	wg.Wait()
+	if sampler.seen != 20000 {
+		t.Fatalf("seen=%d, want 20000", sampler.seen)
 	}
-	if got := mergeLatencySamplers([]*latencySampler{first, second}, 7, 6); len(got) != 7 {
-		t.Fatalf("merged sample count=%d, want 7", len(got))
+	if len(sampler.samples) != 7 {
+		t.Fatalf("samples=%d, want global limit 7", len(sampler.samples))
 	}
 }
 

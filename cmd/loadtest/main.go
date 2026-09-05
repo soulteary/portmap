@@ -436,40 +436,38 @@ func runWithOutput(o *options, stdout, stderr io.Writer) error {
 // record 为 false 时（预热）不收集 RTT。
 func runWorkers(ctx context.Context, o *options, addr string, s *stats, record bool) []time.Duration {
 	var wg sync.WaitGroup
-	perWorker := make([]*latencySampler, o.conns)
 	maxSamples := latencySampleLimit(o)
+	sampler := newLatencySampler(maxSamples, 0x9e3779b97f4a7c15)
 	for i := 0; i < o.conns; i++ {
 		wg.Add(1)
-		go func(idx int) {
+		go func() {
 			defer wg.Done()
-			var local *latencySampler
-			w := &worker{o: o, addr: addr, s: s, record: record, sampleLimit: maxSamples, sampleSeed: uint64(idx + 1)}
+			w := &worker{o: o, addr: addr, s: s, record: record, sampler: sampler}
 			if o.proto == "tcp" {
-				local = w.runTCP(ctx)
+				w.runTCP(ctx)
 			} else {
-				local = w.runUDP(ctx)
+				w.runUDP(ctx)
 			}
-			perWorker[idx] = local
-		}(i)
+		}()
 	}
 	wg.Wait()
 
-	return mergeLatencySamplers(perWorker, maxSamples, 0x9e3779b97f4a7c15)
+	return sampler.samples
 }
 
 // worker 表示单个并发压测协程。
 type worker struct {
-	o           *options
-	addr        string
-	s           *stats
-	record      bool
-	sampleLimit int
-	sampleSeed  uint64
+	o       *options
+	addr    string
+	s       *stats
+	record  bool
+	sampler *latencySampler
 }
 
 // latencySampler uses reservoir sampling to keep a uniform, bounded sample of
 // an arbitrarily long RTT stream.
 type latencySampler struct {
+	mu      sync.Mutex
 	samples []time.Duration
 	seen    uint64
 	state   uint64
@@ -484,61 +482,9 @@ func newLatencySampler(limit int, seed uint64) *latencySampler {
 	return &latencySampler{samples: make([]time.Duration, 0, capacity), state: seed, limit: limit}
 }
 
-// mergeLatencySamplers combines uniform worker reservoirs according to the
-// number of RTTs each worker observed. The hypergeometric split keeps every
-// RTT in the combined stream equally likely to appear in the final reservoir.
-func mergeLatencySamplers(samplers []*latencySampler, limit int, seed uint64) []time.Duration {
-	var merged []time.Duration
-	var seen uint64
-	state := seed
-	for _, sampler := range samplers {
-		if sampler == nil || sampler.seen == 0 {
-			continue
-		}
-		target := min(uint64(limit), seen+sampler.seen)
-		fromMerged := hypergeometricCount(seen, sampler.seen, target, &state)
-		fromWorker := target - fromMerged
-		merged = randomSubset(merged, int(fromMerged), &state)
-		workerSamples := randomSubset(sampler.samples, int(fromWorker), &state)
-		merged = append(merged, workerSamples...)
-		seen += sampler.seen
-	}
-	return merged
-}
-
-func hypergeometricCount(first, second, draws uint64, state *uint64) uint64 {
-	remainingFirst := first
-	remainingTotal := first + second
-	var selected uint64
-	for range draws {
-		if randomUint64(state)%remainingTotal < remainingFirst {
-			selected++
-			remainingFirst--
-		}
-		remainingTotal--
-	}
-	return selected
-}
-
-func randomSubset(values []time.Duration, count int, state *uint64) []time.Duration {
-	for i := 0; i < count; i++ {
-		j := i + int(randomUint64(state)%uint64(len(values)-i))
-		values[i], values[j] = values[j], values[i]
-	}
-	return values[:count]
-}
-
-func randomUint64(state *uint64) uint64 {
-	if *state == 0 {
-		*state = 1
-	}
-	*state ^= *state << 13
-	*state ^= *state >> 7
-	*state ^= *state << 17
-	return *state
-}
-
 func (s *latencySampler) add(v time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.seen++
 	if len(s.samples) < s.limit {
 		s.samples = append(s.samples, v)
@@ -603,10 +549,9 @@ func operationDeadline(ctx context.Context, limit time.Duration) time.Time {
 }
 
 // runTCP 执行 TCP 压测：throughput 复用同一连接循环收发；connrate 每次新建/关闭连接。
-func (w *worker) runTCP(ctx context.Context) *latencySampler {
+func (w *worker) runTCP(ctx context.Context) {
 	payload := makePayload(w.o.payload)
 	buf := make([]byte, w.o.payload)
-	sampler := newLatencySampler(w.sampleLimit, w.sampleSeed)
 	budget := w.budget()
 	done := 0
 	dialer := net.Dialer{Timeout: 5 * time.Second}
@@ -615,7 +560,7 @@ func (w *worker) runTCP(ctx context.Context) *latencySampler {
 		conn, err := dialer.DialContext(ctx, "tcp", w.addr)
 		if err != nil {
 			w.s.errDial.Add(1)
-			return sampler
+			return
 		}
 		w.s.newConns.Add(1)
 		defer func() { _ = conn.Close() }()
@@ -625,14 +570,14 @@ func (w *worker) runTCP(ctx context.Context) *latencySampler {
 			}
 			rtt, ok := tcpRoundTrip(ctx, conn, payload, buf, w.s)
 			if !ok {
-				return sampler
+				return
 			}
 			if w.record {
-				sampler.add(rtt)
+				w.sampler.add(rtt)
 			}
 			done++
 		}
-		return sampler
+		return
 	}
 
 	// connrate：每次请求新建连接、收发一轮、关闭。
@@ -661,11 +606,10 @@ func (w *worker) runTCP(ctx context.Context) *latencySampler {
 			continue
 		}
 		if w.record {
-			sampler.add(time.Since(start))
+			w.sampler.add(time.Since(start))
 		}
 		done++
 	}
-	return sampler
 }
 
 // tcpRoundTrip 写入 payload 并 ReadFull 读回等量字节，校验数据完整性。
@@ -694,10 +638,9 @@ func tcpRoundTrip(ctx context.Context, conn net.Conn, payload, buf []byte, s *st
 }
 
 // runUDP 执行 UDP 压测：发送数据报并按超时读回，校验回显内容；丢包/超时按错误统计。
-func (w *worker) runUDP(ctx context.Context) *latencySampler {
+func (w *worker) runUDP(ctx context.Context) {
 	payload := makePayload(w.o.payload)
 	buf := make([]byte, w.o.payload+64)
-	sampler := newLatencySampler(w.sampleLimit, w.sampleSeed)
 	budget := w.budget()
 	done := 0
 
@@ -722,7 +665,7 @@ func (w *worker) runUDP(ctx context.Context) *latencySampler {
 	if w.o.mode == "throughput" {
 		conn = dial()
 		if conn == nil {
-			return sampler
+			return
 		}
 		defer func() { _ = conn.Close() }()
 	}
@@ -747,14 +690,13 @@ func (w *worker) runUDP(ctx context.Context) *latencySampler {
 		}
 		if ok {
 			if w.record {
-				sampler.add(rtt)
+				w.sampler.add(rtt)
 			}
 			done++
 		} else if !waitBeforeRetry(ctx) {
 			break
 		}
 	}
-	return sampler
 }
 
 // udpRoundTrip 发送一个数据报并按超时读回，校验回显内容。
