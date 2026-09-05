@@ -610,6 +610,8 @@ type forwardAdminOptions struct {
 func collectForwardAdminOptions(instances []options) (forwardAdminOptions, error) {
 	out := forwardAdminOptions{webLogMax: 1000}
 	webLogMaxSet := false
+	webLogMaxConflict := false
+	conflictingWebLogMax := 0
 	for _, opt := range instances {
 		if addr := strings.TrimSpace(opt.statsAddr); addr != "" {
 			if out.statsAddr != "" && out.statsAddr != addr {
@@ -625,11 +627,16 @@ func collectForwardAdminOptions(instances []options) (forwardAdminOptions, error
 		}
 		if opt.webLogMaxSet {
 			if webLogMaxSet && out.webLogMax != opt.webLogMax {
-				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_log_max", out.webLogMax, opt.webLogMax))
+				webLogMaxConflict = true
+				conflictingWebLogMax = opt.webLogMax
+				continue
 			}
 			out.webLogMax = opt.webLogMax
 			webLogMaxSet = true
 		}
+	}
+	if out.webAddr != "" && webLogMaxConflict {
+		return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_log_max", out.webLogMax, conflictingWebLogMax))
 	}
 	return out, nil
 }

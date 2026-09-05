@@ -403,6 +403,16 @@ func TestForwardMultiInstanceIdentityAndGlobalFlags(t *testing.T) {
 			t.Fatal("不同显式 web_log_max 不应被静默取第一个")
 		}
 	})
+
+	t.Run("面板禁用时忽略日志容量冲突", func(t *testing.T) {
+		_, err := collectForwardAdminOptions([]options{
+			{webLogMax: 50, webLogMaxSet: true},
+			{webLogMax: 100, webLogMaxSet: true},
+		})
+		if err != nil {
+			t.Fatalf("未启用 Web 面板时不应校验 web_log_max: %v", err)
+		}
+	})
 }
 
 // TestStartForwardInstancesGracefulShutdown 以两个回环高位端口做集成式校验：
