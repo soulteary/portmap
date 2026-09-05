@@ -24,6 +24,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -839,6 +840,166 @@ func closeDialer(t *testing.T, dialer Dialer) {
 	if closer, ok := dialer.(io.Closer); ok {
 		_ = closer.Close()
 	}
+}
+
+// startTestProxyWithUpstream 启动一个使用给定上游的完整代理服务，返回其地址。
+// 与 startTestProxy 一样预建监听器以避免地址发现竞态，但保留 New 的默认空闲
+// 超时，使中继阶段真正走共享截止时间刷新路径。
+func startTestProxyWithUpstream(t *testing.T, cfg *UpstreamConfig) (string, func()) {
+	t.Helper()
+	srv := New("127.0.0.1:0")
+	srv.Logger = log.New(io.Discard, "", 0)
+	srv.DialTimeout = 5 * time.Second
+	dialer, err := NewUpstreamDialer(cfg, srv.DialTimeout, defaultKeepAlive, srv.Logger)
+	if err != nil {
+		t.Fatalf("构造上游拨号器失败: %v", err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		closeDialer(t, dialer)
+		t.Fatalf("监听失败: %v", err)
+	}
+	srv.listener = ln
+	srv.Addr = ln.Addr().String()
+	srv.dialer = dialer
+
+	go func() {
+		for {
+			conn, acceptErr := ln.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go srv.serveConn(conn)
+		}
+	}()
+
+	return ln.Addr().String(), func() {
+		_ = ln.Close()
+		closeDialer(t, dialer)
+	}
+}
+
+// TestSSHUpstreamServesSOCKS5AndConnect 覆盖「代理服务 + SSH 上游」的完整链路。
+// SSH 通道原生不支持 SetDeadline，若不为其补齐截止时间语义，共享空闲超时在
+// 每次读写前的刷新都会失败，SOCKS5 成功应答与 CONNECT 应答将完全无法写出。
+func TestSSHUpstreamServesSOCKS5AndConnect(t *testing.T) {
+	backendAddr, stopBackend := startBackend(t)
+	defer stopBackend()
+
+	clientPEM, clientPub := generateClientKey(t)
+	sshAddr, _, stopSSH := startSSHServer(t, clientPub)
+	defer stopSSH()
+
+	proxyAddr, stopProxy := startTestProxyWithUpstream(t, &UpstreamConfig{
+		Scheme:       UpstreamSchemeSSH,
+		Addr:         sshAddr,
+		Username:     "tester",
+		IdentityFile: writeIdentity(t, clientPEM),
+		Insecure:     true,
+	})
+	defer stopProxy()
+
+	t.Run("socks5", func(t *testing.T) {
+		conn, err := socks5Dial(proxyAddr, backendAddr)
+		if err != nil {
+			t.Fatalf("经 SSH 上游的 SOCKS5 CONNECT 失败: %v", err)
+		}
+		defer func() { _ = conn.Close() }()
+		assertHTTPGetOverConn(t, conn, backendAddr)
+	})
+
+	t.Run("http", func(t *testing.T) {
+		client := &http.Client{
+			Transport: &http.Transport{Proxy: func(*http.Request) (*url.URL, error) {
+				return url.Parse("http://" + proxyAddr)
+			}},
+			Timeout: 5 * time.Second,
+		}
+		resp, err := client.Get("http://" + backendAddr + "/")
+		if err != nil {
+			t.Fatalf("经 SSH 上游的 HTTP 代理请求失败: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, _ := io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), "hello from backend") {
+			t.Fatalf("响应内容不符: %q", body)
+		}
+	})
+}
+
+// assertHTTPGetOverConn 在已建立的隧道上发起一次最小 HTTP 请求并校验正文。
+func assertHTTPGetOverConn(t *testing.T, conn net.Conn, host string) {
+	t.Helper()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.WriteString(conn, "GET / HTTP/1.1\r\nHost: "+host+"\r\nConnection: close\r\n\r\n"); err != nil {
+		t.Fatalf("隧道内写请求失败: %v", err)
+	}
+	body, err := io.ReadAll(conn)
+	if err != nil {
+		t.Fatalf("隧道内读响应失败: %v", err)
+	}
+	if !strings.Contains(string(body), "hello from backend") {
+		t.Fatalf("响应内容不符: %q", body)
+	}
+}
+
+// TestSSHChanConnDeadline 验证 SSH 通道的截止时间模拟：到期即关闭连接使阻塞
+// 的读取返回，零值清除定时器，且半关闭能力被显式转发。
+func TestSSHChanConnDeadline(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("监听失败: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		if c, aerr := ln.Accept(); aerr == nil {
+			accepted <- c
+		}
+	}()
+	raw, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("拨号失败: %v", err)
+	}
+	var server net.Conn
+	select {
+	case server = <-accepted:
+	case <-time.After(time.Second):
+		t.Fatal("未接受连接")
+	}
+	defer func() { _ = server.Close() }()
+
+	conn := &sshChanConn{Conn: raw}
+	// 零值不排定任何到期动作，后续读取应保持阻塞直到超时被真正设置。
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		t.Fatalf("清除截止时间失败: %v", err)
+	}
+	// CloseWrite 需转发到底层 TCP 连接，使对端读到 EOF。
+	if err := conn.CloseWrite(); err != nil {
+		t.Fatalf("CloseWrite 应转发到底层连接: %v", err)
+	}
+	if _, err := io.ReadAll(server); err != nil {
+		t.Fatalf("半关闭后对端读取应正常结束: %v", err)
+	}
+
+	if err := conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
+		t.Fatalf("设置读截止时间失败: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, readErr := conn.Read(make([]byte, 1))
+		done <- readErr
+	}()
+	select {
+	case readErr := <-done:
+		if readErr == nil {
+			t.Fatal("到期后读取应返回错误")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("到期后读取未解除阻塞")
+	}
+	// 连接已被定时器关闭，Close 仍应安全（同时停掉定时器）。
+	_ = conn.Close()
 }
 
 // ---- 主动保活 / 后台守护重连测试 ----

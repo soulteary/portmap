@@ -539,8 +539,64 @@ func (s *sshDialer) dialThrough(ctx context.Context, client *ssh.Client, network
 		if r.err != nil {
 			return nil, fmt.Errorf(i18n.T(i18n.KeyErrProxyUpstreamSSHChannel), address, r.err)
 		}
-		return r.conn, nil
+		return &sshChanConn{Conn: r.conn}, nil
 	}
+}
+
+// sshChanConn 为 SSH 通道补齐截止时间语义。x/crypto/ssh 的通道连接对
+// SetDeadline 一律返回 "ssh: tcpChan: deadline not supported"，而代理把截止
+// 时间用作握手与空闲超时的基础：netutil.IdleConn 在每次读写前刷新隧道两端的
+// 截止时间，刷新失败即放弃该次读写，于是未包装的通道会让 SOCKS5 应答和
+// CONNECT 应答完全写不出去。
+//
+// 这里以「到期即关闭通道」来模拟截止时间，使阻塞中的 Read/Write 立刻返回。
+// 与真实截止时间的差别是到期后通道不可再用，而中继场景下超时本就意味着拆掉
+// 隧道。读写方向共用一个定时器，因为到期动作只有关闭一种。
+type sshChanConn struct {
+	net.Conn
+
+	mu    sync.Mutex
+	timer *time.Timer
+}
+
+func (c *sshChanConn) SetDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.timer != nil {
+		c.timer.Stop()
+	}
+	if t.IsZero() {
+		return nil
+	}
+	if c.timer == nil {
+		c.timer = time.AfterFunc(time.Until(t), func() { _ = c.Conn.Close() })
+		return nil
+	}
+	c.timer.Reset(time.Until(t))
+	return nil
+}
+
+func (c *sshChanConn) SetReadDeadline(t time.Time) error { return c.SetDeadline(t) }
+
+func (c *sshChanConn) SetWriteDeadline(t time.Time) error { return c.SetDeadline(t) }
+
+// CloseWrite 把 SSH 通道的半关闭能力显式转发出来。包装之后 ssh.Channel 的
+// CloseWrite 不再随嵌入的 net.Conn 接口自动提升，中继将无法传播 EOF。
+func (c *sshChanConn) CloseWrite() error {
+	if hc, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return hc.CloseWrite()
+	}
+	return c.Conn.Close()
+}
+
+// Close 先停掉到期定时器，避免已结束的连接被定时器继续引用。
+func (c *sshChanConn) Close() error {
+	c.mu.Lock()
+	if c.timer != nil {
+		c.timer.Stop()
+	}
+	c.mu.Unlock()
+	return c.Conn.Close()
 }
 
 // getClient 返回可用的 ssh 客户端，必要时建立连接。同一时刻只允许一次握手；
