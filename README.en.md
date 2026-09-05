@@ -369,6 +369,9 @@ go run ./cmd/loadtest -proto tcp -conns 20 -requests 1000 -duration 30s -max-con
 
 # Stress an externally running portmap (bring your own target)
 go run ./cmd/loadtest -external 127.0.0.1:13000 -proto tcp -duration 10s
+
+# CI: emit JSON and fail above 0.1% errors or a 5ms p95
+go run ./cmd/loadtest -format json -max-error-rate 0.1 -max-p95 5ms
 ```
 
 Flags:
@@ -387,6 +390,10 @@ flags:
   -max-conns int            built-in forwarder max concurrent connections, 0 = unlimited
   -idle-timeout duration    built-in forwarder idle timeout, 0 = disabled
   -warmup duration          warmup period; data during warmup is excluded from stats (default 1s)
+  -format text|json         output format (default text)
+  -max-samples int          maximum retained RTT samples using reservoir sampling (default 100000)
+  -max-error-rate float     maximum error-rate percentage; exit 1 when exceeded
+  -max-p95 duration         maximum p95 RTT; 0 disables the threshold
 ```
 
 `-requests` is an early completion condition based on successful requests; it does
@@ -394,7 +401,7 @@ not disable `-duration`. The run therefore ends at the duration deadline even wh
 the target continuously fails to dial, times out, or returns errors. Repeated
 failures also use a short backoff to avoid a busy loop against an unreachable target.
 
-The report has three blocks: **Host / Runtime** (GOOS/GOARCH, CPU count, Go version, hostname, memory allocation), **Config**, and **Results** (throughput in MB/s and Gbps, req/s, conns/s in connrate mode, latency min/p50/p95/p99/max, error rate with per-category counts, and a reliability check that `ActiveConns()` returned to zero after the run). All output uses only the standard library; no new dependencies.
+The report has three blocks: **Host / Runtime** (GOOS/GOARCH, CPU count, Go version, hostname, memory allocation), **Config**, and **Results** (throughput in MB/s and Gbps, req/s, conns/s in connrate mode, latency min/p50/p95/p99/max, error rate with per-category counts, and a reliability check that `ActiveConns()` returned to zero after the run). RTTs use bounded reservoir sampling so memory does not grow with request count; `-format json` provides machine-readable output. All output uses only the standard library; no new dependencies.
 
 Sample output (excerpt):
 
