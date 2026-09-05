@@ -55,6 +55,9 @@ func TestWildcardListenerOnlyMatchesItsAddressFamily(t *testing.T) {
 	if !targetMatchesListener(ctx, "0.0.0.0:12345", &net.TCPAddr{IP: net.IPv4zero, Port: 12345}, false) {
 		t.Fatal("IPv4 wildcard did not match an unspecified IPv4 target")
 	}
+	if !targetMatchesListener(ctx, "0.0.0.0:12345", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 12345}, false) {
+		t.Fatal("IPv4 loopback listener did not match an unspecified target")
+	}
 }
 
 func TestResolvedTargetAddressMatchesListener(t *testing.T) {
@@ -73,6 +76,18 @@ func TestTCPForwardRejectsSelfTarget(t *testing.T) {
 	defer cancel()
 	if err := srv.ListenAndServe(ctx); err == nil || !strings.Contains(err.Error(), addr) {
 		t.Fatalf("ListenAndServe() error = %v, want self-target error", err)
+	}
+}
+
+func TestTCPForwardRejectsUnspecifiedSelfTarget(t *testing.T) {
+	port := freePort(t)
+	listenAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	targetAddr := net.JoinHostPort("0.0.0.0", strconv.Itoa(port))
+	srv := New(Config{Listen: listenAddr, Target: targetAddr, Network: "tcp"})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := srv.ListenAndServe(ctx); err == nil || !strings.Contains(err.Error(), targetAddr) {
+		t.Fatalf("ListenAndServe() error = %v, want unspecified self-target error", err)
 	}
 }
 

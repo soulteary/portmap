@@ -88,6 +88,13 @@ func networkAddress(addr net.Addr) (net.IP, int, bool) {
 }
 
 func listenerContainsIP(listenIP, targetIP net.IP, dualStack bool) bool {
+	if targetIP.IsUnspecified() {
+		if targetIP.To4() != nil {
+			targetIP = net.IPv4(127, 0, 0, 1)
+		} else {
+			targetIP = net.IPv6loopback
+		}
+	}
 	if listenIP.IsUnspecified() {
 		familyMatches := sameIPFamily(listenIP, targetIP) || (dualStack && listenIP.To4() == nil && targetIP.To4() != nil)
 		return familyMatches && isLocalIP(targetIP)
@@ -100,7 +107,7 @@ func sameIPFamily(a, b net.IP) bool {
 }
 
 func isLocalIP(target net.IP) bool {
-	if target.IsUnspecified() || target.IsLoopback() {
+	if target.IsLoopback() {
 		return true
 	}
 	addrs, err := net.InterfaceAddrs()

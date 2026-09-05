@@ -173,6 +173,14 @@ func (s *Server) serveTCP(ctx context.Context) error {
 	}
 	s.infof(i18n.T(i18n.KeyLogTCPListening),
 		ln.Addr(), s.cfg.Target, s.cfg.ReuseAddr, s.cfg.MaxConns, s.cfg.IdleTimeout)
+	fatalErr := make(chan error, 1)
+	stopWithError := func(err error) {
+		select {
+		case fatalErr <- err:
+			_ = ln.Close()
+		default:
+		}
+	}
 
 	// ctx 取消时关闭 listener，使 Accept 立即返回。
 	go func() {
@@ -183,6 +191,12 @@ func (s *Server) serveTCP(ctx context.Context) error {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			select {
+			case fatal := <-fatalErr:
+				s.wg.Wait()
+				return fatal
+			default:
+			}
 			if ctx.Err() != nil {
 				// 正常退出：等待所有在途连接处理完毕。
 				s.wg.Wait()
@@ -215,13 +229,13 @@ func (s *Server) serveTCP(ctx context.Context) error {
 			if s.sem != nil {
 				defer func() { <-s.sem }()
 			}
-			s.handle(ctx, conn, ln.Addr(), dualStack)
+			s.handle(ctx, conn, ln.Addr(), dualStack, stopWithError)
 		}()
 	}
 }
 
 // handle 处理单个入站 TCP 连接：拨号到目标并双向转发。
-func (s *Server) handle(ctx context.Context, src net.Conn, listenAddr net.Addr, dualStack bool) {
+func (s *Server) handle(ctx context.Context, src net.Conn, listenAddr net.Addr, dualStack bool, stopWithError func(error)) {
 	defer func() { _ = src.Close() }()
 
 	dialer := net.Dialer{Timeout: s.cfg.DialTimeout}
@@ -244,6 +258,7 @@ func (s *Server) handle(ctx context.Context, src net.Conn, listenAddr net.Addr, 
 	if connMatchesListener(dst, listenAddr, dualStack) {
 		s.stats.DialError()
 		s.warnf(i18n.T(i18n.KeyErrFwdSelfTarget), s.cfg.Target)
+		stopWithError(fmt.Errorf(i18n.T(i18n.KeyErrFwdSelfTarget), s.cfg.Target))
 		return
 	}
 
