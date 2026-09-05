@@ -479,11 +479,7 @@ func (s *sshDialer) revalidateAfterTimeout(client *ssh.Client) {
 	s.mu.Unlock()
 
 	go func() {
-		timeout := s.timeout
-		if timeout <= 0 {
-			timeout = defaultKeepaliveInterval
-		}
-		ctx, cancel := context.WithTimeout(s.lifecycleCtx, timeout)
+		ctx, cancel := context.WithTimeout(s.lifecycleCtx, s.healthProbeTimeout())
 		healthy := sshClientHealthy(ctx, client)
 		cancel()
 		if !healthy {
@@ -495,6 +491,13 @@ func (s *sshDialer) revalidateAfterTimeout(client *ssh.Client) {
 		}
 		s.mu.Unlock()
 	}()
+}
+
+func (s *sshDialer) healthProbeTimeout() time.Duration {
+	if s.timeout > 0 {
+		return s.timeout
+	}
+	return defaultKeepaliveInterval
 }
 
 // sshClientHealthy 通过全局请求区分“目标通道打开失败”和“SSH 传输断开”。
@@ -674,12 +677,20 @@ func (s *sshDialer) superviseClient(client *ssh.Client) {
 			failures = 0
 			waitClosed = watch(client)
 		case <-ticker.C:
-			_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
-			if err == nil {
+			probeCtx, cancel := context.WithTimeout(s.lifecycleCtx, s.healthProbeTimeout())
+			healthy := sshClientHealthy(probeCtx, client)
+			timedOut := errors.Is(probeCtx.Err(), context.DeadlineExceeded)
+			cancel()
+			if healthy {
 				failures = 0
 				continue
 			}
 			failures++
+			if timedOut {
+				// A probe that produced no reply cannot be retried safely on the
+				// same transport: close it to release the blocked SendRequest.
+				failures = s.keepaliveMaxFailures
+			}
 			s.logMessage(i18n.T(i18n.KeyLogProxyUpstreamSSHKeepaliveFail), s.cfg.Addr, failures, s.keepaliveMaxFailures)
 			if failures < s.keepaliveMaxFailures {
 				continue
