@@ -51,6 +51,7 @@ const (
 
 	// forward 包日志/错误。
 	KeyErrUnsupportedNet  = "err.unsupported-net"
+	KeyErrFwdSelfTarget   = "err.forward-self-target"
 	KeyLogTCPListening    = "fwd.tcp-listening"
 	KeyLogDialFailed      = "fwd.dial-failed"
 	KeyLogConnOpen        = "fwd.conn-open"

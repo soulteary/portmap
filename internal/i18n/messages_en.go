@@ -103,6 +103,7 @@ var messagesEN = map[string]string{
 	KeyLogMultiIgnoreFlags:         "note: multi-instance config ignores per-instance CLI flags: %s",
 
 	KeyErrUnsupportedNet:  "unsupported network: %q",
+	KeyErrFwdSelfTarget:   "refusing forward target %s because it resolves to this listener",
 	KeyLogTCPListening:    "listening on %s (tcp), forwarding to %s (reuseaddr=%v, max-conns=%d, idle=%s)",
 	KeyLogDialFailed:      "dial %s failed: %v",
 	KeyLogConnOpen:        "[#%d] open %s <-> %s (active=%d)",

@@ -166,6 +166,10 @@ func (s *Server) serveTCP(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer func() { _ = ln.Close() }()
+	if targetMatchesListener(ctx, s.cfg.Target, ln.Addr()) {
+		return fmt.Errorf(i18n.T(i18n.KeyErrFwdSelfTarget), s.cfg.Target)
+	}
 	s.infof(i18n.T(i18n.KeyLogTCPListening),
 		ln.Addr(), s.cfg.Target, s.cfg.ReuseAddr, s.cfg.MaxConns, s.cfg.IdleTimeout)
 
@@ -210,13 +214,13 @@ func (s *Server) serveTCP(ctx context.Context) error {
 			if s.sem != nil {
 				defer func() { <-s.sem }()
 			}
-			s.handle(ctx, conn)
+			s.handle(ctx, conn, ln.Addr())
 		}()
 	}
 }
 
 // handle 处理单个入站 TCP 连接：拨号到目标并双向转发。
-func (s *Server) handle(ctx context.Context, src net.Conn) {
+func (s *Server) handle(ctx context.Context, src net.Conn, listenAddr net.Addr) {
 	defer func() { _ = src.Close() }()
 
 	dialer := net.Dialer{Timeout: s.cfg.DialTimeout}
@@ -234,6 +238,13 @@ func (s *Server) handle(ctx context.Context, src net.Conn) {
 		return
 	}
 	defer func() { _ = dst.Close() }()
+	// DNS may change between the preflight check and the actual dial. Verify the
+	// connected peer as well so a rebinding cannot turn a forwarder into itself.
+	if connMatchesListener(dst, listenAddr) {
+		s.stats.DialError()
+		s.warnf(i18n.T(i18n.KeyErrFwdSelfTarget), s.cfg.Target)
+		return
+	}
 
 	s.stats.ConnOpened()
 	defer s.stats.ConnClosed()

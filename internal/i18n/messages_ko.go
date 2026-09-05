@@ -103,6 +103,7 @@ var messagesKO = map[string]string{
 	KeyLogMultiIgnoreFlags:         "참고: 다중 인스턴스 설정에서는 인스턴스별 CLI 플래그를 무시합니다: %s",
 
 	KeyErrUnsupportedNet:  "지원되지 않는 네트워크: %q",
+	KeyErrFwdSelfTarget:   "전달 대상 %s이(가) 현재 리스너로 해석되어 거부했습니다",
 	KeyLogTCPListening:    "%s (tcp)에서 수신 중, %s로 전달 (reuseaddr=%v, max-conns=%d, idle=%s)",
 	KeyLogDialFailed:      "%s 다이얼 실패: %v",
 	KeyLogConnOpen:        "[#%d] 연결 열림 %s <-> %s (active=%d)",

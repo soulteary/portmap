@@ -103,6 +103,7 @@ var messagesJA = map[string]string{
 	KeyLogMultiIgnoreFlags:         "注意: マルチインスタンス設定では次のインスタンス単位の CLI フラグを無視します: %s",
 
 	KeyErrUnsupportedNet:  "サポートされていないネットワーク: %q",
+	KeyErrFwdSelfTarget:   "転送先 %s はこのリスナー自身に解決されるため拒否しました",
 	KeyLogTCPListening:    "%s (tcp) で待ち受け中、%s へ転送 (reuseaddr=%v, max-conns=%d, idle=%s)",
 	KeyLogDialFailed:      "%s へのダイヤルに失敗: %v",
 	KeyLogConnOpen:        "[#%d] 接続開始 %s <-> %s (active=%d)",
