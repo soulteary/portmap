@@ -17,6 +17,7 @@ package forward
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -48,6 +49,7 @@ func (s *Server) serveUDP(ctx context.Context) error {
 		return err
 	}
 	conn := pc.(*net.UDPConn)
+	defer func() { _ = conn.Close() }()
 
 	s.infof(i18n.T(i18n.KeyLogUDPListening),
 		conn.LocalAddr(), s.cfg.Target, s.cfg.ReuseAddr, s.cfg.MaxConns, s.cfg.IdleTimeout)
@@ -60,6 +62,9 @@ func (s *Server) serveUDP(ctx context.Context) error {
 	targetAddr, err := net.ResolveUDPAddr("udp", s.cfg.Target)
 	if err != nil {
 		return err
+	}
+	if addressMatchesListener(targetAddr, conn.LocalAddr(), listenerDualStack(conn)) {
+		return fmt.Errorf(i18n.T(i18n.KeyErrFwdSelfTarget), s.cfg.Target)
 	}
 
 	idle := s.cfg.IdleTimeout

@@ -107,6 +107,7 @@ var messagesFR = map[string]string{
 	KeyLogMultiIgnoreFlags:         "note : la configuration multi-instances ignore les drapeaux CLI par instance : %s",
 
 	KeyErrUnsupportedNet:  "réseau non pris en charge : %q",
+	KeyErrFwdSelfTarget:   "cible de transfert %s refusée : elle pointe vers cette écoute",
 	KeyLogTCPListening:    "écoute sur %s (tcp), redirection vers %s (reuseaddr=%v, max-conns=%d, idle=%s)",
 	KeyLogDialFailed:      "échec de connexion à %s : %v",
 	KeyLogConnOpen:        "[#%d] ouverture %s <-> %s (active=%d)",

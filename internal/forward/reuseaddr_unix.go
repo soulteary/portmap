@@ -16,9 +16,33 @@
 
 package forward
 
-import "golang.org/x/sys/unix"
+import (
+	"syscall"
+
+	"golang.org/x/sys/unix"
+)
 
 // setReuseAddr 在类 Unix 平台上对给定 fd 设置 SO_REUSEADDR。
 func setReuseAddr(fd uintptr) error {
 	return unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
+}
+
+// listenerDualStack reports whether an IPv6 listener also accepts IPv4.
+func listenerDualStack(conn any) bool {
+	sc, ok := conn.(syscall.Conn)
+	if !ok {
+		return false
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		return false
+	}
+	var value int
+	var sockErr error
+	if err := raw.Control(func(fd uintptr) {
+		value, sockErr = unix.GetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_V6ONLY)
+	}); err != nil || sockErr != nil {
+		return false
+	}
+	return value == 0
 }

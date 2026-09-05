@@ -161,23 +161,45 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 // serveTCP 处理 TCP 监听与转发。
 func (s *Server) serveTCP(ctx context.Context) error {
+	serveCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	lc := s.listenConfig()
-	ln, err := lc.Listen(ctx, "tcp", s.cfg.Listen)
+	ln, err := lc.Listen(serveCtx, "tcp", s.cfg.Listen)
 	if err != nil {
 		return err
 	}
+	defer func() { _ = ln.Close() }()
+	dualStack := listenerDualStack(ln)
+	if targetMatchesListener(ctx, s.cfg.Target, ln.Addr(), dualStack) {
+		return fmt.Errorf(i18n.T(i18n.KeyErrFwdSelfTarget), s.cfg.Target)
+	}
 	s.infof(i18n.T(i18n.KeyLogTCPListening),
 		ln.Addr(), s.cfg.Target, s.cfg.ReuseAddr, s.cfg.MaxConns, s.cfg.IdleTimeout)
+	fatalErr := make(chan error, 1)
+	stopWithError := func(err error) {
+		select {
+		case fatalErr <- err:
+			cancel()
+			_ = ln.Close()
+		default:
+		}
+	}
 
 	// ctx 取消时关闭 listener，使 Accept 立即返回。
 	go func() {
-		<-ctx.Done()
+		<-serveCtx.Done()
 		_ = ln.Close()
 	}()
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			select {
+			case fatal := <-fatalErr:
+				s.wg.Wait()
+				return fatal
+			default:
+			}
 			if ctx.Err() != nil {
 				// 正常退出：等待所有在途连接处理完毕。
 				s.wg.Wait()
@@ -196,10 +218,15 @@ func (s *Server) serveTCP(ctx context.Context) error {
 		if s.sem != nil {
 			select {
 			case s.sem <- struct{}{}:
-			case <-ctx.Done():
+			case <-serveCtx.Done():
 				_ = conn.Close()
 				s.wg.Wait()
-				return nil
+				select {
+				case fatal := <-fatalErr:
+					return fatal
+				default:
+					return nil
+				}
 			}
 		}
 
@@ -210,13 +237,13 @@ func (s *Server) serveTCP(ctx context.Context) error {
 			if s.sem != nil {
 				defer func() { <-s.sem }()
 			}
-			s.handle(ctx, conn)
+			s.handle(serveCtx, conn, ln.Addr(), dualStack, stopWithError)
 		}()
 	}
 }
 
 // handle 处理单个入站 TCP 连接：拨号到目标并双向转发。
-func (s *Server) handle(ctx context.Context, src net.Conn) {
+func (s *Server) handle(ctx context.Context, src net.Conn, listenAddr net.Addr, dualStack bool, stopWithError func(error)) {
 	defer func() { _ = src.Close() }()
 
 	dialer := net.Dialer{Timeout: s.cfg.DialTimeout}
@@ -234,6 +261,14 @@ func (s *Server) handle(ctx context.Context, src net.Conn) {
 		return
 	}
 	defer func() { _ = dst.Close() }()
+	// DNS may change between the preflight check and the actual dial. Verify the
+	// connected peer as well so a rebinding cannot turn a forwarder into itself.
+	if connMatchesListener(dst, listenAddr, dualStack) {
+		s.stats.DialError()
+		s.warnf(i18n.T(i18n.KeyErrFwdSelfTarget), s.cfg.Target)
+		stopWithError(fmt.Errorf(i18n.T(i18n.KeyErrFwdSelfTarget), s.cfg.Target))
+		return
+	}
 
 	connID := s.stats.ConnOpened()
 	defer s.stats.ConnClosed()

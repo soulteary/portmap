@@ -107,6 +107,7 @@ var messagesZH = map[string]string{
 	KeyLogMultiIgnoreFlags:         "注意：多实例配置忽略以下 per-instance 命令行 flag: %s",
 
 	KeyErrUnsupportedNet:  "不支持的网络类型: %q",
+	KeyErrFwdSelfTarget:   "拒绝转发目标 %s：该地址解析到当前监听器",
 	KeyLogTCPListening:    "正在监听 %s (tcp)，转发至 %s (reuseaddr=%v, max-conns=%d, idle=%s)",
 	KeyLogDialFailed:      "拨号 %s 失败: %v",
 	KeyLogConnOpen:        "[#%d] 建立 %s <-> %s (active=%d)",

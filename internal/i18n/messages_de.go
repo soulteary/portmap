@@ -107,6 +107,7 @@ var messagesDE = map[string]string{
 	KeyLogMultiIgnoreFlags:         "Hinweis: Multi-Instanz-Konfiguration ignoriert instanzspezifische CLI-Flags: %s",
 
 	KeyErrUnsupportedNet:  "nicht unterstütztes Netzwerk: %q",
+	KeyErrFwdSelfTarget:   "Weiterleitungsziel %s abgelehnt: es verweist auf diesen Listener",
 	KeyLogTCPListening:    "lausche auf %s (tcp), leite weiter an %s (reuseaddr=%v, max-conns=%d, idle=%s)",
 	KeyLogDialFailed:      "Verbindung zu %s fehlgeschlagen: %v",
 	KeyLogConnOpen:        "[#%d] geöffnet %s <-> %s (active=%d)",

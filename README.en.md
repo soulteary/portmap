@@ -316,6 +316,7 @@ UDP is connectionless. In `go` mode, sessions are maintained as "client address 
 
 - **`-max-conns`**: under UDP this limits the **number of concurrent sessions** (rather than connections). When exceeded, new clients are rejected directly and their first packet is dropped (UDP has no queuing semantics), which is logged under `-log-level debug`.
 - **`-idle-timeout`**: under UDP a value of `0` **falls back to the default 60s**, i.e. sessions idle for more than 60s are reclaimed (under TCP, `0` means disabled).
+- TCP/UDP targets that resolve to the active forward listener are rejected during startup. TCP checks the connected peer again after dialing so DNS changes cannot create a recursive connection or packet storm.
 
 ## Observability
 
