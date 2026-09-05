@@ -277,7 +277,8 @@ proxy:
 ```
 
 - Each instance starts concurrently in its own goroutine; on a shutdown signal (`Ctrl-C` / `SIGTERM`) they all shut down gracefully, and a fatal error in any instance triggers overall shutdown.
-- Multi-instance can **only be expressed in the config file**; the CLI stays single-instance (e.g. `portmap proxy -addr ... -upstream ...`). In the multi-instance case, per-instance CLI flags (`-listen-port`/`-addr`/`-upstream`, etc.) cannot map to a specific instance and are ignored with a notice; `-config`/`-lang` still take effect.
+- Multi-instance can **only be expressed in the config file**; the CLI stays single-instance (e.g. `portmap proxy -addr ... -upstream ...`). In the multi-instance case, per-instance CLI flags (`-listen-port`/`-addr`/`-upstream`, etc.) cannot map to a specific instance and are ignored with a notice; `-config`/`-lang` still take effect. For forward, `-stats-addr`, `-web-addr`, and `-web-log-max` are global aggregate-endpoint options and override instance values when explicitly set.
+- Forward multi-instance currently supports only `mode: go`; `mode: socat` fails explicitly before startup. TCP and UDP instances may share an address, while duplicate instances using the same protocol and address are rejected.
 - The listen address of each instance (`listen_host:listen_port` for forward, `addr` for proxy) must **not be duplicated**, otherwise startup fails.
 - The single-object form and the legacy flat layout remain fully compatible, treated as one instance with unchanged behavior.
 

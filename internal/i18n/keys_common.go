@@ -89,6 +89,8 @@ const (
 	KeyLogInstanceStarting         = "log.instance-starting"
 	KeyErrInstanceFailed           = "err.instance-failed"
 	KeyErrDuplicateListen          = "err.duplicate-listen"
+	KeyErrConflictingMultiOption   = "err.conflicting-multi-option"
+	KeyErrMultiForwardMode         = "err.multi-forward-mode"
 	KeyLogMultiIgnoreFlags         = "log.multi-ignore-flags"
 )
 

@@ -100,6 +100,8 @@ var messagesZH = map[string]string{
 	KeyLogInstanceStarting:         "实例 #%d 启动: %s",
 	KeyErrInstanceFailed:           "实例 %s 启动失败: %w",
 	KeyErrDuplicateListen:          "配置中存在重复的监听地址: %s",
+	KeyErrConflictingMultiOption:   "多实例选项 %s 存在冲突: %v 与 %v",
+	KeyErrMultiForwardMode:         "多实例 forward 仅支持 go 模式，当前为 %q",
 	KeyLogMultiIgnoreFlags:         "注意：多实例配置忽略以下 per-instance 命令行 flag: %s",
 
 	KeyErrUnsupportedNet:  "不支持的网络类型: %q",

@@ -100,6 +100,8 @@ var messagesEN = map[string]string{
 	KeyLogInstanceStarting:         "instance #%d starting: %s",
 	KeyErrInstanceFailed:           "instance %s failed: %w",
 	KeyErrDuplicateListen:          "duplicate listen address in config: %s",
+	KeyErrConflictingMultiOption:   "conflicting multi-instance option %s: %v and %v",
+	KeyErrMultiForwardMode:         "multi-instance forward only supports go mode, got %q",
 	KeyLogMultiIgnoreFlags:         "note: multi-instance config ignores per-instance CLI flags: %s",
 
 	KeyErrUnsupportedNet:  "unsupported network: %q",

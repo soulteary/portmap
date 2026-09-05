@@ -53,24 +53,25 @@ var (
 )
 
 type options struct {
-	listenPort  int
-	listenHost  string
-	target      string
-	mode        string
-	proto       string
-	reuseAddr   bool
-	useSudo     bool
-	dialTimeout time.Duration
-	maxConns    int
-	idleTimeout time.Duration
-	logLevel    string
-	quiet       bool
-	showVersion bool
-	configPath  string
-	lang        string
-	statsAddr   string
-	webAddr     string
-	webLogMax   int
+	listenPort   int
+	listenHost   string
+	target       string
+	mode         string
+	proto        string
+	reuseAddr    bool
+	useSudo      bool
+	dialTimeout  time.Duration
+	maxConns     int
+	idleTimeout  time.Duration
+	logLevel     string
+	quiet        bool
+	showVersion  bool
+	configPath   string
+	lang         string
+	statsAddr    string
+	webAddr      string
+	webLogMax    int
+	webLogMaxSet bool
 }
 
 // String 返回最终生效配置的可读摘要，用于启动时打印，便于确认合并后的实际参数。
@@ -411,6 +412,11 @@ func normalizeForwardOptions(opt *options) error {
 		return errors.New(i18n.T(i18n.KeyErrProto, opt.proto))
 	}
 	opt.proto = proto
+	mode := strings.ToLower(strings.TrimSpace(opt.mode))
+	if mode != "go" && mode != "socat" {
+		return errors.New(i18n.T(i18n.KeyErrMode, opt.mode))
+	}
+	opt.mode = mode
 	if opt.idleTimeout < 0 {
 		return errors.New(i18n.T(i18n.KeyErrIdleNeg, opt.idleTimeout))
 	}
@@ -428,9 +434,30 @@ func normalizeForwardOptions(opt *options) error {
 	return nil
 }
 
-// forwardListenAddr 返回 forward 实例的规范化监听地址，用于重复检测与日志。
+// forwardListenAddr 返回 forward 实例的规范化监听地址，用于日志。
 func forwardListenAddr(opt options) string {
 	return net.JoinHostPort(opt.listenHost, strconv.Itoa(opt.listenPort))
+}
+
+// forwardInstanceKey 返回包含网络类型的监听标识。TCP 与 UDP 可以合法地绑定
+// 同一个地址，因此重复检测不能只比较 host:port。
+func forwardInstanceKey(opt options) string {
+	return opt.proto + "://" + forwardListenAddr(opt)
+}
+
+// applyForwardGlobalFlags 将多实例下仍具备全局语义的 CLI 参数应用到每个实例，
+// 供后续聚合端点读取。显式 CLI 值优先于各实例配置。
+func applyForwardGlobalFlags(opt *options, base options, setFlags map[string]bool) {
+	if setFlags["stats-addr"] {
+		opt.statsAddr = base.statsAddr
+	}
+	if setFlags["web-addr"] {
+		opt.webAddr = base.webAddr
+	}
+	if setFlags["web-log-max"] {
+		opt.webLogMax = base.webLogMax
+		opt.webLogMaxSet = true
+	}
 }
 
 // defaultForwardOptions 返回与 forward flag 默认值一致的基线运行参数，供多实例
@@ -480,14 +507,19 @@ func runForwardMulti(base options, cfg *Config, setFlags map[string]bool) error 
 		if err := applyForwardConfig(&opt, fc, map[string]bool{}); err != nil {
 			return err
 		}
+		opt.webLogMaxSet = fc != nil && fc.WebLogMax != nil
+		applyForwardGlobalFlags(&opt, base, setFlags)
 		if err := normalizeForwardOptions(&opt); err != nil {
 			return err
 		}
-		addr := forwardListenAddr(opt)
-		if _, dup := seen[addr]; dup {
-			return errors.New(i18n.T(i18n.KeyErrDuplicateListen, addr))
+		if opt.mode != "go" {
+			return errors.New(i18n.T(i18n.KeyErrMultiForwardMode, opt.mode))
 		}
-		seen[addr] = struct{}{}
+		key := forwardInstanceKey(opt)
+		if _, dup := seen[key]; dup {
+			return errors.New(i18n.T(i18n.KeyErrDuplicateListen, key))
+		}
+		seen[key] = struct{}{}
 		instances = append(instances, opt)
 	}
 
@@ -502,27 +534,20 @@ func runForwardMulti(base options, cfg *Config, setFlags map[string]bool) error 
 func startForwardInstances(ctx context.Context, instances []options) error {
 	log.Print(i18n.T(i18n.KeyLogForwardStartingInstances, len(instances)))
 
+	admin, err := collectForwardAdminOptions(instances)
+	if err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	errCh := make(chan error, len(instances))
 	var wg sync.WaitGroup
 	providers := make([]stats.Provider, 0, len(instances))
-	statsAddr := ""
-	// Web 面板：若任一实例设置了 -web-addr，则创建一份共享事件日志并注入所有
-	// 实例，使多实例聚合到同一个面板。取第一个非空 webAddr 与其 webLogMax。
-	webAddr := ""
-	webLogMax := 1000
-	for _, opt := range instances {
-		if strings.TrimSpace(opt.webAddr) != "" {
-			webAddr = opt.webAddr
-			webLogMax = opt.webLogMax
-			break
-		}
-	}
 	var events *stats.EventLog
-	if webAddr != "" {
-		events = stats.NewEventLog(webLogMax)
+	if admin.webAddr != "" {
+		events = stats.NewEventLog(admin.webLogMax)
 	}
 	for i, opt := range instances {
 		i, opt := i, opt
@@ -541,9 +566,6 @@ func startForwardInstances(ctx context.Context, instances []options) error {
 			Events:      events,
 		})
 		providers = append(providers, srv)
-		if statsAddr == "" && strings.TrimSpace(opt.statsAddr) != "" {
-			statsAddr = opt.statsAddr
-		}
 		watchStatusSignal(ctx, srv)
 		wg.Add(1)
 		go func() {
@@ -558,8 +580,8 @@ func startForwardInstances(ctx context.Context, instances []options) error {
 		}()
 	}
 
-	statsWait, statsErrCh := startStatsEndpoint(ctx, cancel, statsAddr, false, providers...)
-	webWait, webErrCh := startWebEndpoint(ctx, cancel, webAddr, false, events, providers...)
+	statsWait, statsErrCh := startStatsEndpoint(ctx, cancel, admin.statsAddr, false, providers...)
+	webWait, webErrCh := startWebEndpoint(ctx, cancel, admin.webAddr, false, events, providers...)
 
 	wg.Wait()
 	statsWait()
@@ -575,6 +597,48 @@ func startForwardInstances(ctx context.Context, instances []options) error {
 		return webErr
 	}
 	return nil
+}
+
+type forwardAdminOptions struct {
+	statsAddr string
+	webAddr   string
+	webLogMax int
+}
+
+// collectForwardAdminOptions 将实例配置收敛为唯一的聚合管理端点。多个不同的
+// 地址或日志容量无法同时由一份聚合服务表达，因此显式报错而不是静默取第一个。
+func collectForwardAdminOptions(instances []options) (forwardAdminOptions, error) {
+	out := forwardAdminOptions{webLogMax: 1000}
+	webLogMaxSet := false
+	webLogMaxConflict := false
+	conflictingWebLogMax := 0
+	for _, opt := range instances {
+		if addr := strings.TrimSpace(opt.statsAddr); addr != "" {
+			if out.statsAddr != "" && out.statsAddr != addr {
+				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "stats_addr", out.statsAddr, addr))
+			}
+			out.statsAddr = addr
+		}
+		if addr := strings.TrimSpace(opt.webAddr); addr != "" {
+			if out.webAddr != "" && out.webAddr != addr {
+				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_addr", out.webAddr, addr))
+			}
+			out.webAddr = addr
+		}
+		if opt.webLogMaxSet {
+			if webLogMaxSet && out.webLogMax != opt.webLogMax {
+				webLogMaxConflict = true
+				conflictingWebLogMax = opt.webLogMax
+				continue
+			}
+			out.webLogMax = opt.webLogMax
+			webLogMaxSet = true
+		}
+	}
+	if out.webAddr != "" && webLogMaxConflict {
+		return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_log_max", out.webLogMax, conflictingWebLogMax))
+	}
+	return out, nil
 }
 
 // proxyOptions 保存 proxy 子命令的运行参数。

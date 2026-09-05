@@ -100,6 +100,8 @@ var messagesDE = map[string]string{
 	KeyLogInstanceStarting:         "Instanz #%d startet: %s",
 	KeyErrInstanceFailed:           "Instanz %s fehlgeschlagen: %w",
 	KeyErrDuplicateListen:          "doppelte Listen-Adresse in der Konfiguration: %s",
+	KeyErrConflictingMultiOption:   "widersprüchliche Mehrinstanz-Option %s: %v und %v",
+	KeyErrMultiForwardMode:         "Forward mit mehreren Instanzen unterstützt nur den go-Modus, erhalten: %q",
 	KeyLogMultiIgnoreFlags:         "Hinweis: Multi-Instanz-Konfiguration ignoriert instanzspezifische CLI-Flags: %s",
 
 	KeyErrUnsupportedNet:  "nicht unterstütztes Netzwerk: %q",

@@ -324,7 +324,8 @@ proxy:
 ```
 
 - 各实例在各自的 goroutine 中并发启动；收到退出信号（`Ctrl-C` / `SIGTERM`）时统一优雅关闭，任一实例发生致命错误会触发整体退出。
-- 多实例**只能在配置文件中表达**；CLI 仍是单实例语义（如 `portmap proxy -addr ... -upstream ...`）。多实例场景下命令行的 per-instance flag（`-listen-port`/`-addr`/`-upstream` 等）无法一一对应，会被忽略并在日志中提示；`-config`/`-lang` 仍生效。
+- 多实例**只能在配置文件中表达**；CLI 仍是单实例语义（如 `portmap proxy -addr ... -upstream ...`）。多实例场景下命令行的 per-instance flag（`-listen-port`/`-addr`/`-upstream` 等）无法一一对应，会被忽略并在日志中提示；`-config`/`-lang` 仍生效。forward 的 `-stats-addr`、`-web-addr` 与 `-web-log-max` 属于聚合端点的全局参数，显式设置时会覆盖实例配置。
+- forward 多实例当前仅支持 `mode: go`；`mode: socat` 会在启动前返回明确错误。同一地址可分别由 TCP 与 UDP 实例监听，但相同协议与地址的重复实例会被拒绝。
 - 各实例的监听地址（forward 为 `listen_host:listen_port`，proxy 为 `addr`）**不得重复**，否则启动时报错。
 - 单对象写法与旧版平铺布局完全兼容，视为 1 个实例，行为不变。
 
