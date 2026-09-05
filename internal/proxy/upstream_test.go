@@ -273,6 +273,10 @@ func generateEncryptedClientKey(t *testing.T, passphrase string) ([]byte, ssh.Pu
 // direct-tcpip 通道，把通道数据转发到通道请求指定的目标地址。
 // 返回监听地址与 host 公钥。
 func startSSHServer(t *testing.T, authorizedKey ssh.PublicKey) (string, ssh.PublicKey, func()) {
+	return startSSHServerWithRequestReplies(t, authorizedKey, true)
+}
+
+func startSSHServerWithRequestReplies(t *testing.T, authorizedKey ssh.PublicKey, replyRequests bool) (string, ssh.PublicKey, func()) {
 	t.Helper()
 	hostSigner := generateHostKey(t)
 	serverCfg := &ssh.ServerConfig{
@@ -295,19 +299,21 @@ func startSSHServer(t *testing.T, authorizedKey ssh.PublicKey) (string, ssh.Publ
 			if acceptErr != nil {
 				return
 			}
-			go handleSSHConn(nConn, serverCfg)
+			go handleSSHConn(nConn, serverCfg, replyRequests)
 		}
 	}()
 	return ln.Addr().String(), hostSigner.PublicKey(), func() { _ = ln.Close() }
 }
 
-func handleSSHConn(nConn net.Conn, cfg *ssh.ServerConfig) {
+func handleSSHConn(nConn net.Conn, cfg *ssh.ServerConfig, replyRequests bool) {
 	sshConn, chans, reqs, err := ssh.NewServerConn(nConn, cfg)
 	if err != nil {
 		_ = nConn.Close()
 		return
 	}
-	go ssh.DiscardRequests(reqs)
+	if replyRequests {
+		go ssh.DiscardRequests(reqs)
+	}
 	go func() {
 		_ = sshConn.Wait()
 	}()
@@ -707,6 +713,35 @@ func TestSSHDialerInitialHandshakeHonorsContext(t *testing.T) {
 	}
 }
 
+func TestSSHDialerHealthProbeHonorsContext(t *testing.T) {
+	clientPEM, clientPub := generateClientKey(t)
+	sshAddr, _, stopSSH := startSSHServerWithRequestReplies(t, clientPub, false)
+	defer stopSSH()
+
+	dialer, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:            UpstreamSchemeSSH,
+		Addr:              sshAddr,
+		Username:          "tester",
+		IdentityFile:      writeIdentity(t, clientPEM),
+		Insecure:          true,
+		KeepaliveInterval: -1,
+	}, 5*time.Second, 30*time.Second, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("构造 SSH 上游失败: %v", err)
+	}
+	defer closeDialer(t, dialer)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := dialer.DialContext(ctx, "tcp", "127.0.0.1:1"); err == nil {
+		t.Fatal("停滞健康探针应随 context 取消")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("SSH 健康探针未及时响应 context: %s", elapsed)
+	}
+}
+
 func TestSOCKS5UpstreamDialer(t *testing.T) {
 	backendAddr, stopBackend := startBackend(t)
 	defer stopBackend()
@@ -785,7 +820,7 @@ func startClosableSSHServer(t *testing.T, authorizedKey ssh.PublicKey) (*closabl
 				return
 			}
 			srv.track(nConn)
-			go handleSSHConn(nConn, serverCfg)
+			go handleSSHConn(nConn, serverCfg, true)
 		}
 	}()
 	return srv, func() { _ = ln.Close() }

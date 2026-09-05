@@ -441,8 +441,14 @@ func (s *sshDialer) DialContext(ctx context.Context, network, address string) (n
 	}
 	// direct-tcpip 可能仅因目标拒绝连接而失败；先探测复用连接本身。连接仍
 	// 健康时保留它，避免中断承载于同一 SSH 会话上的其它活跃通道。
-	if sshClientHealthy(client) {
+	if sshClientHealthy(ctx, client) {
 		return nil, err
+	}
+	if ctx.Err() != nil {
+		// SendRequest cannot be canceled independently. Closing the transport
+		// releases the probe goroutine before returning the caller's error.
+		s.discard(client)
+		return nil, ctx.Err()
 	}
 
 	// SSH 传输已断开：丢弃并重连一次后重试。
@@ -457,9 +463,18 @@ func (s *sshDialer) DialContext(ctx context.Context, network, address string) (n
 
 // sshClientHealthy 通过全局请求区分“目标通道打开失败”和“SSH 传输断开”。
 // 服务端即使不支持该请求也会返回 reply=false、err=nil，仍足以证明传输可用。
-func sshClientHealthy(client *ssh.Client) bool {
-	_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
-	return err == nil
+func sshClientHealthy(ctx context.Context, client *ssh.Client) bool {
+	result := make(chan error, 1)
+	go func() {
+		_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		return err == nil
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // dialThrough 在 ssh 客户端上打开到 address 的通道，并遵守 ctx 取消。
@@ -596,28 +611,24 @@ func (s *sshDialer) superviseClient(client *ssh.Client) {
 	ticker := time.NewTicker(s.keepaliveInterval)
 	defer ticker.Stop()
 
-	// waitClosed 在底层连接结束时收到信号（缓冲 1，避免 goroutine 泄漏）。
-	waitClosed := make(chan *ssh.Client, 1)
-	watch := func(c *ssh.Client) {
+	// 每个客户端使用独立的关闭通道，切换客户端时直接切换 select 的来源，
+	// 避免旧客户端的滞留通知占满共享通道并吞掉新客户端的关闭事件。
+	watch := func(c *ssh.Client) <-chan struct{} {
+		closed := make(chan struct{})
 		go func() {
 			_ = c.Wait()
-			select {
-			case waitClosed <- c:
-			default:
-			}
+			close(closed)
 		}()
+		return closed
 	}
-	watch(client)
+	waitClosed := watch(client)
 
 	failures := 0
 	for {
 		select {
 		case <-s.done:
 			return
-		case closedClient := <-waitClosed:
-			if closedClient != client {
-				continue
-			}
+		case <-waitClosed:
 			// 连接已结束：立即触发重连。
 			newClient, ok := s.reconnect(client)
 			if !ok {
@@ -625,7 +636,7 @@ func (s *sshDialer) superviseClient(client *ssh.Client) {
 			}
 			client = newClient
 			failures = 0
-			watch(client)
+			waitClosed = watch(client)
 		case <-ticker.C:
 			_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
 			if err == nil {
@@ -643,7 +654,7 @@ func (s *sshDialer) superviseClient(client *ssh.Client) {
 			}
 			client = newClient
 			failures = 0
-			watch(client)
+			waitClosed = watch(client)
 		}
 	}
 }
