@@ -29,6 +29,22 @@ It supports two modes:
 - **`go` (default)**: A pure Go implementation that does not depend on the system `socat`. It supports Linux and macOS, maps to `TCP-LISTEN`/`fork`/`reuseaddr`, and extends this with UDP, concurrency limiting, idle timeouts, and per-connection logging (see below).
 - **`socat`**: Directly invokes the local `socat` command (optionally with `-sudo`), generating an equivalent command line (supports TCP/UDP).
 
+## What's New in 1.2.0
+
+- Single-port SOCKS5 + HTTP/HTTPS proxying, with optional SOCKS5, HTTP CONNECT,
+  or SSH upstream routing.
+- Multi-instance YAML configuration for forwarders and proxies.
+- JSON/Prometheus statistics, a read-only Web monitoring panel, and structured
+  connection events.
+- A self-contained TCP/UDP load-test tool with bounded latency sampling, JSON
+  output, and CI thresholds.
+- Stronger self-target, timeout, HTTP-header, SSH lifecycle, and release-pipeline
+  safeguards.
+
+Version 1.2.0 supports Linux and macOS on amd64 and arm64. Windows support and
+Windows release archives have been removed. See [CHANGELOG.md](CHANGELOG.md) for
+the complete release notes and upgrade-impact details.
+
 ## Why This Tool Exists
 
 Podman (especially in rootless mode) by default does not allow unprivileged users to listen on low ports below 1024. This differs noticeably from Docker's port mapping behavior: in Docker you can map a container directly to low host ports such as 22/53/80, whereas under rootless Podman the same mapping fails due to permission restrictions.
@@ -70,7 +86,7 @@ Verify:
 
 ```bash
 portmap --version
-# portmap 1.1.0 (commit 85fc65e, built 2026-08-08T10:26:23Z)
+# portmap 1.2.0 (commit <short-sha>, built <timestamp>)
 ```
 
 ## Container Image
@@ -82,6 +98,8 @@ Prebuilt multi-arch images (`linux/amd64` + `linux/arm64`) are published to ghcr
 docker pull ghcr.io/soulteary/portmap:latest
 # or pull from Docker Hub
 docker pull soulteary/portmap:latest
+# pin the 1.2.0 release in production
+docker pull ghcr.io/soulteary/portmap:1.2.0
 ```
 
 The image is based on `scratch` and contains only the single static binary. Use host networking so port forwarding works:
@@ -94,8 +112,27 @@ docker run --rm --network host ghcr.io/soulteary/portmap:latest \
 
 ## Usage
 
+`portmap` uses subcommands while keeping the original forward command as the
+default:
+
 ```text
-portmap [flags]
+portmap <subcommand> [flags]
+
+subcommands:
+  forward   TCP/UDP port forwarding (default)
+  proxy     SOCKS5 + HTTP proxy on a single port
+  version   print version information
+```
+
+- For backward compatibility, invocations without a subcommand still run
+  `forward`.
+- `-lang` is processed before dispatch so localized help works for every
+  subcommand.
+
+### `forward` subcommand
+
+```text
+portmap [forward] [flags]
 
 flags:
   -listen-port int        local listening port (default 22)
@@ -107,7 +144,7 @@ flags:
   -sudo                   run socat with sudo in socat mode
   -dial-timeout duration  dial target timeout (default 10s)
   -max-conns int          max concurrent connections, 0 for unlimited (go mode only)
-  -idle-timeout duration  idle timeout; reclaim a direction once it stays idle past the threshold, 0 to disable (go mode only)
+  -idle-timeout duration  idle timeout; disconnect when both directions are idle past the threshold, 0 to disable (go mode only)
   -log-level string       log level: info or debug (go mode only, default "info")
   -quiet                  quiet mode, suppress per-connection routine logs (go mode only)
   -stats-addr string      optional HTTP stats endpoint address (e.g. 127.0.0.1:9090), empty disables; loopback only
@@ -156,7 +193,9 @@ Press `Ctrl+C` to exit gracefully; it waits for in-flight connections to finish.
 ## SOCKS5 + HTTP Proxy
 
 The `proxy` subcommand serves SOCKS5 and HTTP/HTTPS proxy clients on one port.
-Outbound connections are direct and ignore environment proxy variables.
+Outbound connections are direct by default or can use an explicitly configured
+SOCKS5, HTTP CONNECT, or SSH upstream. Environment proxy variables are always
+ignored.
 
 ```bash
 ./portmap proxy -addr 127.0.0.1:1080
@@ -166,8 +205,13 @@ Important proxy flags:
 
 - `-max-conns 256`: bound concurrent client connections (`0` disables the limit).
 - `-handshake-timeout 10s`: bound client protocol detection and request parsing; outbound connection setup uses the independent `-dial-timeout`.
-- `-idle-timeout 5m`: close tunnels that remain idle in either direction.
+- `-idle-timeout 5m`: close tunnels only after both directions remain idle.
 - `-allow-public`: explicitly allow a non-loopback listen address.
+- `-upstream URL`: route outbound connections through SOCKS5, HTTP CONNECT, or SSH.
+- `-upstream-identity` / `-upstream-known-hosts`: configure SSH key
+  authentication and host-key verification.
+- `-upstream-keepalive` / `-upstream-keepalive-max-failures`: control SSH
+  liveness detection and reconnect behavior.
 - `-stats-allow-public`: independently allow the stats endpoint on a non-loopback address.
 - `-web-allow-public`: independently allow the Web panel on a non-loopback address.
 - `-stats-addr 127.0.0.1:9090`: optional read-only HTTP stats endpoint (empty disables; loopback only unless `-stats-allow-public`).
@@ -457,9 +501,10 @@ Linux/macOS, cross-builds every release target, and independently runs
 
 Releases are driven by GoReleaser, see `.github/workflows/release.yml`:
 
-- **Trigger**: pushing a `v*` tag (e.g. `v1.0.0`) publishes automatically; a manual
+- **Trigger**: pushing a `v*` tag (e.g. `v1.2.0`) publishes automatically; a manual
   `workflow_dispatch` must also be run from a `v*` tag.
-- **Release gate**: race tests, module hygiene, and `govulncheck` run again before publishing.
+- **Release gate**: module hygiene, `go vet`, race tests, and `govulncheck`
+  run again before publishing.
 - **Binaries**: `linux`/`darwin` x `amd64`/`arm64`,
   uploaded to the GitHub Release together with `checksums.txt`.
 - **Container images**: multi-arch (`linux/amd64` + `linux/arm64`) images are built and
@@ -487,6 +532,7 @@ Prerequisites:
 ├── config.go                        # YAML config file loading and merging
 ├── config_test.go                   # config file loading/merging tests
 ├── config.example.yaml              # config file example
+├── CHANGELOG.md                     # release history and upgrade notes
 ├── signals_unix.go                  # SIGUSR1 status print on Unix-like platforms
 ├── cmd
 │   └── loadtest                     # standalone load-test tool (self-contained chain + TCP/UDP stress)
@@ -503,16 +549,30 @@ Prerequisites:
     ├── forward                      # pure Go TCP/UDP forwarder
     │   ├── forward.go               # TCP forwarding, limiting, idle timeout, logging
     │   ├── forward_test.go          # forward unit tests
+    │   ├── selftarget.go            # recursive self-target protection
     │   ├── udp.go                   # UDP session forwarding
     │   └── reuseaddr_unix.go        # SO_REUSEADDR on Unix-like platforms
+    ├── proxy                        # single-port SOCKS5 + HTTP/HTTPS proxy
+    │   ├── server.go                # lifecycle, protocol detection, and dispatch
+    │   ├── socks5.go                # SOCKS5 handshake and CONNECT
+    │   ├── http.go                  # HTTP forwarding and CONNECT tunneling
+    │   ├── dialer.go                # direct dialer that ignores environment proxies
+    │   ├── upstream.go              # SOCKS5/HTTP/SSH upstream dialing
+    │   └── proxy_test.go            # proxy integration tests
+    ├── netutil                      # shared relay and idle-timeout primitives
+    │   └── netutil.go               # Relay / RelayReader / IdleConn
+    ├── stats                        # counters, events, JSON, and Prometheus output
+    ├── web                          # read-only monitoring panel and JSON APIs
     ├── socat                        # fallback that invokes the system socat
-        ├── socat.go                 # construct and execute the socat command
-        ├── socat_test.go            # socat unit tests
-        └── socat_cancel_unix.go     # graceful SIGTERM cancellation on Unix-like platforms
+    │   ├── socat.go                 # construct and execute the socat command
+    │   ├── socat_test.go            # socat unit tests
+    │   └── socat_cancel_unix.go     # graceful SIGTERM cancellation on Unix-like platforms
     └── i18n                         # internationalization (i18n) support
         ├── i18n.go                  # language detection, parsing, and lookup
         ├── i18n_test.go             # i18n unit tests
-        ├── keys.go                  # message key constants and language tables
+        ├── keys_common.go           # shared message keys and language tables
+        ├── keys_forward.go          # forward command message keys
+        ├── keys_proxy.go            # proxy command message keys
         ├── locale_unix.go           # locale probing on Unix-like platforms (no-op)
         └── messages_*.go            # per-language messages (en/zh/ja/ko/fr/de)
 ```
