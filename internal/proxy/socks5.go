@@ -107,6 +107,13 @@ func (s *Server) handleSOCKS5WithReader(ctx context.Context, conn net.Conn, read
 		_ = s.sendSOCKSReply(conn, socksRepCmdNotSupported)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxySocksBadCommand), cmd)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !s.completeHandshake(conn) {
+		return context.Canceled
+	}
+	ctx = context.WithValue(s.serverContext(), connIDContextKey{}, connIDFromContext(ctx))
 
 	// 3. 直连目标（忽略环境代理）。
 	dialCtx, cancel := context.WithTimeout(ctx, s.DialTimeout)
@@ -134,15 +141,15 @@ func (s *Server) handleSOCKS5WithReader(ctx context.Context, conn net.Conn, read
 	remote = s.wrapRemote(remote)
 	defer func() { _ = remote.Close() }()
 
+	if !s.beginRelay(conn, remote) {
+		return context.Canceled
+	}
 	// 4. 回复成功。BND.ADDR/BND.PORT 填 0 即可，多数客户端不校验。
 	if err := s.sendSOCKSReply(conn, socksRepSuccess); err != nil {
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxySocksReplySuccess), err)
 	}
 
 	s.logf(i18n.T(i18n.KeyLogProxySOCKS5Relay), conn.RemoteAddr(), target)
-	if !s.beginRelay(conn, remote) {
-		return context.Canceled
-	}
 	start := time.Now()
 	up, down := netutil.RelayReaderCount(conn, reader, remote)
 	s.Stats().AddUp(up)
