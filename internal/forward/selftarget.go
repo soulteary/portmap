@@ -16,8 +16,8 @@ package forward
 
 import (
 	"context"
-	"fmt"
 	"net"
+	"strconv"
 	"strings"
 )
 
@@ -30,7 +30,11 @@ func targetMatchesListener(ctx context.Context, target string, listener net.Addr
 		return false
 	}
 	listenIP, listenPort, ok := networkAddress(listener)
-	if !ok || port != fmt.Sprint(listenPort) {
+	if !ok {
+		return false
+	}
+	targetPort, err := resolvePort(ctx, listener.Network(), port)
+	if err != nil || targetPort != listenPort {
 		return false
 	}
 
@@ -50,9 +54,21 @@ func targetMatchesListener(ctx context.Context, target string, listener net.Addr
 	return false
 }
 
+func resolvePort(ctx context.Context, network, port string) (int, error) {
+	if value, err := strconv.ParseUint(port, 10, 16); err == nil {
+		return int(value), nil
+	}
+	network = strings.TrimSuffix(strings.TrimSuffix(network, "4"), "6")
+	return net.DefaultResolver.LookupPort(ctx, network, port)
+}
+
 // connMatchesListener performs the post-dial half of the self-target guard.
 func connMatchesListener(conn net.Conn, listener net.Addr) bool {
-	remoteIP, remotePort, ok := networkAddress(conn.RemoteAddr())
+	return addressMatchesListener(conn.RemoteAddr(), listener)
+}
+
+func addressMatchesListener(target, listener net.Addr) bool {
+	remoteIP, remotePort, ok := networkAddress(target)
 	if !ok {
 		return false
 	}
@@ -73,9 +89,13 @@ func networkAddress(addr net.Addr) (net.IP, int, bool) {
 
 func listenerContainsIP(listenIP, targetIP net.IP) bool {
 	if listenIP.IsUnspecified() {
-		return isLocalIP(targetIP)
+		return sameIPFamily(listenIP, targetIP) && isLocalIP(targetIP)
 	}
 	return listenIP.Equal(targetIP)
+}
+
+func sameIPFamily(a, b net.IP) bool {
+	return (a.To4() != nil) == (b.To4() != nil)
 }
 
 func isLocalIP(target net.IP) bool {

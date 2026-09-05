@@ -63,7 +63,7 @@ func (s *Server) serveUDP(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if targetMatchesListener(ctx, s.cfg.Target, conn.LocalAddr()) {
+	if addressMatchesListener(targetAddr, conn.LocalAddr()) {
 		return fmt.Errorf(i18n.T(i18n.KeyErrFwdSelfTarget), s.cfg.Target)
 	}
 
