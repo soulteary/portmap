@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -35,15 +36,70 @@ import (
 // reader 已经包裹了原始连接，并且其缓冲区开头包含用于协议探测时
 // “塞回去”的字节，因此可以直接从 reader 解析完整的 HTTP 请求。
 func (s *Server) handleHTTP(ctx context.Context, conn net.Conn, reader *bufio.Reader) error {
-	req, err := http.ReadRequest(reader)
+	req, requestReader, err := readProxyRequest(reader)
 	if err != nil {
+		if errors.Is(err, errProxyRequestHeadersTooLarge) {
+			writeHTTPError(conn, http.StatusRequestHeaderFieldsTooLarge)
+		}
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPParseRequest), err)
 	}
+	reader = requestReader
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !s.completeHandshake(conn) {
+		return context.Canceled
+	}
+	ctx = s.serverContext()
 
 	if req.Method == http.MethodConnect {
 		return s.handleConnect(ctx, conn, reader, req)
 	}
 	return s.handlePlainHTTP(ctx, conn, reader, req)
+}
+
+const maxProxyRequestHeaderBytes = 1 << 20
+
+var errProxyRequestHeadersTooLarge = fmt.Errorf("proxy request headers exceed %d bytes", maxProxyRequestHeaderBytes)
+
+// readProxyRequest bounds the request line and MIME headers before handing the
+// stream to net/http. It returns the replay reader so buffered request-body or
+// CONNECT tunnel bytes remain available to the existing forwarding paths.
+func readProxyRequest(reader *bufio.Reader) (*http.Request, *bufio.Reader, error) {
+	head, err := readRequestHead(reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	replay := bufio.NewReader(io.MultiReader(bytes.NewReader(head), reader))
+	req, err := http.ReadRequest(replay)
+	if err != nil {
+		return nil, nil, err
+	}
+	return req, replay, nil
+}
+
+func readRequestHead(reader *bufio.Reader) ([]byte, error) {
+	var head bytes.Buffer
+	continuedLine := false
+	for {
+		fragment, err := reader.ReadSlice('\n')
+		if head.Len()+len(fragment) > maxProxyRequestHeaderBytes {
+			return nil, errProxyRequestHeadersTooLarge
+		}
+		_, _ = head.Write(fragment)
+		if err == bufio.ErrBufferFull {
+			continuedLine = true
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		blankLine := !continuedLine && (bytes.Equal(fragment, []byte("\r\n")) || bytes.Equal(fragment, []byte("\n")))
+		continuedLine = false
+		if blankLine {
+			return head.Bytes(), nil
+		}
+	}
 }
 
 // handleConnect 处理 HTTPS CONNECT 转发。
@@ -78,14 +134,14 @@ func (s *Server) handleConnect(ctx context.Context, conn net.Conn, reader *bufio
 	remote = s.wrapRemote(remote)
 	defer func() { _ = remote.Close() }()
 
+	if !s.beginRelay(conn, remote) {
+		return context.Canceled
+	}
 	if _, err := io.WriteString(conn, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPConnectReply), err)
 	}
 
 	s.logf(i18n.T(i18n.KeyLogProxyHTTPConnect), conn.RemoteAddr(), target)
-	if !s.beginRelay(conn, remote) {
-		return context.Canceled
-	}
 	start := time.Now()
 	up, down := netutil.RelayReaderCount(conn, reader, remote)
 	s.Stats().AddUp(up)

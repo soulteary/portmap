@@ -165,7 +165,7 @@ Outbound connections are direct and ignore environment proxy variables.
 Important proxy flags:
 
 - `-max-conns 256`: bound concurrent client connections (`0` disables the limit).
-- `-handshake-timeout 10s`: bound protocol detection and handshake time.
+- `-handshake-timeout 10s`: bound client protocol detection and request parsing; outbound connection setup uses the independent `-dial-timeout`.
 - `-idle-timeout 5m`: close tunnels that remain idle in either direction.
 - `-allow-public`: explicitly allow a non-loopback listen address.
 - `-stats-addr 127.0.0.1:9090`: optional read-only HTTP stats endpoint (empty disables; loopback only unless `-allow-public`).
@@ -177,6 +177,8 @@ default. Only use `-allow-public` behind an appropriate firewall or equivalent
 access boundary. Requests that resolve back to the proxy's own listener are also
 rejected to prevent recursive connection storms. On shutdown, existing connections
 have up to 10 seconds to finish before they are closed.
+HTTP request lines and headers are limited to 1 MiB in total; larger requests receive
+`431 Request Header Fields Too Large`.
 
 #### SSH upstream private key passphrase
 

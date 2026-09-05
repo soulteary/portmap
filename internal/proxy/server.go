@@ -322,6 +322,19 @@ func (s *Server) setHandshakeDeadline(conn net.Conn, deadline time.Time) bool {
 	return conn.SetDeadline(deadline) == nil
 }
 
+// completeHandshake clears the absolute client handshake deadline after the
+// request has been parsed. The connection remains in the handshake set until
+// beginRelay atomically promotes it; shutdown can therefore still interrupt
+// the outbound-dial/reply transition.
+func (s *Server) completeHandshake(conn net.Conn) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing {
+		return false
+	}
+	return conn.SetDeadline(time.Time{}) == nil
+}
+
 func (s *Server) trackConn(conn net.Conn) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

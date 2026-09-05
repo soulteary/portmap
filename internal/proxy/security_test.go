@@ -22,6 +22,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -184,7 +185,7 @@ func TestHandshakeTimeoutClosesSlowClient(t *testing.T) {
 	}
 }
 
-func TestHandshakeTimeoutCancelsOutboundDial(t *testing.T) {
+func TestHandshakeTimeoutDoesNotCapOutboundDial(t *testing.T) {
 	dialer := &contextBlockingDialer{
 		started: make(chan struct{}),
 		stopped: make(chan error, 1),
@@ -212,16 +213,63 @@ func TestHandshakeTimeoutCancelsOutboundDial(t *testing.T) {
 	}
 	select {
 	case err := <-dialer.stopped:
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("拨号上下文返回 %v，期望 deadline exceeded", err)
+		t.Fatalf("出站拨号被握手超时提前取消: %v", err)
+	case <-time.After(3 * srv.HandshakeTimeout):
+	}
+
+	go func() { _, _ = io.Copy(io.Discard, clientConn) }()
+	_ = srv.stopAccepting()
+	select {
+	case err := <-dialer.stopped:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("服务关闭后的拨号上下文返回 %v，期望 canceled", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("出站拨号没有受握手超时约束")
+		t.Fatal("服务关闭没有取消出站拨号")
 	}
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("握手超时后连接处理器没有退出")
+		t.Fatal("取消拨号后连接处理器没有退出")
+	}
+}
+
+func TestHTTPProxyRejectsOversizedRequestHeaders(t *testing.T) {
+	srv := New("127.0.0.1:0")
+	srv.HandshakeTimeout = time.Second
+	serverConn, clientConn := net.Pipe()
+	defer func() { _ = clientConn.Close() }()
+
+	done := make(chan struct{})
+	go func() {
+		srv.serveConn(serverConn)
+		close(done)
+	}()
+	writeDone := make(chan error, 1)
+	go func() {
+		_, err := io.WriteString(clientConn,
+			"GET http://example.test/ HTTP/1.1\r\nX-Large: "+
+				strings.Repeat("a", maxProxyRequestHeaderBytes)+"\r\n\r\n")
+		writeDone <- err
+	}()
+
+	resp, err := http.ReadResponse(bufio.NewReader(clientConn), nil)
+	if err != nil {
+		t.Fatalf("读取超大请求头响应失败: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestHeaderFieldsTooLarge {
+		t.Fatalf("状态码=%d，期望 %d", resp.StatusCode, http.StatusRequestHeaderFieldsTooLarge)
+	}
+	select {
+	case <-writeDone:
+	case <-time.After(time.Second):
+		t.Fatal("请求写入未在拒绝后退出")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("超大请求头处理器未退出")
 	}
 }
 
