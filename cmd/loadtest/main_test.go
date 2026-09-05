@@ -207,6 +207,10 @@ func TestLatencySamplerIsBounded(t *testing.T) {
 	if samples := sampler.values(); len(samples) != 10 {
 		t.Fatalf("samples=%d，期望 10", len(samples))
 	}
+	minRTT, maxRTT := sampler.extrema()
+	if minRTT != 1 || maxRTT != 10000 {
+		t.Fatalf("exact extrema=(%s,%s), want (1ns,10µs)", minRTT, maxRTT)
+	}
 }
 
 func TestLatencySamplerUsesGlobalConcurrentLimit(t *testing.T) {

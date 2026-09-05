@@ -341,6 +341,8 @@ type result struct {
 	errRead   int64
 	errMismat int64
 	lat       []time.Duration // 已排序的 RTT
+	latMin    time.Duration   // 全量成功请求的精确最小 RTT
+	latMax    time.Duration   // 全量成功请求的精确最大 RTT
 }
 
 const defaultMaxLatencySamples = 100000
@@ -387,10 +389,11 @@ func runWithOutput(o *options, stdout, stderr io.Writer) error {
 	defer cancel()
 
 	start := time.Now()
-	lats := runWorkers(ctx, o, listenAddr, s, true)
+	latency := runWorkers(ctx, o, listenAddr, s, true)
 	elapsed := time.Since(start)
 	cancel()
 
+	lats := latency.samples
 	sort.Slice(lats, func(i, j int) bool { return lats[i] < lats[j] })
 
 	res := result{
@@ -404,6 +407,8 @@ func runWithOutput(o *options, stdout, stderr io.Writer) error {
 		errRead:   s.errRead.Load(),
 		errMismat: s.errMismatch.Load(),
 		lat:       lats,
+		latMin:    latency.min,
+		latMax:    latency.max,
 	}
 
 	// 校验 ActiveConns 归零（仅自建链路可观测）。
@@ -434,7 +439,13 @@ func runWithOutput(o *options, stdout, stderr io.Writer) error {
 
 // runWorkers 启动 o.conns 个 worker 并发发压，返回合并后的 RTT 切片。
 // record 为 false 时（预热）不收集 RTT。
-func runWorkers(ctx context.Context, o *options, addr string, s *stats, record bool) []time.Duration {
+type latencyResult struct {
+	samples []time.Duration
+	min     time.Duration
+	max     time.Duration
+}
+
+func runWorkers(ctx context.Context, o *options, addr string, s *stats, record bool) latencyResult {
 	var wg sync.WaitGroup
 	maxSamples := latencySampleLimit(o)
 	sampler := newLatencySampler(maxSamples)
@@ -455,7 +466,8 @@ func runWorkers(ctx context.Context, o *options, addr string, s *stats, record b
 	}
 	wg.Wait()
 
-	return sampler.values()
+	minRTT, maxRTT := sampler.extrema()
+	return latencyResult{samples: sampler.values(), min: minRTT, max: maxRTT}
 }
 
 // worker 表示单个并发压测协程。
@@ -482,17 +494,23 @@ type latencySampler struct {
 	initial []latencySample
 	seen    atomic.Uint64
 	limit   uint64
+	min     atomic.Int64
+	max     atomic.Int64
 }
 
 func newLatencySampler(limit int) *latencySampler {
-	return &latencySampler{
+	sampler := &latencySampler{
 		slots:   make([]atomic.Pointer[latencySample], limit),
 		initial: make([]latencySample, limit),
 		limit:   uint64(limit),
 	}
+	sampler.min.Store(1<<63 - 1)
+	return sampler
 }
 
 func (s *latencySampler) add(v time.Duration, state *uint64) {
+	updateAtomicMin(&s.min, int64(v))
+	updateAtomicMax(&s.max, int64(v))
 	sequence := s.seen.Add(1)
 	index := sequence - 1
 	if sequence > s.limit {
@@ -519,6 +537,29 @@ func (s *latencySampler) add(v time.Duration, state *uint64) {
 			return
 		}
 	}
+}
+
+func updateAtomicMin(value *atomic.Int64, candidate int64) {
+	for current := value.Load(); candidate < current; current = value.Load() {
+		if value.CompareAndSwap(current, candidate) {
+			return
+		}
+	}
+}
+
+func updateAtomicMax(value *atomic.Int64, candidate int64) {
+	for current := value.Load(); candidate > current; current = value.Load() {
+		if value.CompareAndSwap(current, candidate) {
+			return
+		}
+	}
+}
+
+func (s *latencySampler) extrema() (time.Duration, time.Duration) {
+	if s.seen.Load() == 0 {
+		return 0, 0
+	}
+	return time.Duration(s.min.Load()), time.Duration(s.max.Load())
 }
 
 func (s *latencySampler) values() []time.Duration {
@@ -978,11 +1019,11 @@ func printReport(w io.Writer, o *options, hi hostInfo, res result, activeZero bo
 	if len(res.lat) == 0 {
 		p("  (no successful samples)")
 	} else {
-		pf("  min          : %s\n", percentile(res.lat, 0).Round(time.Microsecond))
+		pf("  min          : %s\n", res.latMin.Round(time.Microsecond))
 		pf("  p50          : %s\n", percentile(res.lat, 50).Round(time.Microsecond))
 		pf("  p95          : %s\n", percentile(res.lat, 95).Round(time.Microsecond))
 		pf("  p99          : %s\n", percentile(res.lat, 99).Round(time.Microsecond))
-		pf("  max          : %s\n", percentile(res.lat, 100).Round(time.Microsecond))
+		pf("  max          : %s\n", res.latMax.Round(time.Microsecond))
 	}
 	pf("  samples      : %d/%d successful RTTs retained\n", len(res.lat), res.requests)
 
