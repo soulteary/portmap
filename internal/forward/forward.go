@@ -161,8 +161,10 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 // serveTCP 处理 TCP 监听与转发。
 func (s *Server) serveTCP(ctx context.Context) error {
+	serveCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	lc := s.listenConfig()
-	ln, err := lc.Listen(ctx, "tcp", s.cfg.Listen)
+	ln, err := lc.Listen(serveCtx, "tcp", s.cfg.Listen)
 	if err != nil {
 		return err
 	}
@@ -177,6 +179,7 @@ func (s *Server) serveTCP(ctx context.Context) error {
 	stopWithError := func(err error) {
 		select {
 		case fatalErr <- err:
+			cancel()
 			_ = ln.Close()
 		default:
 		}
@@ -184,7 +187,7 @@ func (s *Server) serveTCP(ctx context.Context) error {
 
 	// ctx 取消时关闭 listener，使 Accept 立即返回。
 	go func() {
-		<-ctx.Done()
+		<-serveCtx.Done()
 		_ = ln.Close()
 	}()
 
@@ -215,10 +218,15 @@ func (s *Server) serveTCP(ctx context.Context) error {
 		if s.sem != nil {
 			select {
 			case s.sem <- struct{}{}:
-			case <-ctx.Done():
+			case <-serveCtx.Done():
 				_ = conn.Close()
 				s.wg.Wait()
-				return nil
+				select {
+				case fatal := <-fatalErr:
+					return fatal
+				default:
+					return nil
+				}
 			}
 		}
 
@@ -229,7 +237,7 @@ func (s *Server) serveTCP(ctx context.Context) error {
 			if s.sem != nil {
 				defer func() { <-s.sem }()
 			}
-			s.handle(ctx, conn, ln.Addr(), dualStack, stopWithError)
+			s.handle(serveCtx, conn, ln.Addr(), dualStack, stopWithError)
 		}()
 	}
 }

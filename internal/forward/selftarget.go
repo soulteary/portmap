@@ -29,7 +29,7 @@ func targetMatchesListener(ctx context.Context, target string, listener net.Addr
 	if err != nil {
 		return false
 	}
-	listenIP, listenPort, ok := networkAddress(listener)
+	listenIP, listenPort, listenZone, ok := networkAddress(listener)
 	if !ok {
 		return false
 	}
@@ -39,19 +39,26 @@ func targetMatchesListener(ctx context.Context, target string, listener net.Addr
 	}
 
 	host = strings.Trim(host, "[]")
-	if ip := net.ParseIP(host); ip != nil {
-		return listenerContainsIP(listenIP, ip, dualStack)
+	if ip, zone := parseIPZone(host); ip != nil {
+		return listenerContainsIP(listenIP, ip, listenZone, zone, dualStack)
 	}
 	resolved, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
 		return false
 	}
 	for _, addr := range resolved {
-		if listenerContainsIP(listenIP, net.IP(addr.AsSlice()), dualStack) {
+		if listenerContainsIP(listenIP, net.IP(addr.AsSlice()), listenZone, "", dualStack) {
 			return true
 		}
 	}
 	return false
+}
+
+func parseIPZone(host string) (net.IP, string) {
+	if percent := strings.LastIndexByte(host, '%'); percent >= 0 {
+		return net.ParseIP(host[:percent]), host[percent+1:]
+	}
+	return net.ParseIP(host), ""
 }
 
 func resolvePort(ctx context.Context, network, port string) (int, error) {
@@ -68,26 +75,26 @@ func connMatchesListener(conn net.Conn, listener net.Addr, dualStack bool) bool 
 }
 
 func addressMatchesListener(target, listener net.Addr, dualStack bool) bool {
-	remoteIP, remotePort, ok := networkAddress(target)
+	remoteIP, remotePort, remoteZone, ok := networkAddress(target)
 	if !ok {
 		return false
 	}
-	listenIP, listenPort, ok := networkAddress(listener)
-	return ok && remotePort == listenPort && listenerContainsIP(listenIP, remoteIP, dualStack)
+	listenIP, listenPort, listenZone, ok := networkAddress(listener)
+	return ok && remotePort == listenPort && listenerContainsIP(listenIP, remoteIP, listenZone, remoteZone, dualStack)
 }
 
-func networkAddress(addr net.Addr) (net.IP, int, bool) {
+func networkAddress(addr net.Addr) (net.IP, int, string, bool) {
 	switch a := addr.(type) {
 	case *net.TCPAddr:
-		return a.IP, a.Port, true
+		return a.IP, a.Port, a.Zone, true
 	case *net.UDPAddr:
-		return a.IP, a.Port, true
+		return a.IP, a.Port, a.Zone, true
 	default:
-		return nil, 0, false
+		return nil, 0, "", false
 	}
 }
 
-func listenerContainsIP(listenIP, targetIP net.IP, dualStack bool) bool {
+func listenerContainsIP(listenIP, targetIP net.IP, listenZone, targetZone string, dualStack bool) bool {
 	if targetIP.IsUnspecified() {
 		if targetIP.To4() != nil {
 			targetIP = net.IPv4(127, 0, 0, 1)
@@ -96,10 +103,13 @@ func listenerContainsIP(listenIP, targetIP net.IP, dualStack bool) bool {
 		}
 	}
 	if listenIP.IsUnspecified() {
+		if listenZone != "" && listenZone != targetZone {
+			return false
+		}
 		familyMatches := sameIPFamily(listenIP, targetIP) || (dualStack && listenIP.To4() == nil && targetIP.To4() != nil)
 		return familyMatches && isLocalIP(targetIP)
 	}
-	return listenIP.Equal(targetIP)
+	return listenIP.Equal(targetIP) && listenZone == targetZone
 }
 
 func sameIPFamily(a, b net.IP) bool {

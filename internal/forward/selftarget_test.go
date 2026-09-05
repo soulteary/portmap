@@ -68,6 +68,17 @@ func TestResolvedTargetAddressMatchesListener(t *testing.T) {
 	}
 }
 
+func TestScopedIPv6ZonesRemainDistinct(t *testing.T) {
+	ip := net.ParseIP("fe80::1")
+	listener := &net.TCPAddr{IP: ip, Port: 12345, Zone: "eth0"}
+	if addressMatchesListener(&net.TCPAddr{IP: ip, Port: 12345, Zone: "eth1"}, listener, false) {
+		t.Fatal("same scoped IPv6 bytes on different zones matched")
+	}
+	if !addressMatchesListener(&net.TCPAddr{IP: ip, Port: 12345, Zone: "eth0"}, listener, false) {
+		t.Fatal("same scoped IPv6 address and zone did not match")
+	}
+}
+
 func TestTCPForwardRejectsSelfTarget(t *testing.T) {
 	port := freePort(t)
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
