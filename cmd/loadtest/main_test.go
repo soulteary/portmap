@@ -41,6 +41,8 @@ func TestParseFlagsValidatesTerminationAndLimits(t *testing.T) {
 		{name: "zero samples", args: []string{"-max-samples", "0"}},
 		{name: "negative p95", args: []string{"-max-p95", "-1ms"}},
 		{name: "error rate over 100", args: []string{"-max-error-rate", "101"}},
+		{name: "NaN error rate", args: []string{"-max-error-rate", "NaN"}},
+		{name: "infinite error rate", args: []string{"-max-error-rate", "+Inf"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -202,6 +204,26 @@ func TestLatencySamplerIsBounded(t *testing.T) {
 	}
 	if len(sampler.samples) != 10 {
 		t.Fatalf("samples=%d，期望 10", len(sampler.samples))
+	}
+}
+
+func TestMergeLatencySamplersUsesCombinedStream(t *testing.T) {
+	empty := newLatencySampler(1, 1)
+	busy := newLatencySampler(1, 2)
+	busy.add(42 * time.Millisecond)
+	got := mergeLatencySamplers([]*latencySampler{empty, busy}, 1, 3)
+	if len(got) != 1 || got[0] != 42*time.Millisecond {
+		t.Fatalf("merged samples=%v, want [42ms]", got)
+	}
+
+	first := newLatencySampler(10, 4)
+	second := newLatencySampler(10, 5)
+	for i := 0; i < 10; i++ {
+		first.add(time.Duration(i))
+		second.add(time.Duration(i + 10))
+	}
+	if got := mergeLatencySamplers([]*latencySampler{first, second}, 7, 6); len(got) != 7 {
+		t.Fatalf("merged sample count=%d, want 7", len(got))
 	}
 }
 
