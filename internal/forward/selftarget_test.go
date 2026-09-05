@@ -79,6 +79,28 @@ func TestScopedIPv6ZonesRemainDistinct(t *testing.T) {
 	}
 }
 
+func TestIPv6ZoneNameAndIndexMatch(t *testing.T) {
+	interfaces, err := net.Interfaces()
+	if err != nil || len(interfaces) == 0 {
+		t.Skip("no network interface available")
+	}
+	iface := interfaces[0]
+	ip := net.ParseIP("fe80::1")
+	listener := &net.UDPAddr{IP: ip, Port: 12345, Zone: iface.Name}
+	target := &net.UDPAddr{IP: ip, Port: 12345, Zone: strconv.Itoa(iface.Index)}
+	if !addressMatchesListener(target, listener, false) {
+		t.Fatalf("zone aliases %q and %d did not match", iface.Name, iface.Index)
+	}
+}
+
+func TestNilTargetIPUsesListenerLoopbackFamily(t *testing.T) {
+	listener := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 12345}
+	target := &net.UDPAddr{IP: nil, Port: 12345}
+	if !addressMatchesListener(target, listener, false) {
+		t.Fatal("nil target IP did not normalize to IPv4 loopback")
+	}
+}
+
 func TestTCPForwardRejectsSelfTarget(t *testing.T) {
 	port := freePort(t)
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))

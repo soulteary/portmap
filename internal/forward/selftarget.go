@@ -95,21 +95,44 @@ func networkAddress(addr net.Addr) (net.IP, int, string, bool) {
 }
 
 func listenerContainsIP(listenIP, targetIP net.IP, listenZone, targetZone string, dualStack bool) bool {
-	if targetIP.IsUnspecified() {
-		if targetIP.To4() != nil {
+	if len(targetIP) == 0 || targetIP.IsUnspecified() {
+		if (len(targetIP) == 0 && listenIP.To4() != nil) || (len(targetIP) != 0 && targetIP.To4() != nil) {
 			targetIP = net.IPv4(127, 0, 0, 1)
 		} else {
 			targetIP = net.IPv6loopback
 		}
 	}
 	if listenIP.IsUnspecified() {
-		if listenZone != "" && listenZone != targetZone {
+		if listenZone != "" && !zonesEqual(listenZone, targetZone) {
 			return false
 		}
 		familyMatches := sameIPFamily(listenIP, targetIP) || (dualStack && listenIP.To4() == nil && targetIP.To4() != nil)
 		return familyMatches && isLocalIP(targetIP)
 	}
-	return listenIP.Equal(targetIP) && listenZone == targetZone
+	return listenIP.Equal(targetIP) && zonesEqual(listenZone, targetZone)
+}
+
+func zonesEqual(a, b string) bool {
+	if a == b {
+		return true
+	}
+	aIndex, aOK := zoneIndex(a)
+	bIndex, bOK := zoneIndex(b)
+	return aOK && bOK && aIndex == bIndex
+}
+
+func zoneIndex(zone string) (int, bool) {
+	if zone == "" {
+		return 0, false
+	}
+	if index, err := strconv.Atoi(zone); err == nil {
+		return index, true
+	}
+	iface, err := net.InterfaceByName(zone)
+	if err != nil {
+		return 0, false
+	}
+	return iface.Index, true
 }
 
 func sameIPFamily(a, b net.IP) bool {
