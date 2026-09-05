@@ -437,22 +437,25 @@ func runWithOutput(o *options, stdout, stderr io.Writer) error {
 func runWorkers(ctx context.Context, o *options, addr string, s *stats, record bool) []time.Duration {
 	var wg sync.WaitGroup
 	maxSamples := latencySampleLimit(o)
-	sampler := newLatencySampler(maxSamples, 0x9e3779b97f4a7c15)
+	sampler := newLatencySampler(maxSamples)
 	for i := 0; i < o.conns; i++ {
 		wg.Add(1)
-		go func() {
+		go func(idx int) {
 			defer wg.Done()
-			w := &worker{o: o, addr: addr, s: s, record: record, sampler: sampler}
+			w := &worker{
+				o: o, addr: addr, s: s, record: record, sampler: sampler,
+				sampleState: uint64(idx+1) * 0x9e3779b97f4a7c15,
+			}
 			if o.proto == "tcp" {
 				w.runTCP(ctx)
 			} else {
 				w.runUDP(ctx)
 			}
-		}()
+		}(i)
 	}
 	wg.Wait()
 
-	return sampler.samples
+	return sampler.values()
 }
 
 // worker 表示单个并发压测协程。
@@ -462,40 +465,80 @@ type worker struct {
 	s       *stats
 	record  bool
 	sampler *latencySampler
+	// sampleState is private to this worker, so random admission never contends.
+	sampleState uint64
 }
 
-// latencySampler uses reservoir sampling to keep a uniform, bounded sample of
-// an arbitrarily long RTT stream.
+type latencySample struct {
+	sequence uint64
+	value    time.Duration
+}
+
+// latencySampler uses lock-free reservoir admission over the combined RTT
+// stream. Slots keep the highest sequence admitted to them, which preserves
+// sequential reservoir replacement even when workers finish out of order.
 type latencySampler struct {
-	mu      sync.Mutex
-	samples []time.Duration
-	seen    uint64
-	state   uint64
-	limit   int
+	slots   []atomic.Pointer[latencySample]
+	initial []latencySample
+	seen    atomic.Uint64
+	limit   uint64
 }
 
-func newLatencySampler(limit int, seed uint64) *latencySampler {
-	if seed == 0 {
-		seed = 1
+func newLatencySampler(limit int) *latencySampler {
+	return &latencySampler{
+		slots:   make([]atomic.Pointer[latencySample], limit),
+		initial: make([]latencySample, limit),
+		limit:   uint64(limit),
 	}
-	capacity := min(limit, 1024)
-	return &latencySampler{samples: make([]time.Duration, 0, capacity), state: seed, limit: limit}
 }
 
-func (s *latencySampler) add(v time.Duration) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.seen++
-	if len(s.samples) < s.limit {
-		s.samples = append(s.samples, v)
-		return
+func (s *latencySampler) add(v time.Duration, state *uint64) {
+	sequence := s.seen.Add(1)
+	index := sequence - 1
+	if sequence > s.limit {
+		index = nextSampleRandom(state) % sequence
+		if index >= s.limit {
+			return
+		}
 	}
-	s.state ^= s.state << 13
-	s.state ^= s.state >> 7
-	s.state ^= s.state << 17
-	if idx := s.state % s.seen; idx < uint64(s.limit) {
-		s.samples[idx] = v
+
+	var candidate *latencySample
+	if sequence <= s.limit {
+		candidate = &s.initial[index]
+		candidate.sequence = sequence
+		candidate.value = v
+	} else {
+		candidate = &latencySample{sequence: sequence, value: v}
 	}
+	for {
+		current := s.slots[index].Load()
+		if current != nil && current.sequence > sequence {
+			return
+		}
+		if s.slots[index].CompareAndSwap(current, candidate) {
+			return
+		}
+	}
+}
+
+func (s *latencySampler) values() []time.Duration {
+	values := make([]time.Duration, 0, min(int(s.seen.Load()), int(s.limit)))
+	for i := range s.slots {
+		if sample := s.slots[i].Load(); sample != nil {
+			values = append(values, sample.value)
+		}
+	}
+	return values
+}
+
+func nextSampleRandom(state *uint64) uint64 {
+	if *state == 0 {
+		*state = 1
+	}
+	*state ^= *state << 13
+	*state ^= *state >> 7
+	*state ^= *state << 17
+	return *state
 }
 
 // makePayload 构造校验用的确定性负载。
@@ -573,7 +616,7 @@ func (w *worker) runTCP(ctx context.Context) {
 				return
 			}
 			if w.record {
-				w.sampler.add(rtt)
+				w.sampler.add(rtt, &w.sampleState)
 			}
 			done++
 		}
@@ -606,7 +649,7 @@ func (w *worker) runTCP(ctx context.Context) {
 			continue
 		}
 		if w.record {
-			w.sampler.add(time.Since(start))
+			w.sampler.add(time.Since(start), &w.sampleState)
 		}
 		done++
 	}
@@ -690,7 +733,7 @@ func (w *worker) runUDP(ctx context.Context) {
 		}
 		if ok {
 			if w.record {
-				w.sampler.add(rtt)
+				w.sampler.add(rtt, &w.sampleState)
 			}
 			done++
 		} else if !waitBeforeRetry(ctx) {

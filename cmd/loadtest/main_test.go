@@ -196,36 +196,38 @@ func TestParseFlagsDefaults(t *testing.T) {
 }
 
 func TestLatencySamplerIsBounded(t *testing.T) {
-	sampler := newLatencySampler(10, 1)
+	sampler := newLatencySampler(10)
+	state := uint64(1)
 	for i := 1; i <= 10000; i++ {
-		sampler.add(time.Duration(i))
+		sampler.add(time.Duration(i), &state)
 	}
-	if sampler.seen != 10000 {
-		t.Fatalf("seen=%d，期望 10000", sampler.seen)
+	if sampler.seen.Load() != 10000 {
+		t.Fatalf("seen=%d，期望 10000", sampler.seen.Load())
 	}
-	if len(sampler.samples) != 10 {
-		t.Fatalf("samples=%d，期望 10", len(sampler.samples))
+	if samples := sampler.values(); len(samples) != 10 {
+		t.Fatalf("samples=%d，期望 10", len(samples))
 	}
 }
 
 func TestLatencySamplerUsesGlobalConcurrentLimit(t *testing.T) {
-	sampler := newLatencySampler(7, 1)
+	sampler := newLatencySampler(7)
 	var wg sync.WaitGroup
 	for worker := 0; worker < 20; worker++ {
 		wg.Add(1)
 		go func(worker int) {
 			defer wg.Done()
+			state := uint64(worker + 1)
 			for i := 0; i < 1000; i++ {
-				sampler.add(time.Duration(worker*1000 + i))
+				sampler.add(time.Duration(worker*1000+i), &state)
 			}
 		}(worker)
 	}
 	wg.Wait()
-	if sampler.seen != 20000 {
-		t.Fatalf("seen=%d, want 20000", sampler.seen)
+	if sampler.seen.Load() != 20000 {
+		t.Fatalf("seen=%d, want 20000", sampler.seen.Load())
 	}
-	if len(sampler.samples) != 7 {
-		t.Fatalf("samples=%d, want global limit 7", len(sampler.samples))
+	if samples := sampler.values(); len(samples) != 7 {
+		t.Fatalf("samples=%d, want global limit 7", len(samples))
 	}
 }
 
