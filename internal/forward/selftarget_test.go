@@ -99,6 +99,17 @@ func TestNilTargetIPUsesListenerLoopbackFamily(t *testing.T) {
 	if !addressMatchesListener(target, listener, false) {
 		t.Fatal("nil target IP did not normalize to IPv4 loopback")
 	}
+	if addressMatchesListener(target, &net.UDPAddr{IP: net.IPv6loopback, Port: 12345}, false) {
+		t.Fatal("nil target IP incorrectly normalized to IPv6 loopback")
+	}
+}
+
+func TestUnscopedIPv6IgnoresZone(t *testing.T) {
+	listener := &net.UDPAddr{IP: net.IPv6loopback, Port: 12345}
+	target := &net.UDPAddr{IP: net.IPv6loopback, Port: 12345, Zone: "lo"}
+	if !addressMatchesListener(target, listener, false) {
+		t.Fatal("zone changed comparison for an unscoped IPv6 loopback address")
+	}
 }
 
 func TestTCPForwardRejectsSelfTarget(t *testing.T) {

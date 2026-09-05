@@ -96,20 +96,27 @@ func networkAddress(addr net.Addr) (net.IP, int, string, bool) {
 
 func listenerContainsIP(listenIP, targetIP net.IP, listenZone, targetZone string, dualStack bool) bool {
 	if len(targetIP) == 0 || targetIP.IsUnspecified() {
-		if (len(targetIP) == 0 && listenIP.To4() != nil) || (len(targetIP) != 0 && targetIP.To4() != nil) {
+		if len(targetIP) == 0 || targetIP.To4() != nil {
 			targetIP = net.IPv4(127, 0, 0, 1)
 		} else {
 			targetIP = net.IPv6loopback
 		}
 	}
 	if listenIP.IsUnspecified() {
-		if listenZone != "" && !zonesEqual(listenZone, targetZone) {
+		if zoneMatters(targetIP) && listenZone != "" && !zonesEqual(listenZone, targetZone) {
 			return false
 		}
 		familyMatches := sameIPFamily(listenIP, targetIP) || (dualStack && listenIP.To4() == nil && targetIP.To4() != nil)
 		return familyMatches && isLocalIP(targetIP)
 	}
-	return listenIP.Equal(targetIP) && zonesEqual(listenZone, targetZone)
+	if !listenIP.Equal(targetIP) {
+		return false
+	}
+	return !zoneMatters(targetIP) || zonesEqual(listenZone, targetZone)
+}
+
+func zoneMatters(ip net.IP) bool {
+	return ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
 }
 
 func zonesEqual(a, b string) bool {
