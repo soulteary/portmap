@@ -891,9 +891,11 @@ type jsonReport struct {
 		RequestsPS  float64 `json:"requests_per_second"`
 		Throughput  float64 `json:"throughput_bytes_per_second"`
 		SampleCount int     `json:"latency_sample_count"`
+		MinUs       int64   `json:"min_us"`
 		P50Us       int64   `json:"p50_us"`
 		P95Us       int64   `json:"p95_us"`
 		P99Us       int64   `json:"p99_us"`
+		MaxUs       int64   `json:"max_us"`
 	} `json:"results"`
 	Reliability struct {
 		Errors               int64   `json:"errors"`
@@ -938,9 +940,11 @@ func printJSONReport(w io.Writer, o *options, hi hostInfo, res result, activeZer
 	report.Results.RequestsPS = float64(res.requests) / sec
 	report.Results.Throughput = float64(res.bytes) / sec
 	report.Results.SampleCount = len(res.lat)
+	report.Results.MinUs = res.latMin.Microseconds()
 	report.Results.P50Us = percentile(res.lat, 50).Microseconds()
 	report.Results.P95Us = percentile(res.lat, 95).Microseconds()
 	report.Results.P99Us = percentile(res.lat, 99).Microseconds()
+	report.Results.MaxUs = res.latMax.Microseconds()
 
 	report.Reliability.Errors = res.errors
 	report.Reliability.ErrorRate = resultErrorRate(res)

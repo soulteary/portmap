@@ -263,6 +263,8 @@ func TestJSONReport(t *testing.T) {
 		bytes:    192,
 		newConns: 2,
 		lat:      []time.Duration{time.Millisecond, 2 * time.Millisecond, 3 * time.Millisecond},
+		latMin:   500 * time.Microsecond,
+		latMax:   5 * time.Millisecond,
 	}
 	var buf bytes.Buffer
 	if err := printJSONReport(&buf, o, collectHostInfo(), res, true, 0, true, true); err != nil {
@@ -272,6 +274,8 @@ func TestJSONReport(t *testing.T) {
 		Results struct {
 			Requests    int64 `json:"requests"`
 			SampleCount int   `json:"latency_sample_count"`
+			MinUs       int64 `json:"min_us"`
+			MaxUs       int64 `json:"max_us"`
 		} `json:"results"`
 		ThresholdsPassed bool `json:"thresholds_passed"`
 	}
@@ -280,6 +284,9 @@ func TestJSONReport(t *testing.T) {
 	}
 	if decoded.Results.Requests != 3 || decoded.Results.SampleCount != 3 || !decoded.ThresholdsPassed {
 		t.Fatalf("JSON 内容不符: %+v", decoded)
+	}
+	if decoded.Results.MinUs != 500 || decoded.Results.MaxUs != 5000 {
+		t.Fatalf("JSON extrema 不符: %+v", decoded.Results)
 	}
 }
 
