@@ -315,6 +315,9 @@ type sshDialer struct {
 	client  *ssh.Client
 	dialing chan struct{}
 	closed  bool
+	// revalidating identifies the cached client currently being probed after a
+	// caller timeout when active keepalives are disabled.
+	revalidating *ssh.Client
 
 	// superviseOnce 确保只启动一个守护 goroutine。
 	superviseOnce sync.Once
@@ -437,7 +440,10 @@ func (s *sshDialer) DialContext(ctx context.Context, network, address string) (n
 		return conn, nil
 	}
 	if ctx.Err() != nil {
-		return nil, err
+		if s.keepaliveInterval < 0 {
+			s.revalidateAfterTimeout(client)
+		}
+		return nil, ctx.Err()
 	}
 	// direct-tcpip 可能仅因目标拒绝连接而失败；先探测复用连接本身。连接仍
 	// 健康时保留它，避免中断承载于同一 SSH 会话上的其它活跃通道。
@@ -459,6 +465,36 @@ func (s *sshDialer) DialContext(ctx context.Context, network, address string) (n
 		return nil, dialErr
 	}
 	return s.dialThrough(ctx, client, network, address)
+}
+
+// revalidateAfterTimeout asynchronously checks a possibly blackholed cached
+// transport in passive mode. Only one probe per client may run at a time.
+func (s *sshDialer) revalidateAfterTimeout(client *ssh.Client) {
+	s.mu.Lock()
+	if s.closed || s.client != client || s.revalidating == client {
+		s.mu.Unlock()
+		return
+	}
+	s.revalidating = client
+	s.mu.Unlock()
+
+	go func() {
+		timeout := s.timeout
+		if timeout <= 0 {
+			timeout = defaultKeepaliveInterval
+		}
+		ctx, cancel := context.WithTimeout(s.lifecycleCtx, timeout)
+		healthy := sshClientHealthy(ctx, client)
+		cancel()
+		if !healthy {
+			s.discard(client)
+		}
+		s.mu.Lock()
+		if s.revalidating == client {
+			s.revalidating = nil
+		}
+		s.mu.Unlock()
+	}()
 }
 
 // sshClientHealthy 通过全局请求区分“目标通道打开失败”和“SSH 传输断开”。

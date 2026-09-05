@@ -742,6 +742,44 @@ func TestSSHDialerHealthProbeHonorsContext(t *testing.T) {
 	}
 }
 
+func TestSSHDialerPassiveRevalidationDiscardsBlackholedClient(t *testing.T) {
+	clientPEM, clientPub := generateClientKey(t)
+	sshAddr, _, stopSSH := startSSHServerWithRequestReplies(t, clientPub, false)
+	defer stopSSH()
+
+	dialer, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:            UpstreamSchemeSSH,
+		Addr:              sshAddr,
+		Username:          "tester",
+		IdentityFile:      writeIdentity(t, clientPEM),
+		Insecure:          true,
+		KeepaliveInterval: -1,
+	}, 80*time.Millisecond, 30*time.Second, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("构造 SSH 上游失败: %v", err)
+	}
+	defer closeDialer(t, dialer)
+
+	sd := dialer.(*sshDialer)
+	client, err := sd.getClient(context.Background())
+	if err != nil {
+		t.Fatalf("建立 SSH 客户端失败: %v", err)
+	}
+	sd.revalidateAfterTimeout(client)
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		sd.mu.Lock()
+		cached := sd.client
+		sd.mu.Unlock()
+		if cached == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("被动重校验未丢弃无响应的 SSH 客户端")
+}
+
 func TestSOCKS5UpstreamDialer(t *testing.T) {
 	backendAddr, stopBackend := startBackend(t)
 	defer stopBackend()
