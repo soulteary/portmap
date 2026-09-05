@@ -311,14 +311,21 @@ type sshDialer struct {
 	minBackoff           time.Duration
 	maxBackoff           time.Duration
 
-	mu     sync.Mutex
-	client *ssh.Client
-	closed bool
+	mu      sync.Mutex
+	client  *ssh.Client
+	dialing chan struct{}
+	closed  bool
+	// revalidating identifies the cached client currently being probed after a
+	// caller timeout when active keepalives are disabled.
+	revalidating *ssh.Client
 
 	// superviseOnce 确保只启动一个守护 goroutine。
 	superviseOnce sync.Once
 	// done 在 Close 时关闭，通知守护 goroutine 优雅退出。
 	done chan struct{}
+	// lifecycleCtx 在 Close 时取消，使进行中的 TCP/SSH 握手立即退出。
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
 }
 
 // parsePrivateKey 解析 SSH 私钥：passphrase 非空时用带口令解析，否则解析未加密
@@ -386,6 +393,7 @@ func newSSHDialer(cfg *UpstreamConfig, timeout time.Duration, logger *log.Logger
 		keepaliveMaxFailures = defaultKeepaliveMaxFailures
 	}
 
+	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
 	return &sshDialer{
 		cfg:                  cfg,
 		timeout:              timeout,
@@ -396,6 +404,8 @@ func newSSHDialer(cfg *UpstreamConfig, timeout time.Duration, logger *log.Logger
 		minBackoff:           defaultMinBackoff,
 		maxBackoff:           defaultMaxBackoff,
 		done:                 make(chan struct{}),
+		lifecycleCtx:         lifecycleCtx,
+		lifecycleCancel:      lifecycleCancel,
 	}, nil
 }
 
@@ -421,7 +431,7 @@ func sshHostKeyCallback(cfg *UpstreamConfig, logger *log.Logger) (ssh.HostKeyCal
 }
 
 func (s *sshDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	client, err := s.getClient()
+	client, err := s.getClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -429,15 +439,81 @@ func (s *sshDialer) DialContext(ctx context.Context, network, address string) (n
 	if err == nil {
 		return conn, nil
 	}
+	if ctx.Err() != nil {
+		if s.keepaliveInterval < 0 {
+			s.revalidateAfterTimeout(client)
+		}
+		return nil, ctx.Err()
+	}
+	// direct-tcpip 可能仅因目标拒绝连接而失败；先探测复用连接本身。连接仍
+	// 健康时保留它，避免中断承载于同一 SSH 会话上的其它活跃通道。
+	if sshClientHealthy(ctx, client) {
+		return nil, err
+	}
+	if ctx.Err() != nil {
+		// SendRequest cannot be canceled independently. Closing the transport
+		// releases the probe goroutine before returning the caller's error.
+		s.discard(client)
+		return nil, ctx.Err()
+	}
 
-	// 连接可能已断开：丢弃并重连一次后重试。
+	// SSH 传输已断开：丢弃并重连一次后重试。
 	s.discard(client)
 	s.logMessage(i18n.T(i18n.KeyLogProxyUpstreamSSHReconnect), s.cfg.Addr)
-	client, dialErr := s.getClient()
+	client, dialErr := s.getClient(ctx)
 	if dialErr != nil {
 		return nil, dialErr
 	}
 	return s.dialThrough(ctx, client, network, address)
+}
+
+// revalidateAfterTimeout asynchronously checks a possibly blackholed cached
+// transport in passive mode. Only one probe per client may run at a time.
+func (s *sshDialer) revalidateAfterTimeout(client *ssh.Client) {
+	s.mu.Lock()
+	if s.closed || s.client != client || s.revalidating == client {
+		s.mu.Unlock()
+		return
+	}
+	s.revalidating = client
+	s.mu.Unlock()
+
+	go func() {
+		ctx, cancel := context.WithTimeout(s.lifecycleCtx, s.healthProbeTimeout())
+		healthy := sshClientHealthy(ctx, client)
+		cancel()
+		if !healthy {
+			s.discard(client)
+		}
+		s.mu.Lock()
+		if s.revalidating == client {
+			s.revalidating = nil
+		}
+		s.mu.Unlock()
+	}()
+}
+
+func (s *sshDialer) healthProbeTimeout() time.Duration {
+	if s.timeout > 0 {
+		return s.timeout
+	}
+	return defaultKeepaliveInterval
+}
+
+// sshClientHealthy 通过全局请求区分“目标通道打开失败”和“SSH 传输断开”。
+// 服务端即使不支持该请求也会返回 reply=false、err=nil，仍足以证明传输可用。
+func sshClientHealthy(ctx context.Context, client *ssh.Client) bool {
+	result := make(chan error, 1)
+	go func() {
+		_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		return err == nil
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // dialThrough 在 ssh 客户端上打开到 address 的通道，并遵守 ctx 取消。
@@ -467,30 +543,100 @@ func (s *sshDialer) dialThrough(ctx context.Context, client *ssh.Client, network
 	}
 }
 
-// getClient 返回可用的 ssh 客户端，必要时建立连接。
-func (s *sshDialer) getClient() (*ssh.Client, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return nil, errors.New(i18n.T(i18n.KeyErrProxyUpstreamClosed))
+// getClient 返回可用的 ssh 客户端，必要时建立连接。同一时刻只允许一次握手；
+// 其它调用者等待该结果，但可由自己的 ctx 取消。
+func (s *sshDialer) getClient(ctx context.Context) (*ssh.Client, error) {
+	for {
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			return nil, errors.New(i18n.T(i18n.KeyErrProxyUpstreamClosed))
+		}
+		if s.client != nil {
+			client := s.client
+			s.mu.Unlock()
+			return client, nil
+		}
+		if s.dialing != nil {
+			dialing := s.dialing
+			s.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-s.done:
+				return nil, errors.New(i18n.T(i18n.KeyErrProxyUpstreamClosed))
+			case <-dialing:
+				continue
+			}
+		}
+		dialing := make(chan struct{})
+		s.dialing = dialing
+		s.mu.Unlock()
+
+		client, err := s.dialClient(ctx)
+
+		s.mu.Lock()
+		if err == nil && !s.closed {
+			s.client = client
+		}
+		closed := s.closed
+		s.dialing = nil
+		close(dialing)
+		s.mu.Unlock()
+
+		if closed {
+			if client != nil {
+				_ = client.Close()
+			}
+			return nil, errors.New(i18n.T(i18n.KeyErrProxyUpstreamClosed))
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		s.logMessage(i18n.T(i18n.KeyLogProxyUpstreamSSHConnect), s.cfg.Addr)
+		// 首次成功建连后启动后台守护：主动保活 + 断线指数退避重连。
+		// keepaliveInterval < 0 表示禁用主动保活，退回被动重连行为。
+		if s.keepaliveInterval > 0 {
+			s.superviseOnce.Do(func() {
+				go s.superviseClient(client)
+			})
+		}
+		return client, nil
 	}
-	if s.client != nil {
-		return s.client, nil
-	}
-	client, err := ssh.Dial("tcp", s.cfg.Addr, s.sshCfg)
+}
+
+// dialClient 分离 TCP 拨号与 SSH 握手，使两阶段都服从请求 ctx、拨号超时以及
+// dialer Close。握手期间使用连接截止时间，并在返回前清除。
+func (s *sshDialer) dialClient(ctx context.Context) (*ssh.Client, error) {
+	dialCtx, cancel := context.WithCancel(ctx)
+	stopLifecycle := context.AfterFunc(s.lifecycleCtx, cancel)
+	defer func() {
+		stopLifecycle()
+		cancel()
+	}()
+
+	raw, err := (&net.Dialer{Timeout: s.timeout}).DialContext(dialCtx, "tcp", s.cfg.Addr)
 	if err != nil {
 		return nil, fmt.Errorf(i18n.T(i18n.KeyErrProxyUpstreamSSHDial), s.cfg.Addr, err)
 	}
-	s.client = client
-	s.logMessage(i18n.T(i18n.KeyLogProxyUpstreamSSHConnect), s.cfg.Addr)
-	// 首次成功建连后启动后台守护：主动保活 + 断线指数退避重连。
-	// keepaliveInterval < 0 表示禁用主动保活，退回被动重连行为，不启动守护。
-	if s.keepaliveInterval > 0 {
-		s.superviseOnce.Do(func() {
-			go s.superviseClient(client)
-		})
+
+	if deadline, ok := dialCtx.Deadline(); ok {
+		_ = raw.SetDeadline(deadline)
+	} else if s.timeout > 0 {
+		_ = raw.SetDeadline(time.Now().Add(s.timeout))
 	}
-	return client, nil
+	stopHandshake := context.AfterFunc(dialCtx, func() { _ = raw.Close() })
+	conn, chans, reqs, err := ssh.NewClientConn(raw, s.cfg.Addr, s.sshCfg)
+	if !stopHandshake() {
+		_ = raw.Close()
+	}
+	if err != nil {
+		_ = raw.Close()
+		return nil, fmt.Errorf(i18n.T(i18n.KeyErrProxyUpstreamSSHDial), s.cfg.Addr, err)
+	}
+	_ = raw.SetDeadline(time.Time{})
+	return ssh.NewClient(conn, chans, reqs), nil
 }
 
 // superviseClient 是随首个 ssh 客户端启动的后台守护 goroutine：
@@ -504,18 +650,17 @@ func (s *sshDialer) superviseClient(client *ssh.Client) {
 	ticker := time.NewTicker(s.keepaliveInterval)
 	defer ticker.Stop()
 
-	// waitClosed 在底层连接结束时收到信号（缓冲 1，避免 goroutine 泄漏）。
-	waitClosed := make(chan struct{}, 1)
-	watch := func(c *ssh.Client) {
+	// 每个客户端使用独立的关闭通道，切换客户端时直接切换 select 的来源，
+	// 避免旧客户端的滞留通知占满共享通道并吞掉新客户端的关闭事件。
+	watch := func(c *ssh.Client) <-chan struct{} {
+		closed := make(chan struct{})
 		go func() {
 			_ = c.Wait()
-			select {
-			case waitClosed <- struct{}{}:
-			default:
-			}
+			close(closed)
 		}()
+		return closed
 	}
-	watch(client)
+	waitClosed := watch(client)
 
 	failures := 0
 	for {
@@ -530,14 +675,22 @@ func (s *sshDialer) superviseClient(client *ssh.Client) {
 			}
 			client = newClient
 			failures = 0
-			watch(client)
+			waitClosed = watch(client)
 		case <-ticker.C:
-			_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
-			if err == nil {
+			probeCtx, cancel := context.WithTimeout(s.lifecycleCtx, s.healthProbeTimeout())
+			healthy := sshClientHealthy(probeCtx, client)
+			timedOut := errors.Is(probeCtx.Err(), context.DeadlineExceeded)
+			cancel()
+			if healthy {
 				failures = 0
 				continue
 			}
 			failures++
+			if timedOut {
+				// A probe that produced no reply cannot be retried safely on the
+				// same transport: close it to release the blocked SendRequest.
+				failures = s.keepaliveMaxFailures
+			}
 			s.logMessage(i18n.T(i18n.KeyLogProxyUpstreamSSHKeepaliveFail), s.cfg.Addr, failures, s.keepaliveMaxFailures)
 			if failures < s.keepaliveMaxFailures {
 				continue
@@ -548,7 +701,7 @@ func (s *sshDialer) superviseClient(client *ssh.Client) {
 			}
 			client = newClient
 			failures = 0
-			watch(client)
+			waitClosed = watch(client)
 		}
 	}
 }
@@ -567,7 +720,7 @@ func (s *sshDialer) reconnect(client *ssh.Client) (*ssh.Client, bool) {
 		default:
 		}
 
-		newClient, err := s.getClient()
+		newClient, err := s.getClient(context.Background())
 		if err == nil {
 			return newClient, true
 		}
@@ -608,6 +761,7 @@ func (s *sshDialer) Close() error {
 	s.mu.Unlock()
 	if !alreadyClosed {
 		close(s.done)
+		s.lifecycleCancel()
 	}
 	if client != nil {
 		return client.Close()
