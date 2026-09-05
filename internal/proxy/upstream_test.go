@@ -604,6 +604,109 @@ func TestSSHDialerReconnectAfterClose(t *testing.T) {
 	assertDialerReachesBackend(t, dialer, backendAddr)
 }
 
+func TestSSHDialerChannelFailureKeepsActiveChannels(t *testing.T) {
+	echoLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("监听 echo 后端失败: %v", err)
+	}
+	defer func() { _ = echoLn.Close() }()
+	go func() {
+		for {
+			conn, acceptErr := echoLn.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = conn.Close() }()
+				_, _ = io.Copy(conn, conn)
+			}()
+		}
+	}()
+
+	clientPEM, clientPub := generateClientKey(t)
+	sshAddr, _, stopSSH := startSSHServer(t, clientPub)
+	defer stopSSH()
+	dialer, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:            UpstreamSchemeSSH,
+		Addr:              sshAddr,
+		Username:          "tester",
+		IdentityFile:      writeIdentity(t, clientPEM),
+		Insecure:          true,
+		KeepaliveInterval: -1,
+	}, 5*time.Second, 30*time.Second, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("构造 SSH 上游失败: %v", err)
+	}
+	defer closeDialer(t, dialer)
+
+	active, err := dialer.DialContext(context.Background(), "tcp", echoLn.Addr().String())
+	if err != nil {
+		t.Fatalf("打开活跃 channel: %v", err)
+	}
+	defer func() { _ = active.Close() }()
+
+	closedLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("获取关闭端口: %v", err)
+	}
+	deadAddr := closedLn.Addr().String()
+	_ = closedLn.Close()
+	if _, err := dialer.DialContext(context.Background(), "tcp", deadAddr); err == nil {
+		t.Fatal("不可达目标应返回 channel 错误")
+	}
+
+	_ = active.SetDeadline(time.Now().Add(time.Second))
+	if _, err := active.Write([]byte("still-alive")); err != nil {
+		t.Fatalf("目标 channel 失败后活跃 channel 写入失败: %v", err)
+	}
+	got := make([]byte, len("still-alive"))
+	if _, err := io.ReadFull(active, got); err != nil {
+		t.Fatalf("目标 channel 失败后活跃 channel 已被关闭: %v", err)
+	}
+	if string(got) != "still-alive" {
+		t.Fatalf("echo=%q，期望 still-alive", got)
+	}
+}
+
+func TestSSHDialerInitialHandshakeHonorsContext(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("监听停滞 SSH 端点失败: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		conn, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_, _ = conn.Read(make([]byte, 1))
+	}()
+
+	dialer, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:            UpstreamSchemeSSH,
+		Addr:              ln.Addr().String(),
+		Username:          "tester",
+		Password:          "secret",
+		Insecure:          true,
+		KeepaliveInterval: -1,
+	}, 5*time.Second, 30*time.Second, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("构造 SSH 上游失败: %v", err)
+	}
+	defer closeDialer(t, dialer)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := dialer.DialContext(ctx, "tcp", "127.0.0.1:1"); err == nil {
+		t.Fatal("停滞握手应随 context 取消")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("SSH 初始握手未及时响应 context: %s", elapsed)
+	}
+}
+
 func TestSOCKS5UpstreamDialer(t *testing.T) {
 	backendAddr, stopBackend := startBackend(t)
 	defer stopBackend()
