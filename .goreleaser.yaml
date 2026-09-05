@@ -33,6 +33,7 @@ archives:
     files:
       - README.md
       - README.en.md
+      - CHANGELOG.md
       - LICENSE
       - config.example.yaml
 

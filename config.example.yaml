@@ -29,7 +29,8 @@ forward:
   dial_timeout: 10s
   # 最大并发连接数，0 表示不限制（仅 go 模式；UDP 下限制并发会话数），默认 0
   max_conns: 0
-  # 空闲超时，TCP 下任一方向空闲超过阈值即回收该方向连接，0 表示不启用（仅 go 模式；UDP 下 0 表示默认 60s），默认 0
+  # 空闲超时，TCP 下双向均无数据超过阈值才断开，0 表示不启用
+  # （仅 go 模式；UDP 下 0 表示默认 60s），默认 0
   idle_timeout: 0s
   # 日志级别：info 或 debug（仅 go 模式，默认 info）
   log_level: info

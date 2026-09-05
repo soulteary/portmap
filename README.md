@@ -33,6 +33,17 @@ sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222
 - **`go`（默认）**：纯 Go 实现，不依赖系统 `socat`，支持 Linux 与 macOS，对应 `TCP-LISTEN`/`fork`/`reuseaddr`，并扩展了 UDP、并发限流、空闲超时与连接级日志（见下）。
 - **`socat`**：直接调用本机的 `socat` 命令（可选 `-sudo`），生成等价命令行（支持 TCP/UDP）。
 
+## 1.2.0 版本亮点
+
+- 新增单端口 SOCKS5 + HTTP/HTTPS 代理，并支持 SOCKS5、HTTP CONNECT 与 SSH 上游。
+- 新增 forward/proxy YAML 多实例配置。
+- 新增 JSON/Prometheus 统计端点、只读 Web 监控面板和结构化连接事件。
+- 新增自包含的 TCP/UDP 压测工具，支持有界延迟采样、JSON 输出和 CI 阈值。
+- 强化自引用目标、超时、HTTP 请求头、SSH 生命周期和发布流水线安全边界。
+
+1.2.0 支持 Linux/macOS 的 amd64 与 arm64；Windows 支持及 Windows 发布归档
+已经移除。完整变更和升级影响见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## 为什么写这个工具
 
 Podman（尤其是 rootless 模式）默认不允许非特权用户监听 1024 以下的低位端口，这与 Docker 的端口映射行为存在明显差异：在 Docker 里可以直接把容器映射到宿主机的 22/53/80 等低位端口，而在 Podman rootless 下同样的映射会因为权限限制而失败。
@@ -74,7 +85,7 @@ brew install soulteary/tap/portmap
 
 ```bash
 portmap --version
-# portmap 1.1.0 (commit 85fc65e, built 2026-08-08T10:26:23Z)
+# portmap 1.2.0 (commit <short-sha>, built <timestamp>)
 ```
 
 ## 容器镜像
@@ -86,6 +97,8 @@ portmap --version
 docker pull ghcr.io/soulteary/portmap:latest
 # 或从 Docker Hub 拉取
 docker pull soulteary/portmap:latest
+# 生产环境固定使用 1.2.0
+docker pull ghcr.io/soulteary/portmap:1.2.0
 ```
 
 容器基于 `scratch`，仅包含单个静态二进制。运行时需使用 host 网络才能完成端口转发：
@@ -128,7 +141,7 @@ flags:
   -sudo                   socat 模式下以 sudo 运行
   -dial-timeout duration  拨号目标超时 (默认 10s)
   -max-conns int          最大并发连接数，0 表示不限制（仅 go 模式）
-  -idle-timeout duration  空闲超时，任一方向空闲超过阈值即回收该方向连接，0 表示不启用（仅 go 模式）
+  -idle-timeout duration  空闲超时，双向均无数据超过阈值才断开，0 表示不启用（仅 go 模式）
   -log-level string       日志级别：info 或 debug（仅 go 模式，默认 "info"）
   -quiet                  安静模式，抑制每连接的常规日志（仅 go 模式）
   -stats-addr string      可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭；仅允许回环地址
@@ -142,8 +155,8 @@ flags:
 ### proxy 子命令（SOCKS5 + HTTP 代理）
 
 在**同一个监听端口**上通过窥探连接首字节自动区分 SOCKS5 与 HTTP/HTTPS 客户端；
-所有出站连接均**直连**目标，忽略 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`
-等环境变量配置的上游代理。
+出站连接默认**直连**目标，也可显式配置 SOCKS5、HTTP CONNECT 或 SSH 上游；
+`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` 等环境变量始终被忽略。
 
 ```text
 portmap proxy [flags]
@@ -156,6 +169,16 @@ flags:
                           协议握手超时，0 表示不限制 (默认 10s)
   -idle-timeout duration  双向空闲超时，0 表示不限制 (默认 5m0s)
   -max-conns int          代理最大并发连接数，0 表示不限制 (默认 256)
+  -upstream string        上游代理 URL，支持 socks5://、http://、ssh://；留空表示直连
+  -upstream-identity string
+                          SSH 上游认证使用的私钥文件
+  -upstream-insecure      跳过 SSH host key 校验（不安全，仅用于自建测试环境）
+  -upstream-keepalive duration
+                          SSH 主动保活间隔；0 使用默认 30s，负数禁用主动保活
+  -upstream-keepalive-max-failures int
+                          判定 SSH 上游断线前允许的连续保活失败次数 (默认 3)
+  -upstream-known-hosts string
+                          SSH host key 校验使用的 known_hosts 文件
   -stats-addr string      可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭；除非 -stats-allow-public 否则仅允许回环地址
   -stats-allow-public     允许统计端点监听非回环地址
   -web-addr string        可选的 Web 面板监听地址（如 127.0.0.1:8080），留空表示关闭；除非 -web-allow-public 否则仅允许回环地址
@@ -511,9 +534,10 @@ CI 见 `.github/workflows/ci.yml`：在 Linux/macOS 上运行 `go vet` 与
 
 发布见 `.github/workflows/release.yml`，由 GoReleaser 驱动：
 
-- **触发**：推送 `v*` 形式的 tag（如 `v1.0.0`）自动发布；手动
+- **触发**：推送 `v*` 形式的 tag（如 `v1.2.0`）自动发布；手动
   `workflow_dispatch` 也必须从 `v*` tag 发起。
-- **发布门禁**：发布前重新运行 race test、模块整洁检查与 `govulncheck`。
+- **发布门禁**：发布前重新运行模块整洁检查、`go vet`、race test 与
+  `govulncheck`。
 - **二进制产物**：`linux`/`darwin` × `amd64`/`arm64`
   连同 `checksums.txt` 一并上传到 GitHub Release。
 - **容器镜像**：构建多架构（`linux/amd64` + `linux/arm64`）镜像并推送到
@@ -540,6 +564,7 @@ CI 见 `.github/workflows/ci.yml`：在 Linux/macOS 上运行 `go vet` 与
 ├── config.go                        # YAML 配置文件加载与合并
 ├── config_test.go                   # 配置文件加载/合并测试
 ├── config.example.yaml              # 配置文件示例
+├── CHANGELOG.md                     # 版本历史与升级说明
 ├── signals_unix.go                  # 类 Unix 平台 SIGUSR1 状态打印
 ├── cmd
 │   └── loadtest                     # 独立压测工具（自包含链路 + TCP/UDP 压测）
@@ -556,6 +581,7 @@ CI 见 `.github/workflows/ci.yml`：在 Linux/macOS 上运行 `go vet` 与
     ├── forward                      # 纯 Go TCP/UDP 转发器
     │   ├── forward.go               # TCP 转发、限流、空闲超时、日志
     │   ├── forward_test.go          # forward 单元测试
+    │   ├── selftarget.go            # 递归自引用目标防护
     │   ├── udp.go                   # UDP 会话转发
     │   └── reuseaddr_unix.go        # 类 Unix 平台 SO_REUSEADDR
     ├── proxy                        # 单端口 SOCKS5 + HTTP 代理
@@ -563,9 +589,12 @@ CI 见 `.github/workflows/ci.yml`：在 Linux/macOS 上运行 `go vet` 与
     │   ├── socks5.go                # SOCKS5 握手与 CONNECT
     │   ├── http.go                  # HTTP 代理与 CONNECT 转发
     │   ├── dialer.go                # 忽略环境代理的直连拨号器
+    │   ├── upstream.go              # SOCKS5/HTTP/SSH 上游拨号
     │   └── proxy_test.go            # proxy 单元测试
     ├── netutil                      # forward/proxy 共用的双向转发与空闲超时
     │   └── netutil.go               # Relay / RelayReader / IdleConn
+    ├── stats                        # 统计、事件、JSON 与 Prometheus 输出
+    ├── web                          # 只读监控面板及 JSON API
     ├── socat                        # 调用系统 socat 的 fallback
     │   ├── socat.go                 # 构造并执行 socat 命令
     │   ├── socat_test.go            # socat 单元测试

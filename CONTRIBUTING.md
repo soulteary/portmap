@@ -91,7 +91,9 @@ User-facing help text, logs, and error messages are localized in
 `internal/i18n` (`en`/`zh`/`ja`/`ko`/`fr`/`de`). When you add or change such a
 message:
 
-1. Add a message key constant in `internal/i18n/keys.go`.
+1. Add a message key constant in the relevant
+   `internal/i18n/keys_common.go`, `keys_forward.go`, or `keys_proxy.go`
+   file.
 2. Provide translations in **every** `internal/i18n/messages_*.go` file. If you
    cannot translate a language, add the English string as a placeholder and note
    it in the PR so maintainers/community can help.
@@ -105,6 +107,16 @@ message:
 - Make sure `make vet test lint build` all pass before requesting review.
 - New features should update the relevant docs (`README.md` and `README.en.md`)
   and, if applicable, `config.example.yaml`.
+
+### Release Checklist
+
+1. Update `CHANGELOG.md` and both README files for the target version.
+2. Run `make check`, `make lint`, and `goreleaser check`.
+3. Confirm `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are configured.
+4. Merge the release-preparation PR and create the version tag from the resulting
+   `main` commit (for example, `v1.2.0`).
+5. Verify the GitHub archives, checksums, attestations, and both container
+   registries, then update the Homebrew tap.
 
 ### Project Layout
 
@@ -202,7 +214,8 @@ CI 会在 Linux、macOS 上运行 `go vet` 与 `go test -race`，并单独运行
 面向用户的帮助文本、日志与错误消息在 `internal/i18n` 中做了本地化
 （`en`/`zh`/`ja`/`ko`/`fr`/`de`）。当你新增或修改这类消息时：
 
-1. 在 `internal/i18n/keys.go` 中新增消息 key 常量。
+1. 在对应的 `internal/i18n/keys_common.go`、`keys_forward.go` 或
+   `keys_proxy.go` 文件中新增消息 key 常量。
 2. 在**每一个** `internal/i18n/messages_*.go` 文件中提供对应翻译。若某语言你无法
    翻译，可先用英文占位并在 PR 中说明，便于维护者/社区协助补全。
 3. 通过 key 引用消息，而非硬编码字符串字面量。
@@ -215,6 +228,15 @@ CI 会在 Linux、macOS 上运行 `go vet` 与 `go test -race`，并单独运行
 - 请求评审前，确保 `make vet test lint build` 全部通过。
 - 新功能应同步更新相关文档（`README.md` 与 `README.en.md`），必要时更新
   `config.example.yaml`。
+
+### 发布检查清单
+
+1. 为目标版本更新 `CHANGELOG.md` 和两份 README。
+2. 运行 `make check`、`make lint` 与 `goreleaser check`。
+3. 确认已配置 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN`。
+4. 合并发布准备 PR，并从合并后的 `main` 提交创建版本标签
+   （例如 `v1.2.0`）。
+5. 验证 GitHub 归档、校验和、构建证明及两个容器仓库，随后更新 Homebrew Tap。
 
 ### 项目结构
 
