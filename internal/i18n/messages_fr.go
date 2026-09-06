@@ -199,8 +199,7 @@ var messagesFR = map[string]string{
 	KeyErrProxyHTTPForward:      "échec du transfert de la requête vers %s : %w",
 	KeyErrProxyHTTPRelayResp:    "échec du relais de la réponse : %w",
 
-KeyErrProxyHTTPUpgradeUnsupported: "HTTP Upgrade n’est pas pris en charge ; utilisez plutôt un tunnel CONNECT",
-
+	KeyErrProxyHTTPUpgradeUnsupported: "HTTP Upgrade n’est pas pris en charge ; utilisez plutôt un tunnel CONNECT",
 
 	KeyErrProxyUpstreamScheme:               "schéma amont non pris en charge : %q (choisir socks5, http ou ssh)",
 	KeyErrProxyUpstreamParse:                "échec d'analyse de l'URL amont : %w",

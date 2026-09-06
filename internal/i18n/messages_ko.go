@@ -199,8 +199,7 @@ var messagesKO = map[string]string{
 	KeyErrProxyHTTPForward:      "%s 로 요청 전달 실패: %w",
 	KeyErrProxyHTTPRelayResp:    "응답 회신 실패: %w",
 
-KeyErrProxyHTTPUpgradeUnsupported: "HTTP Upgrade는 지원되지 않습니다. 대신 CONNECT 터널을 사용하세요",
-
+	KeyErrProxyHTTPUpgradeUnsupported: "HTTP Upgrade는 지원되지 않습니다. 대신 CONNECT 터널을 사용하세요",
 
 	KeyErrProxyUpstreamScheme:               "지원되지 않는 업스트림 스킴: %q (socks5, http 또는 ssh 선택)",
 	KeyErrProxyUpstreamParse:                "업스트림 URL 파싱 실패: %w",
