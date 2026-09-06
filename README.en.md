@@ -238,6 +238,9 @@ rejected to prevent recursive connection storms. On shutdown, existing connectio
 have up to 10 seconds to finish before they are closed.
 HTTP request lines and headers are limited to 1 MiB in total; larger requests receive
 `431 Request Header Fields Too Large`.
+Plain HTTP Upgrade requests (including `ws://`) are rejected with `501 Not Implemented`
+instead of being forwarded with their hop-by-hop headers silently removed. Use CONNECT
+for a transparent upgraded tunnel.
 `-allow-public` applies only to the proxy listener; admin endpoints require their
 own explicit public-access flags.
 

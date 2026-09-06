@@ -47,6 +47,10 @@ func (s *Server) handleHTTP(ctx context.Context, conn net.Conn, reader *bufio.Re
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if isUpgradeRequest(req) {
+		writeHTTPError(conn, http.StatusNotImplemented)
+		return errors.New(i18n.T(i18n.KeyErrProxyHTTPUpgradeUnsupported))
+	}
 	if !s.completeHandshake(conn) {
 		return context.Canceled
 	}
@@ -56,6 +60,25 @@ func (s *Server) handleHTTP(ctx context.Context, conn net.Conn, reader *bufio.Re
 		return s.handleConnect(ctx, conn, reader, req)
 	}
 	return s.handlePlainHTTP(ctx, conn, reader, req)
+}
+
+func isUpgradeRequest(req *http.Request) bool {
+	hasUpgradeValue := false
+	for _, value := range req.Header.Values("Upgrade") {
+		if strings.TrimSpace(value) != "" {
+			hasUpgradeValue = true
+			break
+		}
+	}
+	if !hasUpgradeValue {
+		return false
+	}
+	for _, option := range connectionOptionNames(req.Header) {
+		if strings.EqualFold(option, "upgrade") {
+			return true
+		}
+	}
+	return false
 }
 
 const maxProxyRequestHeaderBytes = 1 << 20
