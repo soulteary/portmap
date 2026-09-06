@@ -101,11 +101,19 @@ docker pull soulteary/portmap:latest
 docker pull ghcr.io/soulteary/portmap:1.2.0
 ```
 
-容器基于 `scratch`，仅包含单个静态二进制。运行时需使用 host 网络才能完成端口转发：
+容器基于 `scratch`，仅包含单个静态二进制，并默认以非 root 的 `65532:65532` 运行。运行时需使用 host 网络才能完成端口转发：
 
 ```bash
-# 把宿主机 22 转发到容器监听的 2222（低位端口需特权）
+# 非 root 默认配置：把宿主机高位端口 8022 转发到 2222
 docker run --rm --network host ghcr.io/soulteary/portmap:latest \
+  -listen-port 8022 -target 127.0.0.1:2222
+```
+
+需要直接监听 1024 以下的端口时，仅授予绑定低位端口所需的 capability：
+
+```bash
+docker run --rm --network host --cap-drop ALL --cap-add NET_BIND_SERVICE \
+  --security-opt no-new-privileges:true ghcr.io/soulteary/portmap:latest \
   -listen-port 22 -target 127.0.0.1:2222
 ```
 
@@ -140,8 +148,8 @@ flags:
   -reuseaddr              启用 SO_REUSEADDR (默认 true)
   -sudo                   socat 模式下以 sudo 运行
   -dial-timeout duration  拨号目标超时 (默认 10s)
-  -max-conns int          最大并发连接数，0 表示不限制（仅 go 模式）
-  -idle-timeout duration  空闲超时，双向均无数据超过阈值才断开，0 表示不启用（仅 go 模式）
+  -max-conns int          最大并发连接数，0 表示不限制（仅 go 模式，默认 256）
+  -idle-timeout duration  空闲超时，双向均无数据超过阈值才断开，0 表示不启用（仅 go 模式，默认 5m）
   -log-level string       日志级别：info 或 debug（仅 go 模式，默认 "info"）
   -quiet                  安静模式，抑制每连接的常规日志（仅 go 模式）
   -stats-addr string      可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭；仅允许回环地址
@@ -151,6 +159,8 @@ flags:
   -lang string            界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
   -version                打印版本信息后退出
 ```
+
+为避免异常客户端无界占用文件描述符和 goroutine，forward 默认最多接受 256 个并发 TCP 连接或 UDP 会话，并回收双向空闲超过 5 分钟的会话。需要保留旧版无界行为时，可显式设置 `-max-conns 0 -idle-timeout 0`。
 
 ### proxy 子命令（SOCKS5 + HTTP 代理）
 
@@ -202,6 +212,8 @@ flags:
 按 `Ctrl+C` 优雅退出；服务停止接收新连接，并最多等待 10 秒让已有连接结束。
 `-handshake-timeout` 仅限制客户端协议探测与请求解析；目标连接使用独立的
 `-dial-timeout`。HTTP 请求行与请求头合计最多 1 MiB，超限返回 `431`。
+明文 HTTP Upgrade 请求（包括 `ws://`）会明确返回 `501 Not Implemented`，避免逐跳头被
+静默移除后产生难以诊断的失败；需要透明升级隧道时请使用 CONNECT。
 
 > 安全提示：代理不提供身份认证，默认拒绝监听 `0.0.0.0`、`::` 等非回环地址。
 > 只有在网络访问已由防火墙或其它边界保护时，才应显式添加 `-allow-public`。
@@ -386,8 +398,8 @@ forward:
   reuseaddr: true
   sudo: false
   dial_timeout: 10s
-  max_conns: 0
-  idle_timeout: 0s
+  max_conns: 256
+  idle_timeout: 5m
   log_level: info
   quiet: false
   stats_addr: ""

@@ -201,6 +201,8 @@ var messagesDE = map[string]string{
 	KeyErrProxyHTTPForward:      "Weiterleitung der Anfrage an %s fehlgeschlagen: %w",
 	KeyErrProxyHTTPRelayResp:    "Weiterleitung der Antwort fehlgeschlagen: %w",
 
+	KeyErrProxyHTTPUpgradeUnsupported: "HTTP Upgrade wird nicht unterstützt; verwenden Sie stattdessen einen CONNECT-Tunnel",
+
 	KeyErrProxyUpstreamScheme:               "nicht unterstütztes Upstream-Schema: %q (socks5, http oder ssh wählen)",
 	KeyErrProxyUpstreamParse:                "Analyse der Upstream-URL fehlgeschlagen: %w",
 	KeyErrProxyUpstreamEmptyHost:            "die Upstream-URL muss einen Host enthalten",

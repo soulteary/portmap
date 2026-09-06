@@ -1611,3 +1611,46 @@ func TestSSHDialerAgentDisabledRequiresOtherAuth(t *testing.T) {
 		t.Fatalf("期望返回缺少认证方式错误，实际: %v", err)
 	}
 }
+
+func TestAgentKeyringSignersHonorsTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows 上 ssh-agent 走 named pipe，不支持")
+	}
+	socket := tempAgentSocket(t)
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	t.Cleanup(func() {
+		close(stop)
+		_ = ln.Close()
+	})
+	go func() {
+		for {
+			conn, acceptErr := ln.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go func() {
+				<-stop
+				_ = conn.Close()
+			}()
+		}
+	}()
+
+	const timeout = 50 * time.Millisecond
+	keyring := newAgentKeyringWithTimeout(&UpstreamConfig{AgentSocket: socket}, timeout)
+	if keyring == nil {
+		t.Fatal("reachable stalled agent should pass the connection probe")
+	}
+	defer func() { _ = keyring.Close() }()
+
+	start := time.Now()
+	if _, err := keyring.signers(); err == nil {
+		t.Fatal("stalled agent should fail when its deadline expires")
+	}
+	if elapsed := time.Since(start); elapsed > 10*timeout {
+		t.Fatalf("agent operation ignored timeout: %s", elapsed)
+	}
+}

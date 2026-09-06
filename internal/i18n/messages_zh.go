@@ -201,6 +201,8 @@ var messagesZH = map[string]string{
 	KeyErrProxyHTTPForward:      "转发请求到 %s 失败: %w",
 	KeyErrProxyHTTPRelayResp:    "回传响应失败: %w",
 
+	KeyErrProxyHTTPUpgradeUnsupported: "不支持 HTTP Upgrade；请改用 CONNECT 隧道",
+
 	KeyErrProxyUpstreamScheme:               "不支持的上游协议: %q（可选 socks5、http 或 ssh）",
 	KeyErrProxyUpstreamParse:                "解析上游 URL 失败: %w",
 	KeyErrProxyUpstreamEmptyHost:            "上游 URL 必须包含主机地址",
