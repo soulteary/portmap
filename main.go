@@ -1070,6 +1070,53 @@ func defaultProxyOptions() proxyOptions {
 	}
 }
 
+type proxyAdminOptions struct {
+	statsAddr        string
+	statsAllowPublic bool
+	webAddr          string
+	webAllowPublic   bool
+	webLogMax        int
+}
+
+// collectProxyAdminOptions validates and consolidates the process-wide admin
+// endpoints used by a multi-instance proxy. Every instance that enables an
+// endpoint must agree on its address and security settings; silently selecting
+// the first declaration would make behavior depend on YAML ordering.
+func collectProxyAdminOptions(instances []proxyOptions) (proxyAdminOptions, error) {
+	out := proxyAdminOptions{webLogMax: 1000}
+	statsSet := false
+	webSet := false
+	for _, opt := range instances {
+		if addr := strings.TrimSpace(opt.statsAddr); addr != "" {
+			if statsSet && out.statsAddr != addr {
+				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "stats_addr", out.statsAddr, addr))
+			}
+			if statsSet && out.statsAllowPublic != opt.statsAllowPublic {
+				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "stats_allow_public", out.statsAllowPublic, opt.statsAllowPublic))
+			}
+			out.statsAddr = addr
+			out.statsAllowPublic = opt.statsAllowPublic
+			statsSet = true
+		}
+		if addr := strings.TrimSpace(opt.webAddr); addr != "" {
+			if webSet && out.webAddr != addr {
+				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_addr", out.webAddr, addr))
+			}
+			if webSet && out.webAllowPublic != opt.webAllowPublic {
+				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_allow_public", out.webAllowPublic, opt.webAllowPublic))
+			}
+			if webSet && out.webLogMax != opt.webLogMax {
+				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_log_max", out.webLogMax, opt.webLogMax))
+			}
+			out.webAddr = addr
+			out.webAllowPublic = opt.webAllowPublic
+			out.webLogMax = opt.webLogMax
+			webSet = true
+		}
+	}
+	return out, nil
+}
+
 // runProxyMulti 处理 proxy 多实例（多端口映射）：逐个实例从默认值出发叠加配置
 // 文件字段（per-instance 不应用 CLI 覆盖），校验并按监听地址去重后并发启动。
 func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) error {
@@ -1131,6 +1178,15 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 		instances = append(instances, proxyInstance{opt: opt, upstream: upstream})
 	}
 
+	instanceOptions := make([]proxyOptions, 0, len(instances))
+	for _, inst := range instances {
+		instanceOptions = append(instanceOptions, inst.opt)
+	}
+	admin, err := collectProxyAdminOptions(instanceOptions)
+	if err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -1141,24 +1197,10 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 	errCh := make(chan error, len(instances))
 	var wg sync.WaitGroup
 	providers := make([]stats.Provider, 0, len(instances))
-	statsAddr := ""
-	statsAllowPublic := false
-	// Web 面板：若任一实例设置了 -web-addr，则创建一份共享事件日志并注入所有
-	// 实例，聚合到同一个面板。取第一个非空 webAddr 及其 webLogMax/allowPublic。
-	webAddr := ""
-	webAllowPublic := false
-	webLogMax := 1000
-	for _, inst := range instances {
-		if strings.TrimSpace(inst.opt.webAddr) != "" {
-			webAddr = inst.opt.webAddr
-			webAllowPublic = inst.opt.webAllowPublic
-			webLogMax = inst.opt.webLogMax
-			break
-		}
-	}
+	// All instances share one validated admin surface and one event log.
 	var events *stats.EventLog
-	if webAddr != "" {
-		events = stats.NewEventLog(webLogMax)
+	if admin.webAddr != "" {
+		events = stats.NewEventLog(admin.webLogMax)
 	}
 	for i, inst := range instances {
 		i, inst := i, inst
@@ -1166,10 +1208,6 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 		srv := newProxyServer(inst.opt, inst.upstream)
 		srv.Events = events
 		providers = append(providers, srv)
-		if statsAddr == "" && strings.TrimSpace(inst.opt.statsAddr) != "" {
-			statsAddr = inst.opt.statsAddr
-			statsAllowPublic = inst.opt.statsAllowPublic
-		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -1183,8 +1221,8 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 		}()
 	}
 
-	statsWait, statsErrCh := startStatsEndpoint(ctx, cancel, statsAddr, statsAllowPublic, providers...)
-	webWait, webErrCh := startWebEndpoint(ctx, cancel, webAddr, webAllowPublic, events, providers...)
+	statsWait, statsErrCh := startStatsEndpoint(ctx, cancel, admin.statsAddr, admin.statsAllowPublic, providers...)
+	webWait, webErrCh := startWebEndpoint(ctx, cancel, admin.webAddr, admin.webAllowPublic, events, providers...)
 
 	wg.Wait()
 	statsWait()
