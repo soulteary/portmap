@@ -582,8 +582,10 @@ func TestRunRejectsEmptySelectedConfig(t *testing.T) {
 		{name: "empty file for forward", content: "", argv: nil},
 		{name: "language-only file for forward", content: "lang: en\n", argv: nil},
 		{name: "missing forward section", content: "proxy:\n  addr: 127.0.0.1:1080\n", argv: nil},
+		{name: "empty forward object", content: "forward: {}\n", argv: nil},
 		{name: "empty forward list", content: "forward: []\n", argv: nil},
 		{name: "missing proxy section", content: "forward:\n  listen_port: 13001\n", argv: []string{"proxy"}},
+		{name: "empty proxy object", content: "proxy: {}\n", argv: []string{"proxy"}},
 		{name: "empty proxy list", content: "proxy: []\n", argv: []string{"proxy"}},
 	}
 

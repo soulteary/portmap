@@ -204,7 +204,8 @@ func runForward(argv []string) error {
 		if err != nil {
 			return err
 		}
-		if len(topCfg.Forward) == 0 {
+		if len(topCfg.Forward) == 0 ||
+			(len(topCfg.Forward) == 1 && (topCfg.Forward[0] == nil || *topCfg.Forward[0] == (ForwardConfig{}))) {
 			return errors.New(i18n.T(i18n.KeyErrConfigSectionEmpty, "forward"))
 		}
 		if len(topCfg.Forward) > 1 {
@@ -727,7 +728,8 @@ func runProxy(argv []string) error {
 		if err != nil {
 			return err
 		}
-		if len(topCfg.Proxy) == 0 {
+		if len(topCfg.Proxy) == 0 ||
+			(len(topCfg.Proxy) == 1 && (topCfg.Proxy[0] == nil || *topCfg.Proxy[0] == (ProxyConfig{}))) {
 			return errors.New(i18n.T(i18n.KeyErrConfigSectionEmpty, "proxy"))
 		}
 		if len(topCfg.Proxy) > 1 {
