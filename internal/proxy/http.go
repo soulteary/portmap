@@ -226,6 +226,7 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 	for {
 		resp, connectionOptions, err := remoteReader.read(req)
 		if err != nil {
+			s.Stats().AddDown(downCounter.n)
 			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), err)
 		}
 		for _, key := range connectionOptions {
@@ -454,7 +455,7 @@ func removeHeaderToken(header http.Header, name, want string) bool {
 	keptValues := make([]string, 0, len(header.Values(name)))
 	for _, value := range header.Values(name) {
 		keptTokens := make([]string, 0)
-		for _, rawToken := range strings.Split(value, ",") {
+		for _, rawToken := range splitHeaderList(value) {
 			token := textproto.TrimString(rawToken)
 			if token == "" {
 				continue
@@ -477,6 +478,28 @@ func removeHeaderToken(header http.Header, name, want string) bool {
 		header.Add(name, value)
 	}
 	return true
+}
+
+func splitHeaderList(value string) []string {
+	var members []string
+	start := 0
+	quoted := false
+	escaped := false
+	for i := 0; i < len(value); i++ {
+		switch {
+		case escaped:
+			escaped = false
+		case quoted && value[i] == '\\':
+			escaped = true
+		case value[i] == '"':
+			quoted = !quoted
+		case value[i] == ',' && !quoted:
+			members = append(members, textproto.TrimString(value[start:i]))
+			start = i + 1
+		}
+	}
+	members = append(members, textproto.TrimString(value[start:]))
+	return members
 }
 
 func appendVia(h http.Header, major, minor int) {

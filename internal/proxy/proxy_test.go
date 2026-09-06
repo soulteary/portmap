@@ -669,4 +669,14 @@ func TestRemoveHeaderTokenPreservesOtherExpectations(t *testing.T) {
 	if got := strings.Join(header.Values("Expect"), ","); got != "foo,bar" {
 		t.Fatalf("remaining expectations=%q, want foo,bar", got)
 	}
+
+	quoted := http.Header{
+		"Expect": {`foo="a,100-continue,b"`},
+	}
+	if removeHeaderToken(quoted, "Expect", "100-continue") {
+		t.Fatal("100-continue inside a quoted expectation must not be consumed")
+	}
+	if got := quoted.Get("Expect"); got != `foo="a,100-continue,b"` {
+		t.Fatalf("quoted expectation was corrupted: %q", got)
+	}
 }
