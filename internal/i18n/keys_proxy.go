@@ -94,6 +94,8 @@ const (
 	KeyErrProxyHTTPForward      = "err.proxy-http-forward"
 	KeyErrProxyHTTPRelayResp    = "err.proxy-http-relay-resp"
 
+	KeyErrProxyHTTPUpgradeUnsupported = "err.proxy-http-upgrade-unsupported"
+
 	// proxy 上游代理链错误（upstream.go / main.go）。
 	KeyErrProxyUpstreamScheme      = "err.proxy-upstream-scheme"
 	KeyErrProxyUpstreamParse       = "err.proxy-upstream-parse"

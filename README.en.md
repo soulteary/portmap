@@ -102,11 +102,19 @@ docker pull soulteary/portmap:latest
 docker pull ghcr.io/soulteary/portmap:1.2.0
 ```
 
-The image is based on `scratch` and contains only the single static binary. Use host networking so port forwarding works:
+The image is based on `scratch`, contains only the static binary, and runs as the non-root `65532:65532` user by default. Use host networking so port forwarding works:
 
 ```bash
-# forward host port 22 to the container listening on 2222 (low ports need privileges)
+# non-root default: forward high host port 8022 to 2222
 docker run --rm --network host ghcr.io/soulteary/portmap:latest \
+  -listen-port 8022 -target 127.0.0.1:2222
+```
+
+To bind a port below 1024 directly, grant only the capability required for low ports:
+
+```bash
+docker run --rm --network host --cap-drop ALL --cap-add NET_BIND_SERVICE \
+  --security-opt no-new-privileges:true ghcr.io/soulteary/portmap:latest \
   -listen-port 22 -target 127.0.0.1:2222
 ```
 
@@ -143,8 +151,8 @@ flags:
   -reuseaddr              enable SO_REUSEADDR (default true)
   -sudo                   run socat with sudo in socat mode
   -dial-timeout duration  dial target timeout (default 10s)
-  -max-conns int          max concurrent connections, 0 for unlimited (go mode only)
-  -idle-timeout duration  idle timeout; disconnect when both directions are idle past the threshold, 0 to disable (go mode only)
+  -max-conns int          max concurrent connections, 0 for unlimited (go mode only, default 256)
+  -idle-timeout duration  idle timeout; disconnect when both directions are idle past the threshold, 0 to disable (go mode only, default 5m)
   -log-level string       log level: info or debug (go mode only, default "info")
   -quiet                  quiet mode, suppress per-connection routine logs (go mode only)
   -stats-addr string      optional HTTP stats endpoint address (e.g. 127.0.0.1:9090), empty disables; loopback only
@@ -154,6 +162,8 @@ flags:
   -lang string            interface language: en/zh/ja/ko/fr/de (auto-detected from the system by default)
   -version                print version information and exit
 ```
+
+To prevent faulty clients from consuming file descriptors and goroutines without a bound, forward accepts at most 256 concurrent TCP connections or UDP sessions by default and reclaims sessions idle in both directions for 5 minutes. Set `-max-conns 0 -idle-timeout 0` explicitly to retain the previous unbounded behavior.
 
 ## Examples
 
@@ -228,6 +238,9 @@ rejected to prevent recursive connection storms. On shutdown, existing connectio
 have up to 10 seconds to finish before they are closed.
 HTTP request lines and headers are limited to 1 MiB in total; larger requests receive
 `431 Request Header Fields Too Large`.
+Plain HTTP Upgrade requests (including `ws://`) are rejected with `501 Not Implemented`
+instead of being forwarded with their hop-by-hop headers silently removed. Use CONNECT
+for a transparent upgraded tunnel.
 `-allow-public` applies only to the proxy listener; admin endpoints require their
 own explicit public-access flags.
 
@@ -387,8 +400,8 @@ proto: tcp
 reuseaddr: true
 sudo: false
 dial_timeout: 10s
-max_conns: 0
-idle_timeout: 0s
+max_conns: 256
+idle_timeout: 5m
 log_level: info
 quiet: false
 stats_addr: ""

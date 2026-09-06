@@ -591,6 +591,36 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
+func TestHTTPProxyRejectsUpgradeExplicitly(t *testing.T) {
+	proxyAddr, stopProxy := startTestProxy(t)
+	defer stopProxy()
+
+	conn, err := net.DialTimeout("tcp", proxyAddr, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(time.Second))
+
+	if _, err := io.WriteString(conn,
+		"GET http://127.0.0.1:1/chat HTTP/1.1\r\n"+
+			"Host: 127.0.0.1:1\r\n"+
+			"Connection: keep-alive, Upgrade\r\n"+
+			"Upgrade:\r\n"+
+			"Upgrade: websocket\r\n\r\n",
+	); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: http.MethodGet})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNotImplemented {
+		t.Fatalf("status=%d, want %d", resp.StatusCode, http.StatusNotImplemented)
+	}
+}
+
 func TestHTTPProxyHandlesExpectContinueWithoutDeadlock(t *testing.T) {
 	bodySeen := make(chan string, 1)
 	expectSeen := make(chan string, 1)
