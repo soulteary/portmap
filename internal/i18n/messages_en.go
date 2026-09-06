@@ -199,6 +199,9 @@ var messagesEN = map[string]string{
 	KeyErrProxyHTTPForward:      "failed to forward request to %s: %w",
 	KeyErrProxyHTTPRelayResp:    "failed to relay response: %w",
 
+KeyErrProxyHTTPUpgradeUnsupported: "HTTP Upgrade is not supported; use CONNECT tunneling instead",
+
+
 	KeyErrProxyUpstreamScheme:               "unsupported upstream scheme: %q (choose socks5, http or ssh)",
 	KeyErrProxyUpstreamParse:                "failed to parse upstream URL: %w",
 	KeyErrProxyUpstreamEmptyHost:            "upstream URL must include a host",

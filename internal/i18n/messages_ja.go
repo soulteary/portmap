@@ -199,6 +199,9 @@ var messagesJA = map[string]string{
 	KeyErrProxyHTTPForward:      "%s へのリクエスト転送に失敗: %w",
 	KeyErrProxyHTTPRelayResp:    "レスポンスの中継に失敗: %w",
 
+KeyErrProxyHTTPUpgradeUnsupported: "HTTP Upgrade はサポートされていません。代わりに CONNECT トンネルを使用してください",
+
+
 	KeyErrProxyUpstreamScheme:               "サポートされていない上流スキーム: %q（socks5、http または ssh を選択）",
 	KeyErrProxyUpstreamParse:                "上流 URL の解析に失敗: %w",
 	KeyErrProxyUpstreamEmptyHost:            "上流 URL にはホストを含める必要があります",
