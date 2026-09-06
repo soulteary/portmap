@@ -203,8 +203,7 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 	// A proxy may answer the expectation itself: acknowledge it immediately and remove
 	// the header so the origin reads the subsequently forwarded body normally.
 	downCounter := &countingWriter{w: conn}
-	if headerHasToken(req.Header.Values("Expect"), "100-continue") {
-		req.Header.Del("Expect")
+	if removeHeaderToken(req.Header, "Expect", "100-continue") {
 		if _, err := io.WriteString(downCounter, "HTTP/1.1 100 Continue\r\n\r\n"); err != nil {
 			s.Stats().AddDown(downCounter.n)
 			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), err)
@@ -450,15 +449,34 @@ func connectionOptionNames(h http.Header) []string {
 	return keys
 }
 
-func headerHasToken(values []string, want string) bool {
-	for _, value := range values {
-		for _, token := range strings.Split(value, ",") {
-			if strings.EqualFold(textproto.TrimString(token), want) {
-				return true
+func removeHeaderToken(header http.Header, name, want string) bool {
+	found := false
+	keptValues := make([]string, 0, len(header.Values(name)))
+	for _, value := range header.Values(name) {
+		keptTokens := make([]string, 0)
+		for _, rawToken := range strings.Split(value, ",") {
+			token := textproto.TrimString(rawToken)
+			if token == "" {
+				continue
 			}
+			if strings.EqualFold(token, want) {
+				found = true
+				continue
+			}
+			keptTokens = append(keptTokens, token)
+		}
+		if len(keptTokens) > 0 {
+			keptValues = append(keptValues, strings.Join(keptTokens, ", "))
 		}
 	}
-	return false
+	if !found {
+		return false
+	}
+	header.Del(name)
+	for _, value := range keptValues {
+		header.Add(name, value)
+	}
+	return true
 }
 
 func appendVia(h http.Header, major, minor int) {

@@ -658,3 +658,15 @@ func TestHTTPProxyHandlesExpectContinueWithoutDeadlock(t *testing.T) {
 		t.Fatalf("proxy should consume Expect before forwarding, got %q", got)
 	}
 }
+
+func TestRemoveHeaderTokenPreservesOtherExpectations(t *testing.T) {
+	header := http.Header{
+		"Expect": {"100-continue, foo", "bar"},
+	}
+	if !removeHeaderToken(header, "Expect", "100-continue") {
+		t.Fatal("expected 100-continue to be consumed")
+	}
+	if got := strings.Join(header.Values("Expect"), ","); got != "foo,bar" {
+		t.Fatalf("remaining expectations=%q, want foo,bar", got)
+	}
+}
