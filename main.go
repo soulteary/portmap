@@ -667,6 +667,7 @@ type proxyOptions struct {
 	webAddr                      string
 	webAllowPublic               bool
 	webLogMax                    int
+	webLogMaxSet                 bool
 }
 
 // runProxy 实现 proxy 子命令：单端口 SOCKS5 + HTTP 应用层代理。
@@ -1086,6 +1087,7 @@ func collectProxyAdminOptions(instances []proxyOptions) (proxyAdminOptions, erro
 	out := proxyAdminOptions{webLogMax: 1000}
 	statsSet := false
 	webSet := false
+	webLogMaxSet := false
 	for _, opt := range instances {
 		if addr := strings.TrimSpace(opt.statsAddr); addr != "" {
 			if statsSet && out.statsAddr != addr {
@@ -1105,13 +1107,16 @@ func collectProxyAdminOptions(instances []proxyOptions) (proxyAdminOptions, erro
 			if webSet && out.webAllowPublic != opt.webAllowPublic {
 				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_allow_public", out.webAllowPublic, opt.webAllowPublic))
 			}
-			if webSet && out.webLogMax != opt.webLogMax {
-				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_log_max", out.webLogMax, opt.webLogMax))
-			}
 			out.webAddr = addr
 			out.webAllowPublic = opt.webAllowPublic
-			out.webLogMax = opt.webLogMax
 			webSet = true
+			if opt.webLogMaxSet {
+				if webLogMaxSet && out.webLogMax != opt.webLogMax {
+					return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_log_max", out.webLogMax, opt.webLogMax))
+				}
+				out.webLogMax = opt.webLogMax
+				webLogMaxSet = true
+			}
 		}
 	}
 	return out, nil
@@ -1162,6 +1167,7 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 		}
 		if setFlags["web-log-max"] {
 			opt.webLogMax = base.webLogMax
+			opt.webLogMaxSet = true
 		}
 		if err := validateProxyOptions(&opt); err != nil {
 			return err

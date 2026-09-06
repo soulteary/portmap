@@ -609,8 +609,8 @@ func TestCollectProxyAdminOptionsRejectsConflicts(t *testing.T) {
 		{
 			name: "web log capacity",
 			instances: []proxyOptions{
-				{webAddr: "127.0.0.1:8080", webLogMax: 100},
-				{webAddr: "127.0.0.1:8080", webLogMax: 200},
+				{webAddr: "127.0.0.1:8080", webLogMax: 100, webLogMaxSet: true},
+				{webAddr: "127.0.0.1:8080", webLogMax: 200, webLogMaxSet: true},
 			},
 		},
 	}
@@ -631,6 +631,7 @@ func TestCollectProxyAdminOptionsAcceptsConsistentSettings(t *testing.T) {
 			webAddr:          "127.0.0.1:8080",
 			webAllowPublic:   false,
 			webLogMax:        200,
+			webLogMaxSet:     true,
 		},
 		{
 			statsAddr:        "127.0.0.1:9090",
@@ -646,5 +647,24 @@ func TestCollectProxyAdminOptionsAcceptsConsistentSettings(t *testing.T) {
 	}
 	if got.statsAddr != "127.0.0.1:9090" || got.webAddr != "127.0.0.1:8080" || got.webLogMax != 200 {
 		t.Fatalf("unexpected consolidated options: %+v", got)
+	}
+
+	for _, instances := range [][]proxyOptions{
+		{
+			{webAddr: "127.0.0.1:8080"},
+			{webAddr: "127.0.0.1:8080", webLogMax: 200, webLogMaxSet: true},
+		},
+		{
+			{webAddr: "127.0.0.1:8080", webLogMax: 200, webLogMaxSet: true},
+			{webAddr: "127.0.0.1:8080"},
+		},
+	} {
+		got, err := collectProxyAdminOptions(instances)
+		if err != nil {
+			t.Fatalf("omitted capacity should not conflict: %v", err)
+		}
+		if got.webLogMax != 200 {
+			t.Fatalf("webLogMax=%d, want explicit value 200", got.webLogMax)
+		}
 	}
 }
