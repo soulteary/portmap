@@ -1088,6 +1088,8 @@ func collectProxyAdminOptions(instances []proxyOptions) (proxyAdminOptions, erro
 	statsSet := false
 	webSet := false
 	webLogMaxSet := false
+	webLogMaxConflict := false
+	conflictingWebLogMax := 0
 	for _, opt := range instances {
 		if addr := strings.TrimSpace(opt.statsAddr); addr != "" {
 			if statsSet && out.statsAddr != addr {
@@ -1110,14 +1112,19 @@ func collectProxyAdminOptions(instances []proxyOptions) (proxyAdminOptions, erro
 			out.webAddr = addr
 			out.webAllowPublic = opt.webAllowPublic
 			webSet = true
-			if opt.webLogMaxSet {
-				if webLogMaxSet && out.webLogMax != opt.webLogMax {
-					return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_log_max", out.webLogMax, opt.webLogMax))
-				}
-				out.webLogMax = opt.webLogMax
-				webLogMaxSet = true
-			}
 		}
+		if opt.webLogMaxSet {
+			if webLogMaxSet && out.webLogMax != opt.webLogMax {
+				webLogMaxConflict = true
+				conflictingWebLogMax = opt.webLogMax
+				continue
+			}
+			out.webLogMax = opt.webLogMax
+			webLogMaxSet = true
+		}
+	}
+	if out.webAddr != "" && webLogMaxConflict {
+		return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_log_max", out.webLogMax, conflictingWebLogMax))
 	}
 	return out, nil
 }
