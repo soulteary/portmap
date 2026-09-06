@@ -53,6 +53,11 @@ var (
 	date    = "unknown"
 )
 
+const (
+	defaultForwardMaxConns    = 256
+	defaultForwardIdleTimeout = 5 * time.Minute
+)
+
 type options struct {
 	listenPort   int
 	listenHost   string
@@ -155,8 +160,8 @@ func runForward(argv []string) error {
 	fs.BoolVar(&opt.reuseAddr, "reuseaddr", true, i18n.T(i18n.KeyFlagReuseAddr))
 	fs.BoolVar(&opt.useSudo, "sudo", false, i18n.T(i18n.KeyFlagSudo))
 	fs.DurationVar(&opt.dialTimeout, "dial-timeout", 10*time.Second, i18n.T(i18n.KeyFlagDialTimeout))
-	fs.IntVar(&opt.maxConns, "max-conns", 0, i18n.T(i18n.KeyFlagMaxConns))
-	fs.DurationVar(&opt.idleTimeout, "idle-timeout", 0, i18n.T(i18n.KeyFlagIdleTimeout))
+	fs.IntVar(&opt.maxConns, "max-conns", defaultForwardMaxConns, i18n.T(i18n.KeyFlagMaxConns))
+	fs.DurationVar(&opt.idleTimeout, "idle-timeout", defaultForwardIdleTimeout, i18n.T(i18n.KeyFlagIdleTimeout))
 	fs.StringVar(&opt.logLevel, "log-level", "info", i18n.T(i18n.KeyFlagLogLevel))
 	fs.BoolVar(&opt.quiet, "quiet", false, i18n.T(i18n.KeyFlagQuiet))
 	fs.BoolVar(&opt.showVersion, "version", false, i18n.T(i18n.KeyFlagVersion))
@@ -471,8 +476,8 @@ func defaultForwardOptions() options {
 		proto:       "tcp",
 		reuseAddr:   true,
 		dialTimeout: 10 * time.Second,
-		maxConns:    0,
-		idleTimeout: 0,
+		maxConns:    defaultForwardMaxConns,
+		idleTimeout: defaultForwardIdleTimeout,
 		logLevel:    "info",
 		webLogMax:   1000,
 	}

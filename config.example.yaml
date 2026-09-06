@@ -27,11 +27,11 @@ forward:
   sudo: false
   # 拨号到目标的超时时间，字符串写法（如 10s、1m），默认 10s
   dial_timeout: 10s
-  # 最大并发连接数，0 表示不限制（仅 go 模式；UDP 下限制并发会话数），默认 0
-  max_conns: 0
+  # 最大并发连接数，0 表示不限制（仅 go 模式；UDP 下限制并发会话数），默认 256
+  max_conns: 256
   # 空闲超时，TCP 下双向均无数据超过阈值才断开，0 表示不启用
-  # （仅 go 模式；UDP 下 0 表示默认 60s），默认 0
-  idle_timeout: 0s
+  # （仅 go 模式；UDP 下显式设为 0 时仍使用 60s 会话回收），默认 5m
+  idle_timeout: 5m
   # 日志级别：info 或 debug（仅 go 模式，默认 info）
   log_level: info
   # 安静模式，抑制每连接的常规日志（仅 go 模式，默认 false）

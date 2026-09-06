@@ -143,8 +143,8 @@ flags:
   -reuseaddr              enable SO_REUSEADDR (default true)
   -sudo                   run socat with sudo in socat mode
   -dial-timeout duration  dial target timeout (default 10s)
-  -max-conns int          max concurrent connections, 0 for unlimited (go mode only)
-  -idle-timeout duration  idle timeout; disconnect when both directions are idle past the threshold, 0 to disable (go mode only)
+  -max-conns int          max concurrent connections, 0 for unlimited (go mode only, default 256)
+  -idle-timeout duration  idle timeout; disconnect when both directions are idle past the threshold, 0 to disable (go mode only, default 5m)
   -log-level string       log level: info or debug (go mode only, default "info")
   -quiet                  quiet mode, suppress per-connection routine logs (go mode only)
   -stats-addr string      optional HTTP stats endpoint address (e.g. 127.0.0.1:9090), empty disables; loopback only
@@ -154,6 +154,8 @@ flags:
   -lang string            interface language: en/zh/ja/ko/fr/de (auto-detected from the system by default)
   -version                print version information and exit
 ```
+
+To prevent faulty clients from consuming file descriptors and goroutines without a bound, forward accepts at most 256 concurrent TCP connections or UDP sessions by default and reclaims sessions idle in both directions for 5 minutes. Set `-max-conns 0 -idle-timeout 0` explicitly to retain the previous unbounded behavior.
 
 ## Examples
 
@@ -387,8 +389,8 @@ proto: tcp
 reuseaddr: true
 sudo: false
 dial_timeout: 10s
-max_conns: 0
-idle_timeout: 0s
+max_conns: 256
+idle_timeout: 5m
 log_level: info
 quiet: false
 stats_addr: ""
