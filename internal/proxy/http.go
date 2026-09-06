@@ -220,9 +220,23 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 	req.Close = true
 	req.Header.Set("Connection", "close")
 
+	// A client using Expect: 100-continue waits before sending the body. Request.Write
+	// consumes that body before we start reading upstream responses, so forwarding the
+	// expectation unchanged would deadlock when the origin sends the interim response.
+	// A proxy may answer the expectation itself: acknowledge it immediately and remove
+	// the header so the origin reads the subsequently forwarded body normally.
+	downCounter := &countingWriter{w: conn}
+	if requestCanContinue(req) && removeHeaderToken(req.Header, "Expect", "100-continue") {
+		if _, err := io.WriteString(downCounter, "HTTP/1.1 100 Continue\r\n\r\n"); err != nil {
+			s.Stats().AddDown(downCounter.n)
+			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), err)
+		}
+	}
+
 	upCounter := &countingWriter{w: remote}
 	if err := req.Write(upCounter); err != nil {
 		s.Stats().AddUp(upCounter.n)
+		s.Stats().AddDown(downCounter.n)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPForward), host, err)
 	}
 	s.Stats().AddUp(upCounter.n)
@@ -231,11 +245,11 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 
 	// 解析响应后清理响应侧逐跳首部并追加 Via；1xx（101 除外）可能在最终
 	// 响应之前出现，因此需要逐个转发。
-	downCounter := &countingWriter{w: conn}
 	remoteReader := newProxyResponseReader(remote)
 	for {
 		resp, connectionOptions, err := remoteReader.read(req)
 		if err != nil {
+			s.Stats().AddDown(downCounter.n)
 			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), err)
 		}
 		for _, key := range connectionOptions {
@@ -457,6 +471,62 @@ func connectionOptionNames(h http.Header) []string {
 		}
 	}
 	return keys
+}
+
+func requestCanContinue(req *http.Request) bool {
+	return req.ProtoAtLeast(1, 1) && req.Body != nil && req.Body != http.NoBody
+}
+
+func removeHeaderToken(header http.Header, name, want string) bool {
+	found := false
+	keptValues := make([]string, 0, len(header.Values(name)))
+	for _, value := range header.Values(name) {
+		keptTokens := make([]string, 0)
+		for _, rawToken := range splitHeaderList(value) {
+			token := textproto.TrimString(rawToken)
+			if token == "" {
+				continue
+			}
+			if strings.EqualFold(token, want) {
+				found = true
+				continue
+			}
+			keptTokens = append(keptTokens, token)
+		}
+		if len(keptTokens) > 0 {
+			keptValues = append(keptValues, strings.Join(keptTokens, ", "))
+		}
+	}
+	if !found {
+		return false
+	}
+	header.Del(name)
+	for _, value := range keptValues {
+		header.Add(name, value)
+	}
+	return true
+}
+
+func splitHeaderList(value string) []string {
+	var members []string
+	start := 0
+	quoted := false
+	escaped := false
+	for i := 0; i < len(value); i++ {
+		switch {
+		case escaped:
+			escaped = false
+		case quoted && value[i] == '\\':
+			escaped = true
+		case value[i] == '"':
+			quoted = !quoted
+		case value[i] == ',' && !quoted:
+			members = append(members, textproto.TrimString(value[start:i]))
+			start = i + 1
+		}
+	}
+	members = append(members, textproto.TrimString(value[start:]))
+	return members
 }
 
 func appendVia(h http.Header, major, minor int) {
