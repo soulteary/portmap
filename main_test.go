@@ -27,6 +27,16 @@ import (
 	"time"
 )
 
+func TestDefaultForwardOptionsAreBounded(t *testing.T) {
+	opt := defaultForwardOptions()
+	if opt.maxConns != defaultForwardMaxConns {
+		t.Fatalf("maxConns=%d, want %d", opt.maxConns, defaultForwardMaxConns)
+	}
+	if opt.idleTimeout != defaultForwardIdleTimeout {
+		t.Fatalf("idleTimeout=%s, want %s", opt.idleTimeout, defaultForwardIdleTimeout)
+	}
+}
+
 // TestRunValidation 覆盖 run() 中不会真正启动服务的路径：
 // 校验阶段提前返回错误，以及 -version 提前返回 nil。
 // go/socat 分支会监听端口或执行外部命令，不在单元测试内触发。

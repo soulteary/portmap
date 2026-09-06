@@ -140,8 +140,8 @@ flags:
   -reuseaddr              启用 SO_REUSEADDR (默认 true)
   -sudo                   socat 模式下以 sudo 运行
   -dial-timeout duration  拨号目标超时 (默认 10s)
-  -max-conns int          最大并发连接数，0 表示不限制（仅 go 模式）
-  -idle-timeout duration  空闲超时，双向均无数据超过阈值才断开，0 表示不启用（仅 go 模式）
+  -max-conns int          最大并发连接数，0 表示不限制（仅 go 模式，默认 256）
+  -idle-timeout duration  空闲超时，双向均无数据超过阈值才断开，0 表示不启用（仅 go 模式，默认 5m）
   -log-level string       日志级别：info 或 debug（仅 go 模式，默认 "info"）
   -quiet                  安静模式，抑制每连接的常规日志（仅 go 模式）
   -stats-addr string      可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭；仅允许回环地址
@@ -151,6 +151,8 @@ flags:
   -lang string            界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
   -version                打印版本信息后退出
 ```
+
+为避免异常客户端无界占用文件描述符和 goroutine，forward 默认最多接受 256 个并发 TCP 连接或 UDP 会话，并回收双向空闲超过 5 分钟的会话。需要保留旧版无界行为时，可显式设置 `-max-conns 0 -idle-timeout 0`。
 
 ### proxy 子命令（SOCKS5 + HTTP 代理）
 
@@ -386,8 +388,8 @@ forward:
   reuseaddr: true
   sudo: false
   dial_timeout: 10s
-  max_conns: 0
-  idle_timeout: 0s
+  max_conns: 256
+  idle_timeout: 5m
   log_level: info
   quiet: false
   stats_addr: ""
