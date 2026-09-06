@@ -710,3 +710,22 @@ func TestRemoveHeaderTokenPreservesOtherExpectations(t *testing.T) {
 		t.Fatalf("quoted expectation was corrupted: %q", got)
 	}
 }
+
+func TestRequestCanContinueRequiresHTTP11Body(t *testing.T) {
+	tests := []struct {
+		name string
+		req  *http.Request
+		want bool
+	}{
+		{name: "HTTP/1.1 with body", req: &http.Request{ProtoMajor: 1, ProtoMinor: 1, Body: io.NopCloser(strings.NewReader("x"))}, want: true},
+		{name: "HTTP/1.1 without body", req: &http.Request{ProtoMajor: 1, ProtoMinor: 1, Body: http.NoBody}, want: false},
+		{name: "HTTP/1.0 with body", req: &http.Request{ProtoMajor: 1, ProtoMinor: 0, Body: io.NopCloser(strings.NewReader("x"))}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := requestCanContinue(tt.req); got != tt.want {
+				t.Fatalf("requestCanContinue()=%t, want %t", got, tt.want)
+			}
+		})
+	}
+}

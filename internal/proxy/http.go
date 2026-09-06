@@ -226,7 +226,7 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 	// A proxy may answer the expectation itself: acknowledge it immediately and remove
 	// the header so the origin reads the subsequently forwarded body normally.
 	downCounter := &countingWriter{w: conn}
-	if req.ProtoAtLeast(1, 1) && removeHeaderToken(req.Header, "Expect", "100-continue") {
+	if requestCanContinue(req) && removeHeaderToken(req.Header, "Expect", "100-continue") {
 		if _, err := io.WriteString(downCounter, "HTTP/1.1 100 Continue\r\n\r\n"); err != nil {
 			s.Stats().AddDown(downCounter.n)
 			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), err)
@@ -471,6 +471,10 @@ func connectionOptionNames(h http.Header) []string {
 		}
 	}
 	return keys
+}
+
+func requestCanContinue(req *http.Request) bool {
+	return req.ProtoAtLeast(1, 1) && req.Body != nil && req.Body != http.NoBody
 }
 
 func removeHeaderToken(header http.Header, name, want string) bool {
