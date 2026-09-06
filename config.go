@@ -269,22 +269,22 @@ func loadTopConfig(path string) (*Config, error) {
 		return cfg, nil
 	}
 	cfg.Forward = ForwardConfigList{{
-			ListenPort:  flat.ListenPort,
-			ListenHost:  flat.ListenHost,
-			Target:      flat.Target,
-			Mode:        flat.Mode,
-			Proto:       flat.Proto,
-			ReuseAddr:   flat.ReuseAddr,
-			Sudo:        flat.Sudo,
-			DialTimeout: flat.DialTimeout,
-			MaxConns:    flat.MaxConns,
-			IdleTimeout: flat.IdleTimeout,
-			LogLevel:    flat.LogLevel,
-			Quiet:       flat.Quiet,
-			StatsAddr:   flat.StatsAddr,
-			WebAddr:     flat.WebAddr,
-			WebLogMax:   flat.WebLogMax,
-		}}
+		ListenPort:  flat.ListenPort,
+		ListenHost:  flat.ListenHost,
+		Target:      flat.Target,
+		Mode:        flat.Mode,
+		Proto:       flat.Proto,
+		ReuseAddr:   flat.ReuseAddr,
+		Sudo:        flat.Sudo,
+		DialTimeout: flat.DialTimeout,
+		MaxConns:    flat.MaxConns,
+		IdleTimeout: flat.IdleTimeout,
+		LogLevel:    flat.LogLevel,
+		Quiet:       flat.Quiet,
+		StatsAddr:   flat.StatsAddr,
+		WebAddr:     flat.WebAddr,
+		WebLogMax:   flat.WebLogMax,
+	}}
 	return cfg, nil
 }
 

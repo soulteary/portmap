@@ -91,12 +91,13 @@ var messagesEN = map[string]string{
 	KeyWebEmpty:         "No logs yet",
 
 	KeyErrConfigRead:      "failed to read config file: %w",
-	KeyErrConfigSectionEmpty: "config file does not define any %s instances",
 	KeyErrConfigParse:     "failed to parse config file: %w",
 	KeyErrConfigDial:      "invalid dial_timeout in config file: %w",
 	KeyErrConfigIdle:      "invalid idle_timeout in config file: %w",
 	KeyErrConfigHandshake: "invalid handshake_timeout in config file: %w",
 	KeyErrConfigKeepalive: "invalid upstream_keepalive in config file: %w",
+
+KeyErrConfigSectionEmpty: "config file does not define any %s instances",
 
 	KeyLogForwardStartingInstances: "starting %d forward instance(s) from config",
 	KeyLogProxyStartingInstances:   "starting %d proxy instance(s) from config",

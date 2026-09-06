@@ -80,11 +80,12 @@ const (
 	// 配置文件错误（config.go）。
 	KeyErrConfigRead      = "err.config-read"
 	KeyErrConfigParse     = "err.config-parse"
-	KeyErrConfigSectionEmpty = "err.config-section-empty"
 	KeyErrConfigDial      = "err.config-dial"
 	KeyErrConfigIdle      = "err.config-idle"
 	KeyErrConfigHandshake = "err.config-handshake"
 	KeyErrConfigKeepalive = "err.config-keepalive"
+
+	KeyErrConfigSectionEmpty = "err.config-section-empty"
 
 	// 多实例（多端口映射）相关（main.go）。
 	KeyLogForwardStartingInstances = "log.forward-starting-instances"

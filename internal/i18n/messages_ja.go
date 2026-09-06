@@ -91,12 +91,13 @@ var messagesJA = map[string]string{
 	KeyWebEmpty:         "ログはまだありません",
 
 	KeyErrConfigRead:      "設定ファイルの読み込みに失敗しました: %w",
-	KeyErrConfigSectionEmpty: "設定ファイルに %s インスタンスが定義されていません",
 	KeyErrConfigParse:     "設定ファイルの解析に失敗しました: %w",
 	KeyErrConfigDial:      "設定ファイルの dial_timeout が不正です: %w",
 	KeyErrConfigIdle:      "設定ファイルの idle_timeout が不正です: %w",
 	KeyErrConfigHandshake: "設定ファイルの handshake_timeout が不正です: %w",
 	KeyErrConfigKeepalive: "設定ファイルの upstream_keepalive が不正です: %w",
+
+KeyErrConfigSectionEmpty: "設定ファイルに %s インスタンスが定義されていません",
 
 	KeyLogForwardStartingInstances: "設定から %d 個の forward インスタンスを起動します",
 	KeyLogProxyStartingInstances:   "設定から %d 個の proxy インスタンスを起動します",
