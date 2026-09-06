@@ -382,7 +382,8 @@ func parsePrivateKey(key []byte, passphrase string) (ssh.Signer, error) {
 // 签名时仍需与 agent 通信，因此连接不能在返回前关闭，只能在下一次回调换入新连接
 // 或 Close 时关闭。
 type agentKeyring struct {
-	socket string
+	socket  string
+	timeout time.Duration
 
 	mu     sync.Mutex
 	conn   net.Conn
@@ -393,6 +394,10 @@ type agentKeyring struct {
 // 探测失败一律静默跳过（socket 未配置、agent 未运行、Windows 上 agent 走 named
 // pipe），使未使用 agent 的既有部署行为不变。
 func newAgentKeyring(cfg *UpstreamConfig) *agentKeyring {
+	return newAgentKeyringWithTimeout(cfg, defaultDialTimeout)
+}
+
+func newAgentKeyringWithTimeout(cfg *UpstreamConfig, timeout time.Duration) *agentKeyring {
 	if cfg.DisableAgent {
 		return nil
 	}
@@ -403,17 +408,45 @@ func newAgentKeyring(cfg *UpstreamConfig) *agentKeyring {
 	if socket == "" {
 		return nil
 	}
-	probe, err := net.Dial("unix", socket)
+	keyring := &agentKeyring{socket: socket, timeout: timeout}
+	probe, err := keyring.dial()
 	if err != nil {
 		return nil
 	}
 	_ = probe.Close()
-	return &agentKeyring{socket: socket}
+	return keyring
+}
+
+func (k *agentKeyring) dial() (net.Conn, error) {
+	timeout := k.timeout
+	if timeout <= 0 {
+		timeout = defaultDialTimeout
+	}
+	dialer := net.Dialer{Timeout: timeout}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	conn, err := dialer.DialContext(ctx, "unix", k.socket)
+	if err != nil {
+		return nil, err
+	}
+	// Bound both the initial Signers request and the signing operation that
+	// immediately follows it during the SSH handshake.
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
 }
 
 // signers 连接 agent 并返回其当前持有的全部签名者。
 func (k *agentKeyring) signers() ([]ssh.Signer, error) {
-	conn, err := net.Dial("unix", k.socket)
+	k.mu.Lock()
+	closed := k.closed
+	k.mu.Unlock()
+	if closed {
+		return nil, errors.New(i18n.T(i18n.KeyErrProxyUpstreamClosed))
+	}
+	conn, err := k.dial()
 	if err != nil {
 		return nil, fmt.Errorf(i18n.T(i18n.KeyErrProxyUpstreamSSHAgent), k.socket, err)
 	}
@@ -462,7 +495,7 @@ func newSSHDialer(cfg *UpstreamConfig, timeout time.Duration, logger *log.Logger
 	var authMethods []ssh.AuthMethod
 
 	// agent 排在私钥之前：已 ssh-add 的密钥优先，无需 portmap 拿到 passphrase。
-	keyring := newAgentKeyring(cfg)
+	keyring := newAgentKeyringWithTimeout(cfg, timeout)
 	if keyring != nil {
 		authMethods = append(authMethods, ssh.PublicKeysCallback(keyring.signers))
 		logMessage(logger, i18n.T(i18n.KeyLogProxyUpstreamSSHAgent), keyring.socket)
