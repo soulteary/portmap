@@ -17,6 +17,8 @@ package main
 import (
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -198,6 +200,265 @@ func TestBuildProxyUpstream(t *testing.T) {
 		}
 		if u.KeepaliveInterval != 45*time.Second || u.KeepaliveMaxFailures != 5 {
 			t.Fatalf("keepalive 字段回填错误: %+v", u)
+		}
+	})
+
+	t.Run("配置文件中的 ~ 路径被展开", func(t *testing.T) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			t.Skipf("无法确定 home 目录: %v", err)
+		}
+		opt := &proxyOptions{
+			upstream:           "ssh://root@host:22",
+			upstreamIdentity:   "~/.ssh/id_rsa",
+			upstreamKnownHosts: "~/.ssh/known_hosts",
+		}
+		u, err := buildProxyUpstream(opt)
+		if err != nil {
+			t.Fatalf("buildProxyUpstream: %v", err)
+		}
+		if want := filepath.Join(home, ".ssh", "id_rsa"); u.IdentityFile != want {
+			t.Fatalf("私钥路径未展开: 期望 %q，实际 %q", want, u.IdentityFile)
+		}
+		if want := filepath.Join(home, ".ssh", "known_hosts"); u.KnownHostsFile != want {
+			t.Fatalf("known_hosts 路径未展开: 期望 %q，实际 %q", want, u.KnownHostsFile)
+		}
+	})
+
+	t.Run("回填 agent 字段并展开 socket 路径", func(t *testing.T) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			t.Skipf("无法确定 home 目录: %v", err)
+		}
+		opt := &proxyOptions{
+			upstream:            "ssh://root@host:22",
+			upstreamAgent:       true,
+			upstreamAgentSocket: "~/.ssh/agent.sock",
+		}
+		u, err := buildProxyUpstream(opt)
+		if err != nil {
+			t.Fatalf("buildProxyUpstream: %v", err)
+		}
+		if u.DisableAgent {
+			t.Fatal("upstreamAgent 为 true 时不应关闭 agent")
+		}
+		if want := filepath.Join(home, ".ssh", "agent.sock"); u.AgentSocket != want {
+			t.Fatalf("agent socket 路径未展开: 期望 %q，实际 %q", want, u.AgentSocket)
+		}
+	})
+
+	t.Run("关闭 agent 时回填 DisableAgent", func(t *testing.T) {
+		u, err := buildProxyUpstream(&proxyOptions{upstream: "ssh://root@host:22"})
+		if err != nil {
+			t.Fatalf("buildProxyUpstream: %v", err)
+		}
+		if !u.DisableAgent {
+			t.Fatal("upstreamAgent 为 false 时应关闭 agent")
+		}
+	})
+}
+
+// fakeAgentSocket 起一个只 accept 不应答的 unix socket，用于探测「可连通」分支。
+// 不用 t.TempDir()：unix socket 路径受 sun_path 长度限制（macOS 约 104 字节），
+// 而 t.TempDir 会把（可能很长的）子测试名拼进路径。
+func fakeAgentSocket(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "pm")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	path := filepath.Join(dir, "a.sock")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatalf("监听 unix socket %q: %v", path, err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+	return path
+}
+
+// TestUpstreamAgentAvailable 覆盖 agent 可用性判断：socket 路径（显式配置或
+// SSH_AUTH_SOCK）必须真的能连通才算可用，-upstream-agent=false 一律视为不可用。
+func TestUpstreamAgentAvailable(t *testing.T) {
+	live := fakeAgentSocket(t)
+	dead := filepath.Join(filepath.Dir(live), "missing.sock")
+
+	cases := []struct {
+		name    string
+		enabled bool
+		socket  string
+		env     string
+		want    bool
+	}{
+		{"显式 socket 可连通", true, live, "", true},
+		{"回落到 SSH_AUTH_SOCK", true, "", live, true},
+		{"显式 socket 不存在", true, dead, "", false},
+		{"SSH_AUTH_SOCK 指向不存在的 socket", true, "", dead, false},
+		{"显式 socket 不回落到 SSH_AUTH_SOCK", true, dead, live, false},
+		{"两者均为空", true, "", "", false},
+		{"仅空白视为未配置", true, "   ", "   ", false},
+		{"关闭时忽略可连通的 socket", false, live, live, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("SSH_AUTH_SOCK", c.env)
+			if got := upstreamAgentAvailable(c.enabled, c.socket); got != c.want {
+				t.Fatalf("upstreamAgentAvailable(%v, %q) = %v，期望 %v", c.enabled, c.socket, got, c.want)
+			}
+		})
+	}
+
+	// 普通文件不是 socket：connect 会失败，同样应判为不可用（覆盖「路径残留」）。
+	t.Run("路径指向普通文件", func(t *testing.T) {
+		t.Setenv("SSH_AUTH_SOCK", "")
+		regular := filepath.Join(filepath.Dir(live), "regular")
+		if err := os.WriteFile(regular, nil, 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if upstreamAgentAvailable(true, regular) {
+			t.Fatal("普通文件不应判为 agent 可用")
+		}
+	})
+}
+
+// TestResolveIdentityPassphrase 覆盖 passphrase 解析的非交互分支。测试进程的
+// stdin 不是 TTY，因此除环境变量与配置值之外的路径都应保持为空。
+func TestResolveIdentityPassphrase(t *testing.T) {
+	t.Run("环境变量优先于配置值", func(t *testing.T) {
+		t.Setenv("PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE", "from-env")
+		opt := &proxyOptions{upstreamIdentity: "/tmp/id_rsa", upstreamIdentityPassphrase: "from-config"}
+		resolveIdentityPassphrase(opt)
+		if opt.upstreamIdentityPassphrase != "from-env" {
+			t.Fatalf("期望使用环境变量，实际 %q", opt.upstreamIdentityPassphrase)
+		}
+	})
+
+	t.Run("保留配置文件中的 passphrase", func(t *testing.T) {
+		t.Setenv("PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE", "")
+		opt := &proxyOptions{upstreamIdentity: "/tmp/id_rsa", upstreamIdentityPassphrase: "from-config"}
+		resolveIdentityPassphrase(opt)
+		if opt.upstreamIdentityPassphrase != "from-config" {
+			t.Fatalf("期望保留配置值，实际 %q", opt.upstreamIdentityPassphrase)
+		}
+	})
+
+	t.Run("未配置私钥时不解析", func(t *testing.T) {
+		t.Setenv("PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE", "")
+		opt := &proxyOptions{}
+		resolveIdentityPassphrase(opt)
+		if opt.upstreamIdentityPassphrase != "" {
+			t.Fatalf("未配置私钥时不应解析，实际 %q", opt.upstreamIdentityPassphrase)
+		}
+	})
+
+	t.Run("agent 可用时不索要 passphrase", func(t *testing.T) {
+		t.Setenv("PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE", "")
+		t.Setenv("SSH_AUTH_SOCK", fakeAgentSocket(t))
+		opt := &proxyOptions{upstreamIdentity: "/tmp/id_rsa", upstreamAgent: true}
+		resolveIdentityPassphrase(opt)
+		if opt.upstreamIdentityPassphrase != "" {
+			t.Fatalf("agent 可用时不应索要 passphrase，实际 %q", opt.upstreamIdentityPassphrase)
+		}
+	})
+}
+
+// TestExpandTilde 覆盖 ~ 展开的各条分支：仅 ~ 与 ~/ 前缀被展开，其余路径
+// （含 ~user 形式与相对路径）原样返回。
+func TestExpandTilde(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("无法确定 home 目录: %v", err)
+	}
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"~", home},
+		{"~/.ssh/id_rsa", filepath.Join(home, ".ssh", "id_rsa")},
+		{"~other/.ssh/id_rsa", "~other/.ssh/id_rsa"},
+		{"/abs/id_rsa", "/abs/id_rsa"},
+		{"rel/id_rsa", "rel/id_rsa"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := expandTilde(c.in); got != c.want {
+			t.Errorf("expandTilde(%q) = %q，期望 %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestPromptUpstreamPassword 覆盖密码解析的非交互分支。测试进程的 stdin 不是
+// TTY，因此除环境变量外的路径都应保持 Password 不变。
+func TestPromptUpstreamPassword(t *testing.T) {
+	t.Run("环境变量填充密码", func(t *testing.T) {
+		t.Setenv("PORTMAP_UPSTREAM_PASSWORD", "from-env")
+		u := &proxy.UpstreamConfig{Scheme: proxy.UpstreamSchemeSSH, Addr: "host:22"}
+		promptUpstreamPassword(u)
+		if u.Password != "from-env" {
+			t.Fatalf("期望使用环境变量密码，实际 %q", u.Password)
+		}
+	})
+
+	t.Run("已有密码优先于环境变量", func(t *testing.T) {
+		t.Setenv("PORTMAP_UPSTREAM_PASSWORD", "from-env")
+		u := &proxy.UpstreamConfig{Scheme: proxy.UpstreamSchemeSSH, Addr: "host:22", Password: "from-url"}
+		promptUpstreamPassword(u)
+		if u.Password != "from-url" {
+			t.Fatalf("URL 中的密码应优先，实际 %q", u.Password)
+		}
+	})
+
+	t.Run("配置私钥时不解析密码", func(t *testing.T) {
+		t.Setenv("PORTMAP_UPSTREAM_PASSWORD", "from-env")
+		u := &proxy.UpstreamConfig{Scheme: proxy.UpstreamSchemeSSH, Addr: "host:22", IdentityFile: "/tmp/id_rsa"}
+		promptUpstreamPassword(u)
+		if u.Password != "" {
+			t.Fatalf("已配置私钥时不应解析密码，实际 %q", u.Password)
+		}
+	})
+
+	t.Run("非 ssh 上游不解析密码", func(t *testing.T) {
+		t.Setenv("PORTMAP_UPSTREAM_PASSWORD", "from-env")
+		u := &proxy.UpstreamConfig{Scheme: proxy.UpstreamSchemeSOCKS5, Addr: "host:1080"}
+		promptUpstreamPassword(u)
+		if u.Password != "" {
+			t.Fatalf("非 ssh 上游不应解析密码，实际 %q", u.Password)
+		}
+	})
+
+	t.Run("非 TTY 且无环境变量时保持为空", func(t *testing.T) {
+		t.Setenv("PORTMAP_UPSTREAM_PASSWORD", "")
+		u := &proxy.UpstreamConfig{Scheme: proxy.UpstreamSchemeSSH, Addr: "host:22"}
+		promptUpstreamPassword(u)
+		if u.Password != "" {
+			t.Fatalf("非 TTY 时不应填充密码，实际 %q", u.Password)
+		}
+	})
+
+	t.Run("agent 可用时不解析密码", func(t *testing.T) {
+		t.Setenv("PORTMAP_UPSTREAM_PASSWORD", "")
+		u := &proxy.UpstreamConfig{Scheme: proxy.UpstreamSchemeSSH, Addr: "host:22", AgentSocket: fakeAgentSocket(t)}
+		promptUpstreamPassword(u)
+		if u.Password != "" {
+			t.Fatalf("agent 可用时不应解析密码，实际 %q", u.Password)
+		}
+	})
+
+	t.Run("环境变量优先于 agent", func(t *testing.T) {
+		t.Setenv("PORTMAP_UPSTREAM_PASSWORD", "from-env")
+		u := &proxy.UpstreamConfig{Scheme: proxy.UpstreamSchemeSSH, Addr: "host:22", AgentSocket: fakeAgentSocket(t)}
+		promptUpstreamPassword(u)
+		if u.Password != "from-env" {
+			t.Fatalf("环境变量应优先，实际 %q", u.Password)
 		}
 	})
 }

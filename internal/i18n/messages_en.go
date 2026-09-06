@@ -145,6 +145,9 @@ var messagesEN = map[string]string{
 	KeyFlagProxyUpstreamKnownHosts: "SSH known_hosts file for host key verification (default ~/.ssh/known_hosts)",
 	KeyFlagProxyUpstreamInsecure:   "skip SSH upstream host key verification (insecure, for self-hosted test environments only)",
 
+	KeyFlagProxyUpstreamAgent:       "allow ssh-agent authentication for the ssh upstream (enabled by default; skipped automatically when no agent is reachable)",
+	KeyFlagProxyUpstreamAgentSocket: "ssh-agent socket path (empty reads the SSH_AUTH_SOCK environment variable)",
+
 	KeyFlagProxyUpstreamKeepalive:            "SSH upstream keepalive probe interval (0 uses default 30s; negative disables active keepalive)",
 	KeyFlagProxyUpstreamKeepaliveMaxFailures: "consecutive keepalive probe failures before the SSH upstream is treated as down and reconnected (default 3)",
 
@@ -164,6 +167,9 @@ var messagesEN = map[string]string{
 	KeyLogProxyUpstreamInsecure:     "WARNING: SSH upstream host key verification is disabled (-upstream-insecure); the connection is vulnerable to man-in-the-middle attacks",
 	KeyLogProxyUpstreamSSHConnect:   "SSH upstream connected: %s",
 	KeyLogProxyUpstreamSSHReconnect: "SSH upstream connection lost, reconnecting: %s",
+
+	KeyLogProxyUpstreamSSHAgent:        "ssh-agent authentication enabled for SSH upstream: %s",
+	KeyLogProxyUpstreamSSHAgentSkipKey: "WARNING: SSH private key %s is encrypted and no passphrase was provided; falling back to ssh-agent authentication",
 
 	KeyLogProxyUpstreamSSHKeepaliveFail: "SSH upstream keepalive probe failed %[2]d/%[3]d times: %[1]s",
 	KeyLogProxyUpstreamSSHBackoff:       "reconnecting to SSH upstream in %s",
@@ -199,11 +205,13 @@ var messagesEN = map[string]string{
 	KeyErrProxyUpstreamSocks5:               "failed to create SOCKS5 upstream dialer: %w",
 	KeyErrProxyUpstreamHTTPConnect:          "upstream HTTP CONNECT to %s failed: %w",
 	KeyErrProxyUpstreamHTTPStatus:           "upstream HTTP CONNECT to %s returned unexpected status: %s",
-	KeyErrProxyUpstreamSSHNoAuth:            "ssh upstream requires an identity file (-upstream-identity) or a password in the upstream URL",
+	KeyErrProxyUpstreamSSHNoAuth:            "ssh upstream requires a reachable ssh-agent (SSH_AUTH_SOCK or -upstream-agent-socket), an identity file (-upstream-identity), a password in the upstream URL, or a password from PORTMAP_UPSTREAM_PASSWORD / interactive terminal input",
 	KeyErrProxyUpstreamSSHIdentity:          "failed to read SSH identity file %s: %w",
 	KeyErrProxyUpstreamSSHParseKey:          "failed to parse SSH private key: %w",
+	KeyErrProxyUpstreamSSHAgent:             "failed to connect to ssh-agent %s: %w",
 	KeyErrProxyUpstreamSSHPassphraseMissing: "SSH private key is encrypted and requires a passphrase (provide it via the PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE environment variable, the upstream_identity_passphrase config field, or an interactive terminal prompt)",
 	KeyPromptUpstreamIdentityPassphrase:     "Enter passphrase for SSH private key (%s): ",
+	KeyPromptUpstreamPassword:               "Enter password for SSH upstream (%s): ",
 	KeyErrProxyUpstreamSSHKnownHosts:        "failed to load SSH known_hosts %s: %w",
 	KeyErrProxyUpstreamSSHDial:              "failed to establish SSH upstream connection to %s: %w",
 	KeyErrProxyUpstreamSSHChannel:           "failed to open SSH channel to %s: %w",

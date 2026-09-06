@@ -145,6 +145,9 @@ var messagesKO = map[string]string{
 	KeyFlagProxyUpstreamKnownHosts: "host key 검증에 사용할 SSH known_hosts 파일 (기본값 ~/.ssh/known_hosts)",
 	KeyFlagProxyUpstreamInsecure:   "SSH 업스트림 host key 검증 건너뛰기 (안전하지 않음, 자체 호스팅 테스트 환경 전용)",
 
+	KeyFlagProxyUpstreamAgent:       "ssh 업스트림 인증에 ssh-agent 사용 (기본 활성화, agent에 연결할 수 없으면 자동으로 건너뜀)",
+	KeyFlagProxyUpstreamAgentSocket: "ssh-agent socket 경로 (비어 있으면 환경 변수 SSH_AUTH_SOCK 사용)",
+
 	KeyFlagProxyUpstreamKeepalive:            "SSH 업스트림 keepalive 프로브 간격 (0은 기본값 30s, 음수는 능동 keepalive 비활성화)",
 	KeyFlagProxyUpstreamKeepaliveMaxFailures: "SSH 업스트림을 끊긴 것으로 판단하고 재연결하기 전 연속 keepalive 프로브 실패 횟수 (기본값 3)",
 
@@ -164,6 +167,9 @@ var messagesKO = map[string]string{
 	KeyLogProxyUpstreamInsecure:     "경고: SSH 업스트림 host key 검증이 비활성화되었습니다(-upstream-insecure). 중간자 공격에 취약합니다",
 	KeyLogProxyUpstreamSSHConnect:   "SSH 업스트림 연결됨: %s",
 	KeyLogProxyUpstreamSSHReconnect: "SSH 업스트림 연결이 끊어졌습니다, 재연결 중: %s",
+
+	KeyLogProxyUpstreamSSHAgent:        "SSH 업스트림에 ssh-agent 인증을 활성화했습니다: %s",
+	KeyLogProxyUpstreamSSHAgentSkipKey: "경고: SSH 개인 키 %s가 암호화되어 있고 passphrase가 제공되지 않아 ssh-agent 인증으로 전환합니다",
 
 	KeyLogProxyUpstreamSSHKeepaliveFail: "SSH 업스트림 keepalive 프로브 실패 %[2]d/%[3]d회: %[1]s",
 	KeyLogProxyUpstreamSSHBackoff:       "%s 후 SSH 업스트림에 재연결합니다",
@@ -199,11 +205,13 @@ var messagesKO = map[string]string{
 	KeyErrProxyUpstreamSocks5:               "SOCKS5 업스트림 다이얼러 생성 실패: %w",
 	KeyErrProxyUpstreamHTTPConnect:          "%s 에 대한 업스트림 HTTP CONNECT 실패: %w",
 	KeyErrProxyUpstreamHTTPStatus:           "%s 에 대한 업스트림 HTTP CONNECT가 예기치 않은 상태를 반환했습니다: %s",
-	KeyErrProxyUpstreamSSHNoAuth:            "ssh 업스트림에는 개인 키 파일(-upstream-identity) 또는 업스트림 URL의 비밀번호가 필요합니다",
+	KeyErrProxyUpstreamSSHNoAuth:            "ssh 업스트림에는 연결 가능한 ssh-agent(SSH_AUTH_SOCK 또는 -upstream-agent-socket), 개인 키 파일(-upstream-identity), 업스트림 URL의 비밀번호 또는 환경 변수 PORTMAP_UPSTREAM_PASSWORD / 터미널 대화식 입력으로 제공하는 비밀번호가 필요합니다",
 	KeyErrProxyUpstreamSSHIdentity:          "SSH 개인 키 파일 %s 읽기 실패: %w",
 	KeyErrProxyUpstreamSSHParseKey:          "SSH 개인 키 파싱 실패: %w",
+	KeyErrProxyUpstreamSSHAgent:             "ssh-agent %s 연결 실패: %w",
 	KeyErrProxyUpstreamSSHPassphraseMissing: "SSH 개인 키가 암호화되어 있어 passphrase가 필요합니다(환경 변수 PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE, 설정 항목 upstream_identity_passphrase, 또는 터미널 대화형 입력으로 제공하세요)",
 	KeyPromptUpstreamIdentityPassphrase:     "SSH 개인 키의 passphrase를 입력하세요(%s): ",
+	KeyPromptUpstreamPassword:               "SSH 업스트림의 로그인 비밀번호를 입력하세요(%s): ",
 	KeyErrProxyUpstreamSSHKnownHosts:        "SSH known_hosts %s 로드 실패: %w",
 	KeyErrProxyUpstreamSSHDial:              "%s 에 대한 SSH 업스트림 연결 설정 실패: %w",
 	KeyErrProxyUpstreamSSHChannel:           "%s 에 대한 SSH 채널 열기 실패: %w",

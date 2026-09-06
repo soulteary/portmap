@@ -145,6 +145,9 @@ var messagesDE = map[string]string{
 	KeyFlagProxyUpstreamKnownHosts: "SSH-known_hosts-Datei für die Host-Key-Prüfung (Standard ~/.ssh/known_hosts)",
 	KeyFlagProxyUpstreamInsecure:   "SSH-Upstream-Host-Key-Prüfung überspringen (unsicher, nur für selbst gehostete Testumgebungen)",
 
+	KeyFlagProxyUpstreamAgent:       "ssh-agent-Authentifizierung für den ssh-Upstream erlauben (standardmäßig aktiviert; wird automatisch übersprungen, wenn kein Agent erreichbar ist)",
+	KeyFlagProxyUpstreamAgentSocket: "Socket-Pfad des ssh-agent (leer liest die Umgebungsvariable SSH_AUTH_SOCK)",
+
 	KeyFlagProxyUpstreamKeepalive:            "Keepalive-Prüfintervall für SSH-Upstream (0 verwendet Standard 30s; negativ deaktiviert aktives Keepalive)",
 	KeyFlagProxyUpstreamKeepaliveMaxFailures: "Aufeinanderfolgende fehlgeschlagene Keepalive-Prüfungen, bevor der SSH-Upstream als getrennt gilt und neu verbunden wird (Standard 3)",
 
@@ -164,6 +167,9 @@ var messagesDE = map[string]string{
 	KeyLogProxyUpstreamInsecure:     "WARNUNG: Die SSH-Upstream-Host-Key-Prüfung ist deaktiviert (-upstream-insecure); die Verbindung ist anfällig für Man-in-the-Middle-Angriffe",
 	KeyLogProxyUpstreamSSHConnect:   "SSH-Upstream verbunden: %s",
 	KeyLogProxyUpstreamSSHReconnect: "SSH-Upstream-Verbindung verloren, verbinde erneut: %s",
+
+	KeyLogProxyUpstreamSSHAgent:        "ssh-agent-Authentifizierung für SSH-Upstream aktiviert: %s",
+	KeyLogProxyUpstreamSSHAgentSkipKey: "WARNUNG: privater SSH-Schlüssel %s ist verschlüsselt und es wurde keine Passphrase angegeben; es wird auf ssh-agent-Authentifizierung zurückgegriffen",
 
 	KeyLogProxyUpstreamSSHKeepaliveFail: "SSH-Upstream-Keepalive-Prüfung fehlgeschlagen %[2]d/%[3]d Mal: %[1]s",
 	KeyLogProxyUpstreamSSHBackoff:       "verbinde in %s erneut mit SSH-Upstream",
@@ -199,11 +205,13 @@ var messagesDE = map[string]string{
 	KeyErrProxyUpstreamSocks5:               "Erstellen des SOCKS5-Upstream-Dialers fehlgeschlagen: %w",
 	KeyErrProxyUpstreamHTTPConnect:          "Upstream-HTTP-CONNECT zu %s fehlgeschlagen: %w",
 	KeyErrProxyUpstreamHTTPStatus:           "Upstream-HTTP-CONNECT zu %s lieferte unerwarteten Status: %s",
-	KeyErrProxyUpstreamSSHNoAuth:            "ssh-Upstream erfordert eine Identitätsdatei (-upstream-identity) oder ein Passwort in der Upstream-URL",
+	KeyErrProxyUpstreamSSHNoAuth:            "ssh-Upstream erfordert einen erreichbaren ssh-agent (SSH_AUTH_SOCK oder -upstream-agent-socket), eine Identitätsdatei (-upstream-identity), ein Passwort in der Upstream-URL oder ein Passwort aus PORTMAP_UPSTREAM_PASSWORD / interaktiver Terminaleingabe",
 	KeyErrProxyUpstreamSSHIdentity:          "Lesen der SSH-Identitätsdatei %s fehlgeschlagen: %w",
 	KeyErrProxyUpstreamSSHParseKey:          "Analyse des privaten SSH-Schlüssels fehlgeschlagen: %w",
+	KeyErrProxyUpstreamSSHAgent:             "Verbindung zu ssh-agent %s fehlgeschlagen: %w",
 	KeyErrProxyUpstreamSSHPassphraseMissing: "der private SSH-Schlüssel ist verschlüsselt und erfordert eine Passphrase (geben Sie sie über die Umgebungsvariable PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE, das Konfigurationsfeld upstream_identity_passphrase oder eine interaktive Terminaleingabe an)",
 	KeyPromptUpstreamIdentityPassphrase:     "Passphrase für den privaten SSH-Schlüssel eingeben (%s): ",
+	KeyPromptUpstreamPassword:               "Passwort für den SSH-Upstream eingeben (%s): ",
 	KeyErrProxyUpstreamSSHKnownHosts:        "Laden von SSH-known_hosts %s fehlgeschlagen: %w",
 	KeyErrProxyUpstreamSSHDial:              "Aufbau der SSH-Upstream-Verbindung zu %s fehlgeschlagen: %w",
 	KeyErrProxyUpstreamSSHChannel:           "Öffnen des SSH-Kanals zu %s fehlgeschlagen: %w",

@@ -145,6 +145,9 @@ var messagesJA = map[string]string{
 	KeyFlagProxyUpstreamKnownHosts: "host key 検証に使用する SSH known_hosts ファイル（既定 ~/.ssh/known_hosts）",
 	KeyFlagProxyUpstreamInsecure:   "SSH 上流の host key 検証をスキップ（安全でない、自己ホストのテスト環境専用）",
 
+	KeyFlagProxyUpstreamAgent:       "ssh 上流の認証に ssh-agent を使用する（既定で有効。agent に接続できない場合は自動的にスキップ）",
+	KeyFlagProxyUpstreamAgentSocket: "ssh-agent の socket パス（空の場合は環境変数 SSH_AUTH_SOCK を参照）",
+
 	KeyFlagProxyUpstreamKeepalive:            "SSH 上流のキープアライブ探査間隔（0 はデフォルト 30s、負数はアクティブなキープアライブを無効化）",
 	KeyFlagProxyUpstreamKeepaliveMaxFailures: "SSH 上流を切断と判断して再接続するまでの連続キープアライブ探査失敗回数（デフォルト 3）",
 
@@ -164,6 +167,9 @@ var messagesJA = map[string]string{
 	KeyLogProxyUpstreamInsecure:     "警告: SSH 上流の host key 検証が無効です（-upstream-insecure）。中間者攻撃に対して脆弱です",
 	KeyLogProxyUpstreamSSHConnect:   "SSH 上流に接続しました: %s",
 	KeyLogProxyUpstreamSSHReconnect: "SSH 上流接続が切断されました、再接続します: %s",
+
+	KeyLogProxyUpstreamSSHAgent:        "SSH 上流の ssh-agent 認証を有効にしました: %s",
+	KeyLogProxyUpstreamSSHAgentSkipKey: "警告: SSH 秘密鍵 %s は暗号化されており passphrase が指定されていないため、ssh-agent 認証に切り替えます",
 
 	KeyLogProxyUpstreamSSHKeepaliveFail: "SSH 上流のキープアライブ探査に失敗しました %[2]d/%[3]d 回: %[1]s",
 	KeyLogProxyUpstreamSSHBackoff:       "%s 後に SSH 上流へ再接続します",
@@ -199,11 +205,13 @@ var messagesJA = map[string]string{
 	KeyErrProxyUpstreamSocks5:               "SOCKS5 上流ダイヤラーの作成に失敗: %w",
 	KeyErrProxyUpstreamHTTPConnect:          "%s への上流 HTTP CONNECT に失敗: %w",
 	KeyErrProxyUpstreamHTTPStatus:           "%s への上流 HTTP CONNECT が予期しないステータスを返しました: %s",
-	KeyErrProxyUpstreamSSHNoAuth:            "ssh 上流には秘密鍵ファイル（-upstream-identity）または上流 URL のパスワードが必要です",
+	KeyErrProxyUpstreamSSHNoAuth:            "ssh 上流には接続可能な ssh-agent（SSH_AUTH_SOCK または -upstream-agent-socket）、秘密鍵ファイル（-upstream-identity）、上流 URL のパスワード、または環境変数 PORTMAP_UPSTREAM_PASSWORD / 端末での対話入力によるパスワードが必要です",
 	KeyErrProxyUpstreamSSHIdentity:          "SSH 秘密鍵ファイル %s の読み取りに失敗: %w",
 	KeyErrProxyUpstreamSSHParseKey:          "SSH 秘密鍵の解析に失敗: %w",
+	KeyErrProxyUpstreamSSHAgent:             "ssh-agent %s への接続に失敗: %w",
 	KeyErrProxyUpstreamSSHPassphraseMissing: "SSH 秘密鍵は暗号化されており、passphrase が必要です（環境変数 PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE、設定項目 upstream_identity_passphrase、または端末での対話入力で指定してください）",
 	KeyPromptUpstreamIdentityPassphrase:     "SSH 秘密鍵の passphrase を入力してください（%s）: ",
+	KeyPromptUpstreamPassword:               "SSH 上流のログインパスワードを入力してください（%s）: ",
 	KeyErrProxyUpstreamSSHKnownHosts:        "SSH known_hosts %s の読み込みに失敗: %w",
 	KeyErrProxyUpstreamSSHDial:              "%s への SSH 上流接続の確立に失敗: %w",
 	KeyErrProxyUpstreamSSHChannel:           "%s への SSH チャネルのオープンに失敗: %w",

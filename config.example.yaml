@@ -61,15 +61,37 @@ proxy:
   allow_public: false
   # 上游代理链：出站连接经此上游转发，留空表示直连（默认空）。
   # 形如 socks5://user:pass@host:1080、http://host:3128、ssh://user@host:22
+  #
+  # ssh 上游的登录密码可写在 URL 中（ssh://user:pass@host:22，特殊字符需
+  # percent-encode）；未在 URL 中提供密码、也未配置 upstream_identity 时，
+  # 密码取自环境变量 PORTMAP_UPSTREAM_PASSWORD，环境变量为空且 stdin 是终端
+  # 时会交互式提示输入（不回显）。stdin 非终端（后台运行、systemd、管道等）
+  # 或 ssh-agent 可用（见下方 upstream_agent）时跳过提示；若此时也没有其它可用的
+  # 认证方式，则直接报缺少认证方式的错误。
   upstream: ""
-  # SSH 上游认证使用的私钥文件路径（仅 ssh 上游，默认空）
+  # 是否启用 ssh-agent 认证（仅 ssh 上游，默认 true）。
+  # 认证尝试顺序：ssh-agent > upstream_identity 私钥 > 密码。
+  # agent 不可用（socket 路径为空或连接失败）时静默跳过，不报错，对现有配置向后兼容。
+  # 「可用」以真实连接一次 socket 为准：socket 路径残留但 agent 已退出时判为不可用，
+  # 交互式口令提示会照常出现，而不会被压制。
+  # 推荐把加密私钥的口令交给 agent 保管，例如 macOS 上执行：
+  #   ssh-add --apple-use-keychain ~/.ssh/keys/litchi/litchi-2018
+  # 注意：Windows 的 ssh-agent 走 named pipe 而非 unix socket，不受支持。
+  upstream_agent: true
+  # ssh-agent 的 unix socket 路径（仅 ssh 上游，默认空）。
+  # 留空表示读取环境变量 SSH_AUTH_SOCK。
+  upstream_agent_socket: ""
+  # SSH 上游认证使用的私钥文件路径（仅 ssh 上游，默认空）。
+  # 支持 ~ 开头的路径，会展开为当前用户的 home 目录。
+  # 注意：配置了私钥后不会再提示输入登录密码（两种认证方式互斥）。
   upstream_identity: ""
   # 加密私钥的 passphrase（仅 ssh 上游，默认空）。优先级：环境变量
   # PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE > 此配置项 > 交互式终端输入。
   # 出于安全考虑不提供命令行 flag；推荐使用环境变量而非明文写入配置文件，
   # 若确需写入 YAML 请自行控制文件权限。
   # upstream_identity_passphrase: ""
-  # SSH 上游 host key 校验使用的 known_hosts 路径（仅 ssh 上游，默认 ~/.ssh/known_hosts）
+  # SSH 上游 host key 校验使用的 known_hosts 路径（仅 ssh 上游，默认 ~/.ssh/known_hosts）。
+  # 支持 ~ 开头的路径，会展开为当前用户的 home 目录。
   upstream_known_hosts: ""
   # 是否跳过 SSH 上游 host key 校验（不安全，仅用于自建测试环境，默认 false）
   upstream_insecure: false

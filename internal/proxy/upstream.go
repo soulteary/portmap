@@ -25,11 +25,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
 	xproxy "golang.org/x/net/proxy"
 
@@ -67,6 +69,14 @@ type UpstreamConfig struct {
 	// 为空时用 ssh.ParsePrivateKey 解析未加密私钥；非空时改用
 	// ssh.ParsePrivateKeyWithPassphrase。不会进入日志或 describe()。
 	IdentityPassphrase string
+
+	// AgentSocket 是 ssh-agent 的 unix socket 路径（可选）；
+	// 为空时读取环境变量 SSH_AUTH_SOCK。
+	AgentSocket string
+
+	// DisableAgent 为 true 时不使用 ssh-agent 认证。零值（false）表示启用，
+	// 使未显式配置的调用方默认获得 agent 支持。
+	DisableAgent bool
 
 	// KnownHostsFile 是 ssh 上游 host key 校验使用的 known_hosts 路径；
 	// 为空时默认使用 ~/.ssh/known_hosts。
@@ -305,6 +315,9 @@ type sshDialer struct {
 	logger  *log.Logger
 	sshCfg  *ssh.ClientConfig
 
+	// keyring 为 nil 表示未启用 agent 认证；非 nil 时随 Close 一并关闭。
+	keyring *agentKeyring
+
 	// 保活/退避参数，来自配置或默认值；负的 keepaliveInterval 表示禁用主动保活。
 	keepaliveInterval    time.Duration
 	keepaliveMaxFailures int
@@ -328,6 +341,15 @@ type sshDialer struct {
 	lifecycleCancel context.CancelFunc
 }
 
+// missingPassphraseError 表示私钥已加密但未提供 passphrase。用独立类型而非
+// errors.New 值，是为了让 newSSHDialer 能在 agent 可用时把它降级为告警，同时把
+// i18n 文案的求值推迟到 Error() —— 包级变量会在 SetLang 之前固化语言。
+type missingPassphraseError struct{}
+
+func (missingPassphraseError) Error() string {
+	return i18n.T(i18n.KeyErrProxyUpstreamSSHPassphraseMissing)
+}
+
 // parsePrivateKey 解析 SSH 私钥：passphrase 非空时用带口令解析，否则解析未加密
 // 私钥。当私钥已加密但未提供 passphrase 时，ssh.ParsePrivateKey 会返回
 // *ssh.PassphraseMissingError，此处以 errors.As 识别并返回更明确的 i18n 错误，
@@ -344,15 +366,107 @@ func parsePrivateKey(key []byte, passphrase string) (ssh.Signer, error) {
 	if err != nil {
 		var missing *ssh.PassphraseMissingError
 		if errors.As(err, &missing) {
-			return nil, errors.New(i18n.T(i18n.KeyErrProxyUpstreamSSHPassphraseMissing))
+			return nil, missingPassphraseError{}
 		}
 		return nil, fmt.Errorf(i18n.T(i18n.KeyErrProxyUpstreamSSHParseKey), err)
 	}
 	return signer, nil
 }
 
+// agentKeyring 通过 unix socket 向 ssh-agent 索取签名者，供 ssh.PublicKeysCallback
+// 使用。口令留在 agent（如 ssh-add --apple-use-keychain 存入钥匙串），portmap
+// 自身不接触私钥内容。
+//
+// 每次回调都重新连接 socket：sshDialer 后台重连时复用同一份 ssh.ClientConfig，
+// 而 agent 重启后旧连接已失效，只有重连才能自愈。agent.Signers 返回的签名者在
+// 签名时仍需与 agent 通信，因此连接不能在返回前关闭，只能在下一次回调换入新连接
+// 或 Close 时关闭。
+type agentKeyring struct {
+	socket string
+
+	mu     sync.Mutex
+	conn   net.Conn
+	closed bool
+}
+
+// newAgentKeyring 在 agent 启用且 socket 可达时返回 keyring，否则返回 nil。
+// 探测失败一律静默跳过（socket 未配置、agent 未运行、Windows 上 agent 走 named
+// pipe），使未使用 agent 的既有部署行为不变。
+func newAgentKeyring(cfg *UpstreamConfig) *agentKeyring {
+	if cfg.DisableAgent {
+		return nil
+	}
+	socket := strings.TrimSpace(cfg.AgentSocket)
+	if socket == "" {
+		socket = strings.TrimSpace(os.Getenv("SSH_AUTH_SOCK"))
+	}
+	if socket == "" {
+		return nil
+	}
+	probe, err := net.Dial("unix", socket)
+	if err != nil {
+		return nil
+	}
+	_ = probe.Close()
+	return &agentKeyring{socket: socket}
+}
+
+// signers 连接 agent 并返回其当前持有的全部签名者。
+func (k *agentKeyring) signers() ([]ssh.Signer, error) {
+	conn, err := net.Dial("unix", k.socket)
+	if err != nil {
+		return nil, fmt.Errorf(i18n.T(i18n.KeyErrProxyUpstreamSSHAgent), k.socket, err)
+	}
+	signers, err := agent.NewClient(conn).Signers()
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf(i18n.T(i18n.KeyErrProxyUpstreamSSHAgent), k.socket, err)
+	}
+	if replaced := k.swap(conn); replaced {
+		// Close 已先行：签名者已无意义，返回错误让本次认证方式失败。
+		return nil, errors.New(i18n.T(i18n.KeyErrProxyUpstreamClosed))
+	}
+	return signers, nil
+}
+
+// swap 换入新连接并关闭上一条；keyring 已关闭时改为关闭新连接并返回 true。
+func (k *agentKeyring) swap(conn net.Conn) bool {
+	k.mu.Lock()
+	if k.closed {
+		k.mu.Unlock()
+		_ = conn.Close()
+		return true
+	}
+	old := k.conn
+	k.conn = conn
+	k.mu.Unlock()
+	if old != nil {
+		_ = old.Close()
+	}
+	return false
+}
+
+func (k *agentKeyring) Close() error {
+	k.mu.Lock()
+	conn := k.conn
+	k.conn = nil
+	k.closed = true
+	k.mu.Unlock()
+	if conn != nil {
+		return conn.Close()
+	}
+	return nil
+}
+
 func newSSHDialer(cfg *UpstreamConfig, timeout time.Duration, logger *log.Logger) (Dialer, error) {
 	var authMethods []ssh.AuthMethod
+
+	// agent 排在私钥之前：已 ssh-add 的密钥优先，无需 portmap 拿到 passphrase。
+	keyring := newAgentKeyring(cfg)
+	if keyring != nil {
+		authMethods = append(authMethods, ssh.PublicKeysCallback(keyring.signers))
+		logMessage(logger, i18n.T(i18n.KeyLogProxyUpstreamSSHAgent), keyring.socket)
+	}
 
 	if cfg.IdentityFile != "" {
 		key, err := os.ReadFile(cfg.IdentityFile)
@@ -360,10 +474,17 @@ func newSSHDialer(cfg *UpstreamConfig, timeout time.Duration, logger *log.Logger
 			return nil, fmt.Errorf(i18n.T(i18n.KeyErrProxyUpstreamSSHIdentity), cfg.IdentityFile, err)
 		}
 		signer, err := parsePrivateKey(key, cfg.IdentityPassphrase)
-		if err != nil {
+		var missing missingPassphraseError
+		switch {
+		case err == nil:
+			authMethods = append(authMethods, ssh.PublicKeys(signer))
+		case keyring != nil && errors.As(err, &missing):
+			// 加密私钥缺口令时，agent 可用即降级为告警：既有配置保留
+			// upstream_identity 也能直接靠 agent 登录。
+			logMessage(logger, i18n.T(i18n.KeyLogProxyUpstreamSSHAgentSkipKey), cfg.IdentityFile)
+		default:
 			return nil, err
 		}
-		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	}
 	if cfg.Password != "" {
 		authMethods = append(authMethods, ssh.Password(cfg.Password))
@@ -399,6 +520,7 @@ func newSSHDialer(cfg *UpstreamConfig, timeout time.Duration, logger *log.Logger
 		timeout:              timeout,
 		logger:               logger,
 		sshCfg:               sshCfg,
+		keyring:              keyring,
 		keepaliveInterval:    keepaliveInterval,
 		keepaliveMaxFailures: keepaliveMaxFailures,
 		minBackoff:           defaultMinBackoff,
@@ -420,7 +542,7 @@ func sshHostKeyCallback(cfg *UpstreamConfig, logger *log.Logger) (ssh.HostKeyCal
 	if path == "" {
 		home, err := os.UserHomeDir()
 		if err == nil {
-			path = home + "/.ssh/known_hosts"
+			path = filepath.Join(home, ".ssh", "known_hosts")
 		}
 	}
 	cb, err := knownhosts.New(path)
@@ -806,8 +928,8 @@ func (s *sshDialer) discard(client *ssh.Client) {
 	_ = client.Close()
 }
 
-// Close 关闭底层 ssh 客户端，实现 io.Closer，供 Server 生命周期收尾调用。
-// 同时关闭 done 通道，通知后台守护 goroutine 优雅退出，避免泄漏。
+// Close 关闭底层 ssh 客户端与 agent 连接，实现 io.Closer，供 Server 生命周期
+// 收尾调用。同时关闭 done 通道，通知后台守护 goroutine 优雅退出，避免泄漏。
 func (s *sshDialer) Close() error {
 	s.mu.Lock()
 	client := s.client
@@ -818,6 +940,9 @@ func (s *sshDialer) Close() error {
 	if !alreadyClosed {
 		close(s.done)
 		s.lifecycleCancel()
+	}
+	if s.keyring != nil {
+		_ = s.keyring.Close()
 	}
 	if client != nil {
 		return client.Close()

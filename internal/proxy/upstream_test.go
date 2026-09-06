@@ -16,6 +16,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -34,9 +35,18 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/soulteary/portmap/internal/i18n"
 )
+
+// TestMain 清除进程继承的 SSH_AUTH_SOCK。agent 认证默认开启，若沿用开发机上的
+// 真实 agent，SSH 上游用例的认证方式集合就会随环境变化；需要 agent 的用例自行
+// 通过 UpstreamConfig.AgentSocket 指向临时 agent。
+func TestMain(m *testing.M) {
+	_ = os.Unsetenv("SSH_AUTH_SOCK")
+	os.Exit(m.Run())
+}
 
 func TestParseUpstreamURL(t *testing.T) {
 	tests := []struct {
@@ -1257,4 +1267,347 @@ func TestSSHDialerKeepaliveDisabled(t *testing.T) {
 
 	// 被动重连仍应工作：下一次拨号自动重连。
 	assertDialerReachesBackend(t, d, backendAddr)
+}
+
+// ---- ssh-agent 上游测试基础设施 ----
+
+// syncBuffer 是并发安全的日志缓冲：dialer 的后台 goroutine 也会写同一个 logger。
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// generateAgentKey 生成一把可加入 agent 的 RSA 私钥及其对应公钥。
+func generateAgentKey(t *testing.T) (*rsa.PrivateKey, ssh.PublicKey) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("生成 agent 私钥失败: %v", err)
+	}
+	signer, err := ssh.NewSignerFromKey(key)
+	if err != nil {
+		t.Fatalf("构造 agent signer 失败: %v", err)
+	}
+	return key, signer.PublicKey()
+}
+
+// tempAgentSocket 返回一个临时 socket 路径。不用 t.TempDir()，是因为 unix socket
+// 路径有长度上限（macOS 约 104 字节），而 t.TempDir() 会把用例名拼进路径。
+func tempAgentSocket(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "pmagent")
+	if err != nil {
+		t.Fatalf("创建 agent 临时目录失败: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return filepath.Join(dir, "agent.sock")
+}
+
+// startTestAgent 在 socket 上启动一个内存 ssh-agent 并载入 keys。返回的 stop
+// 关闭监听器（Go 会一并删除 socket 文件），可用于模拟 agent 重启。
+func startTestAgent(t *testing.T, socket string, keys ...*rsa.PrivateKey) func() {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows 上 ssh-agent 走 named pipe，不支持")
+	}
+	ring := agent.NewKeyring()
+	for _, key := range keys {
+		if err := ring.Add(agent.AddedKey{PrivateKey: key}); err != nil {
+			t.Fatalf("向 agent 添加私钥失败: %v", err)
+		}
+	}
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatalf("agent 监听失败: %v", err)
+	}
+	go func() {
+		for {
+			conn, acceptErr := ln.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go func() { _ = agent.ServeAgent(ring, conn) }()
+		}
+	}()
+	return func() { _ = ln.Close() }
+}
+
+// TestAgentKeyringSigners 验证 agentKeyring 能从真实 agent 取到签名者。
+func TestAgentKeyringSigners(t *testing.T) {
+	key, pub := generateAgentKey(t)
+	socket := tempAgentSocket(t)
+	stopAgent := startTestAgent(t, socket, key)
+	defer stopAgent()
+
+	keyring := newAgentKeyring(&UpstreamConfig{AgentSocket: socket})
+	if keyring == nil {
+		t.Fatal("agent 可达时应启用 agent 认证")
+	}
+	defer func() { _ = keyring.Close() }()
+
+	signers, err := keyring.signers()
+	if err != nil {
+		t.Fatalf("获取 agent 签名者失败: %v", err)
+	}
+	if len(signers) != 1 {
+		t.Fatalf("期望 1 个签名者，实际 %d 个", len(signers))
+	}
+	if string(signers[0].PublicKey().Marshal()) != string(pub.Marshal()) {
+		t.Fatal("签名者公钥与加入 agent 的私钥不符")
+	}
+
+	// Close 后连接释放，且后续回调不再把新连接挂回 keyring。
+	if err := keyring.Close(); err != nil {
+		t.Fatalf("关闭 keyring 失败: %v", err)
+	}
+	if _, err := keyring.signers(); err == nil {
+		t.Fatal("keyring 关闭后不应再返回签名者")
+	}
+	keyring.mu.Lock()
+	leaked := keyring.conn
+	keyring.mu.Unlock()
+	if leaked != nil {
+		t.Fatal("keyring 关闭后不应持有 agent 连接")
+	}
+}
+
+// TestAgentKeyringRecoversAfterAgentRestart 验证 agent 重启（socket 被替换）后，
+// 下一次回调重新连接并取到新 agent 的密钥，而非沿用已失效的旧连接。
+func TestAgentKeyringRecoversAfterAgentRestart(t *testing.T) {
+	firstKey, firstPub := generateAgentKey(t)
+	socket := tempAgentSocket(t)
+	stopFirst := startTestAgent(t, socket, firstKey)
+
+	keyring := newAgentKeyring(&UpstreamConfig{AgentSocket: socket})
+	if keyring == nil {
+		t.Fatal("agent 可达时应启用 agent 认证")
+	}
+	defer func() { _ = keyring.Close() }()
+
+	signers, err := keyring.signers()
+	if err != nil {
+		t.Fatalf("获取 agent 签名者失败: %v", err)
+	}
+	if len(signers) != 1 || string(signers[0].PublicKey().Marshal()) != string(firstPub.Marshal()) {
+		t.Fatal("首次应取到第一个 agent 的密钥")
+	}
+
+	stopFirst()
+	if err := os.Remove(socket); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("移除旧 socket 失败: %v", err)
+	}
+	secondKey, secondPub := generateAgentKey(t)
+	stopSecond := startTestAgent(t, socket, secondKey)
+	defer stopSecond()
+
+	signers, err = keyring.signers()
+	if err != nil {
+		t.Fatalf("agent 重启后获取签名者失败: %v", err)
+	}
+	if len(signers) != 1 || string(signers[0].PublicKey().Marshal()) != string(secondPub.Marshal()) {
+		t.Fatal("agent 重启后应取到新 agent 的密钥")
+	}
+}
+
+// TestNewAgentKeyringSkipsUnavailable 验证 agent 不可用时静默跳过（返回 nil），
+// 使未使用 agent 的既有配置行为不变。
+func TestNewAgentKeyringSkipsUnavailable(t *testing.T) {
+	key, _ := generateAgentKey(t)
+	socket := tempAgentSocket(t)
+	stopAgent := startTestAgent(t, socket, key)
+	defer stopAgent()
+
+	cases := []struct {
+		name string
+		cfg  *UpstreamConfig
+	}{
+		{"未配置 socket 且 SSH_AUTH_SOCK 为空", &UpstreamConfig{}},
+		{"socket 路径不存在", &UpstreamConfig{AgentSocket: filepath.Join(t.TempDir(), "missing.sock")}},
+		{"显式关闭 agent", &UpstreamConfig{AgentSocket: socket, DisableAgent: true}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if keyring := newAgentKeyring(c.cfg); keyring != nil {
+				t.Fatalf("期望跳过 agent，实际启用了 socket %q", keyring.socket)
+			}
+		})
+	}
+}
+
+// TestNewAgentKeyringUsesEnvSocket 验证未显式配置 socket 时回落到 SSH_AUTH_SOCK。
+func TestNewAgentKeyringUsesEnvSocket(t *testing.T) {
+	key, _ := generateAgentKey(t)
+	socket := tempAgentSocket(t)
+	stopAgent := startTestAgent(t, socket, key)
+	defer stopAgent()
+
+	t.Setenv("SSH_AUTH_SOCK", socket)
+	keyring := newAgentKeyring(&UpstreamConfig{})
+	if keyring == nil {
+		t.Fatal("SSH_AUTH_SOCK 指向可达 agent 时应启用 agent 认证")
+	}
+	defer func() { _ = keyring.Close() }()
+	if keyring.socket != socket {
+		t.Fatalf("socket=%q，期望 %q", keyring.socket, socket)
+	}
+}
+
+// TestAgentKeyringSignersDialError 验证 socket 不可连时 signers 返回错误，
+// 由 x/crypto/ssh 回落到其它认证方式。
+func TestAgentKeyringSignersDialError(t *testing.T) {
+	keyring := &agentKeyring{socket: filepath.Join(t.TempDir(), "missing.sock")}
+	if _, err := keyring.signers(); err == nil {
+		t.Fatal("期望连接不存在的 agent socket 时返回错误")
+	}
+}
+
+// TestSSHDialerAgentAuth 验证仅凭 agent（无私钥文件、无密码）即可完成 SSH 上游
+// 认证并拨通后端，且 Close 会释放 agent 连接。
+func TestSSHDialerAgentAuth(t *testing.T) {
+	backendAddr, stopBackend := startBackend(t)
+	defer stopBackend()
+
+	key, pub := generateAgentKey(t)
+	socket := tempAgentSocket(t)
+	stopAgent := startTestAgent(t, socket, key)
+	defer stopAgent()
+
+	sshAddr, _, stopSSH := startSSHServer(t, pub)
+	defer stopSSH()
+
+	dialer, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:      UpstreamSchemeSSH,
+		Addr:        sshAddr,
+		Username:    "tester",
+		AgentSocket: socket,
+		Insecure:    true,
+	}, 5*time.Second, 30*time.Second, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("构造 SSH 上游失败: %v", err)
+	}
+	defer closeDialer(t, dialer)
+
+	assertDialerReachesBackend(t, dialer, backendAddr)
+
+	sd := dialer.(*sshDialer)
+	if sd.keyring == nil {
+		t.Fatal("期望 dialer 持有 agent keyring")
+	}
+	closeDialer(t, dialer)
+	sd.keyring.mu.Lock()
+	conn := sd.keyring.conn
+	sd.keyring.mu.Unlock()
+	if conn != nil {
+		t.Fatal("Close 后 agent 连接应已释放")
+	}
+}
+
+// TestSSHDialerEncryptedIdentityFallsBackToAgent 验证降级逻辑：加密私钥缺
+// passphrase 时，agent 可用即从致命错误降级为告警，并继续用 agent 完成认证。
+func TestSSHDialerEncryptedIdentityFallsBackToAgent(t *testing.T) {
+	backendAddr, stopBackend := startBackend(t)
+	defer stopBackend()
+
+	agentKey, agentPub := generateAgentKey(t)
+	socket := tempAgentSocket(t)
+	stopAgent := startTestAgent(t, socket, agentKey)
+	defer stopAgent()
+
+	// 服务端只认 agent 里的密钥，私钥文件是另一把加密密钥，只有真的跳过它才能登录。
+	sshAddr, _, stopSSH := startSSHServer(t, agentPub)
+	defer stopSSH()
+
+	clientPEM, _ := generateEncryptedClientKey(t, "some-pass")
+	identity := writeIdentity(t, clientPEM)
+
+	logs := &syncBuffer{}
+	dialer, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:       UpstreamSchemeSSH,
+		Addr:         sshAddr,
+		Username:     "tester",
+		IdentityFile: identity,
+		AgentSocket:  socket,
+		Insecure:     true,
+	}, 5*time.Second, 30*time.Second, log.New(logs, "", 0))
+	if err != nil {
+		t.Fatalf("agent 可用时加密私钥缺 passphrase 不应报错: %v", err)
+	}
+	defer closeDialer(t, dialer)
+
+	want := i18n.T(i18n.KeyLogProxyUpstreamSSHAgentSkipKey, identity)
+	if !strings.Contains(logs.String(), want) {
+		t.Fatalf("期望记录跳过私钥的告警，实际日志: %q", logs.String())
+	}
+
+	assertDialerReachesBackend(t, dialer, backendAddr)
+}
+
+// TestSSHDialerEncryptedIdentityAgentDisabled 验证 -upstream-agent=false 时不发生
+// 降级：即使 agent 可达，加密私钥缺 passphrase 仍是致命错误。
+func TestSSHDialerEncryptedIdentityAgentDisabled(t *testing.T) {
+	agentKey, agentPub := generateAgentKey(t)
+	socket := tempAgentSocket(t)
+	stopAgent := startTestAgent(t, socket, agentKey)
+	defer stopAgent()
+
+	sshAddr, _, stopSSH := startSSHServer(t, agentPub)
+	defer stopSSH()
+
+	clientPEM, _ := generateEncryptedClientKey(t, "some-pass")
+	identity := writeIdentity(t, clientPEM)
+
+	_, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:       UpstreamSchemeSSH,
+		Addr:         sshAddr,
+		Username:     "tester",
+		IdentityFile: identity,
+		AgentSocket:  socket,
+		DisableAgent: true,
+		Insecure:     true,
+	}, 5*time.Second, 30*time.Second, log.New(io.Discard, "", 0))
+	if err == nil {
+		t.Fatal("关闭 agent 后加密私钥缺 passphrase 应返回错误")
+	}
+	if want := i18n.T(i18n.KeyErrProxyUpstreamSSHPassphraseMissing); !strings.Contains(err.Error(), want) {
+		t.Fatalf("期望返回 passphrase missing 错误，实际: %v", err)
+	}
+}
+
+// TestSSHDialerAgentDisabledRequiresOtherAuth 验证 DisableAgent 时 agent 不计入
+// 认证方式，缺少其它凭据仍报「无可用认证方式」。
+func TestSSHDialerAgentDisabledRequiresOtherAuth(t *testing.T) {
+	key, pub := generateAgentKey(t)
+	socket := tempAgentSocket(t)
+	stopAgent := startTestAgent(t, socket, key)
+	defer stopAgent()
+
+	sshAddr, _, stopSSH := startSSHServer(t, pub)
+	defer stopSSH()
+
+	_, err := NewUpstreamDialer(&UpstreamConfig{
+		Scheme:       UpstreamSchemeSSH,
+		Addr:         sshAddr,
+		Username:     "tester",
+		AgentSocket:  socket,
+		DisableAgent: true,
+		Insecure:     true,
+	}, 5*time.Second, 30*time.Second, log.New(io.Discard, "", 0))
+	if err == nil {
+		t.Fatal("期望关闭 agent 且无其它凭据时返回错误")
+	}
+	if want := i18n.T(i18n.KeyErrProxyUpstreamSSHNoAuth); !strings.Contains(err.Error(), want) {
+		t.Fatalf("期望返回缺少认证方式错误，实际: %v", err)
+	}
 }

@@ -170,6 +170,9 @@ flags:
   -idle-timeout duration  双向空闲超时，0 表示不限制 (默认 5m0s)
   -max-conns int          代理最大并发连接数，0 表示不限制 (默认 256)
   -upstream string        上游代理 URL，支持 socks5://、http://、ssh://；留空表示直连
+  -upstream-agent         启用 ssh-agent 认证（仅 ssh 上游，默认 true）
+  -upstream-agent-socket string
+                          ssh-agent 的 socket 路径（留空表示读环境变量 SSH_AUTH_SOCK）
   -upstream-identity string
                           SSH 上游认证使用的私钥文件
   -upstream-insecure      跳过 SSH host key 校验（不安全，仅用于自建测试环境）
@@ -206,6 +209,51 @@ flags:
 > `-allow-public` 只开放代理监听器；统计端点和 Web 面板必须分别通过
 > `-stats-allow-public` 与 `-web-allow-public` 显式开放。
 
+#### SSH 上游 ssh-agent 认证（推荐）
+
+`upstream` 为 `ssh://` 时，portmap 默认尝试通过 ssh-agent 完成认证：签名由 agent 代劳，
+加密私钥的口令交给 `ssh-add` / macOS 钥匙串保管，portmap 自身完全不接触口令。
+
+认证方式的尝试顺序为：**ssh-agent → `-upstream-identity` 指定的私钥 → 密码**。
+
+- `-upstream-agent`（默认 `true`）控制是否启用 agent 认证，用 `-upstream-agent=false` 关闭；
+- `-upstream-agent-socket` 指定 agent 的 unix socket 路径，留空表示读取环境变量 `SSH_AUTH_SOCK`；
+- 配置文件中对应 `proxy:` 段下的 `upstream_agent` 与 `upstream_agent_socket`。
+
+推荐用法是先把私钥加入 agent，之后启动 portmap 不必再输入任何口令：
+
+```bash
+# macOS：把加密私钥的口令存入钥匙串，之后（含重启后）都不用再输入
+ssh-add --apple-use-keychain ~/.ssh/keys/litchi/litchi-2018
+
+# Linux：加入正在运行的 ssh-agent
+ssh-add ~/.ssh/id_rsa
+
+# 之后直接启动即可，不会再有 passphrase / 密码提示
+./portmap proxy -upstream ssh://root@host:22
+```
+
+> [!NOTE]
+> agent 认证虽然默认开启，但对现有配置**完全向后兼容**：`SSH_AUTH_SOCK` 为空或 socket
+> 不可达时会静默跳过 agent，不产生任何错误，私钥与密码认证照常工作。
+>
+> agent 可用时只会**压制交互式终端提示**：环境变量 `PORTMAP_UPSTREAM_PASSWORD`、
+> `PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE` 以及配置项 `upstream_identity_passphrase`
+> 仍然照常生效，显式提供的凭据不会因为 agent 可用而被忽略。
+>
+> 若同时配置了 `-upstream-identity`、该私钥是加密私钥且未提供 passphrase，只要 agent 可用，
+> portmap 不再像以前那样直接报错退出，而是记录一条告警日志、跳过该私钥并改用 agent 认证。
+>
+> 判断「是否还需要向用户索要口令」时会真实连接一次 socket 做连通性探测（带 500ms 超时，
+> 探测后立即关闭）。因此 `SSH_AUTH_SOCK` 指向一个已失效的 agent（机器重启后 agent 尚未
+> 启动、socket 路径残留等）时，agent 会被判为不可用，交互式提示照常出现，无需再用环境变量
+> 或 `-upstream-agent=false` 绕开。
+
+> [!WARNING]
+> Windows 上的 ssh-agent 通过 named pipe 而非 unix socket 通信，因此不受支持；
+> 该平台请继续使用 passphrase 或登录密码的方式（unix socket 探测必然失败，agent 判为
+> 不可用，交互式提示照常出现）。
+
 #### SSH 上游私钥 passphrase（证书密码）
 
 当 `upstream` 为 `ssh://` 且 `-upstream-identity` 指向的私钥是**加密私钥**时，
@@ -220,11 +268,42 @@ flags:
 **推荐使用环境变量**；若写入 YAML 明文，请自行控制配置文件权限。passphrase
 不会进入日志。加密私钥但未提供 passphrase 时会给出明确的错误提示。
 
+ssh-agent 可用时（见上一节）不会触发第 3 步的交互式提示：此时加密私钥缺少 passphrase
+只会记录一条告警并改用 agent 认证，而不再报错退出。
+
 ```bash
 # 环境变量方式（推荐）
 export PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE='your-passphrase'
 ./portmap proxy -upstream ssh://root@host:22 -upstream-identity ~/.ssh/id_rsa
 ```
+
+#### SSH 上游登录密码
+
+不使用私钥、改用密码登录 SSH 上游时，密码按以下优先级解析（高 → 低）：
+
+1. 上游 URL 中的 userinfo，如 `ssh://root:pass@host:22`（特殊字符需
+   percent-encode，例如 `@` 写作 `%40`）；
+2. 环境变量 `PORTMAP_UPSTREAM_PASSWORD`；
+3. 交互式终端输入（仅当上面两者都为空、且**未**配置 `-upstream-identity`、
+   且 stdin 是 TTY 时触发，读取时不回显）。
+
+与 passphrase 一样**不提供命令行 flag**，密码也不会进入日志。私钥与密码两种
+认证方式互斥：配置了 `-upstream-identity` 就不会再提示输入密码。stdin 不是 TTY
+时（后台运行、systemd、管道等）会跳过提示，直接报缺少认证方式的错误。ssh-agent
+可用时（见上文「SSH 上游 ssh-agent 认证」）同样不会提示输入密码。
+
+```bash
+# 交互式输入（终端前台运行）
+./portmap proxy -upstream ssh://root@host:22
+
+# 环境变量方式（适用于无终端环境）
+export PORTMAP_UPSTREAM_PASSWORD='your-password'
+./portmap proxy -upstream ssh://root@host:22
+```
+
+> [!NOTE]
+> 配置文件中的 `upstream_identity` 与 `upstream_known_hosts` 支持 `~` 开头的
+> 路径，会展开为当前用户的 home 目录（YAML 不经过 shell，无法依赖 shell 展开）。
 
 ## 示例
 

@@ -208,6 +208,9 @@ Important proxy flags:
 - `-idle-timeout 5m`: close tunnels only after both directions remain idle.
 - `-allow-public`: explicitly allow a non-loopback listen address.
 - `-upstream URL`: route outbound connections through SOCKS5, HTTP CONNECT, or SSH.
+- `-upstream-agent` / `-upstream-agent-socket`: authenticate to an SSH upstream
+  through ssh-agent (enabled by default; the socket path defaults to
+  `SSH_AUTH_SOCK`).
 - `-upstream-identity` / `-upstream-known-hosts`: configure SSH key
   authentication and host-key verification.
 - `-upstream-keepalive` / `-upstream-keepalive-max-failures`: control SSH
@@ -228,6 +231,65 @@ HTTP request lines and headers are limited to 1 MiB in total; larger requests re
 `-allow-public` applies only to the proxy listener; admin endpoints require their
 own explicit public-access flags.
 
+#### SSH upstream ssh-agent authentication (recommended)
+
+When `upstream` is `ssh://`, portmap tries ssh-agent authentication by default: the
+agent performs the signing, the passphrase of an encrypted key stays with
+`ssh-add` / the macOS keychain, and portmap never touches it.
+
+Authentication methods are attempted in this order: **ssh-agent → the private key
+given via `-upstream-identity` → password**.
+
+- `-upstream-agent` (default `true`) enables agent authentication; pass
+  `-upstream-agent=false` to disable it.
+- `-upstream-agent-socket` sets the agent's unix socket path; leave it empty to
+  read the `SSH_AUTH_SOCK` environment variable.
+- The matching config fields are `upstream_agent` and `upstream_agent_socket`
+  under the `proxy:` section.
+
+The recommended workflow is to add the key to the agent once, after which portmap
+never prompts for anything:
+
+```bash
+# macOS: store the encrypted key's passphrase in the keychain (survives reboots)
+ssh-add --apple-use-keychain ~/.ssh/keys/litchi/litchi-2018
+
+# Linux: add the key to the running ssh-agent
+ssh-add ~/.ssh/id_rsa
+
+# Then just start portmap; no passphrase or password prompt appears
+./portmap proxy -upstream ssh://root@host:22
+```
+
+> [!NOTE]
+> Agent authentication is enabled by default but **fully backward compatible**:
+> when `SSH_AUTH_SOCK` is empty or the socket is unreachable, the agent is
+> skipped silently without any error, and key and password authentication keep
+> working as before.
+>
+> An available agent only suppresses **interactive terminal prompts**: the
+> `PORTMAP_UPSTREAM_PASSWORD` and `PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE`
+> environment variables and the `upstream_identity_passphrase` config field still
+> take effect, so credentials you supply explicitly are never ignored just
+> because an agent is reachable.
+>
+> If `-upstream-identity` also points at an encrypted key and no passphrase is
+> provided, portmap no longer fails outright as long as the agent is available:
+> it logs a warning, skips that key, and authenticates through the agent instead.
+>
+> Deciding whether a passphrase still has to be requested probes the socket for
+> real by connecting to it once (with a 500ms timeout, closed immediately after).
+> So when `SSH_AUTH_SOCK` points at a dead agent (the agent is not running yet
+> after a reboot, a stale socket path, …), the agent counts as unavailable and the
+> interactive prompt appears as usual — no need to work around it with an
+> environment variable or `-upstream-agent=false`.
+
+> [!WARNING]
+> On Windows, ssh-agent communicates over a named pipe rather than a unix socket,
+> so it is not supported there; keep using the passphrase or login password on
+> that platform (the unix socket probe always fails, the agent counts as
+> unavailable, and the interactive prompt appears as usual).
+
 #### SSH upstream private key passphrase
 
 When `upstream` is `ssh://` and the private key given via `-upstream-identity` is
@@ -245,11 +307,48 @@ you store it as plaintext in YAML, control the config file permissions yourself.
 The passphrase never appears in logs. When the key is encrypted but no passphrase
 is provided, a clear error is returned.
 
+When ssh-agent is available (see the previous section), the interactive prompt in
+step 3 is skipped: an encrypted key without a passphrase then only produces a
+warning and falls back to agent authentication instead of failing.
+
 ```bash
 # Environment variable (recommended)
 export PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE='your-passphrase'
 ./portmap proxy -upstream ssh://root@host:22 -upstream-identity ~/.ssh/id_rsa
 ```
+
+#### SSH upstream login password
+
+When authenticating to an `ssh://` upstream with a password instead of a private
+key, the password is resolved in the following priority order (highest → lowest):
+
+1. the userinfo part of the upstream URL, e.g. `ssh://root:pass@host:22`
+   (special characters must be percent-encoded, e.g. `@` as `%40`);
+2. the `PORTMAP_UPSTREAM_PASSWORD` environment variable;
+3. an interactive terminal prompt (only when the two above are empty,
+   `-upstream-identity` is **not** set, and stdin is a TTY; input is read
+   without echo).
+
+As with the passphrase, there is **no command-line flag**, and the password never
+appears in logs. Key-based and password-based authentication are mutually
+exclusive: setting `-upstream-identity` suppresses the password prompt. When stdin
+is not a TTY (background, systemd, pipes), the prompt is skipped and a missing
+authentication error is returned. The password prompt is likewise skipped when
+ssh-agent is available (see "SSH upstream ssh-agent authentication" above).
+
+```bash
+# Interactive prompt (foreground terminal)
+./portmap proxy -upstream ssh://root@host:22
+
+# Environment variable (for non-interactive environments)
+export PORTMAP_UPSTREAM_PASSWORD='your-password'
+./portmap proxy -upstream ssh://root@host:22
+```
+
+> [!NOTE]
+> In config files, `upstream_identity` and `upstream_known_hosts` accept paths
+> starting with `~`, which are expanded to the current user's home directory
+> (YAML is not processed by a shell, so shell expansion is unavailable).
 
 ## Interface Language
 

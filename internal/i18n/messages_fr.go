@@ -145,6 +145,9 @@ var messagesFR = map[string]string{
 	KeyFlagProxyUpstreamKnownHosts: "fichier SSH known_hosts pour la vérification de la clé d'hôte (par défaut ~/.ssh/known_hosts)",
 	KeyFlagProxyUpstreamInsecure:   "ignorer la vérification de la clé d'hôte SSH amont (non sécurisé, uniquement pour les environnements de test auto-hébergés)",
 
+	KeyFlagProxyUpstreamAgent:       "autoriser l'authentification par ssh-agent pour l'amont ssh (activé par défaut ; ignoré automatiquement si aucun agent n'est joignable)",
+	KeyFlagProxyUpstreamAgentSocket: "chemin du socket ssh-agent (vide signifie lire la variable d'environnement SSH_AUTH_SOCK)",
+
 	KeyFlagProxyUpstreamKeepalive:            "intervalle des sondes keepalive de l'amont SSH (0 utilise la valeur par défaut 30s ; négatif désactive le keepalive actif)",
 	KeyFlagProxyUpstreamKeepaliveMaxFailures: "nombre d'échecs consécutifs de sondes keepalive avant que l'amont SSH soit considéré comme déconnecté et reconnecté (par défaut 3)",
 
@@ -164,6 +167,9 @@ var messagesFR = map[string]string{
 	KeyLogProxyUpstreamInsecure:     "AVERTISSEMENT : la vérification de la clé d'hôte SSH amont est désactivée (-upstream-insecure) ; la connexion est vulnérable aux attaques de l'intercepteur",
 	KeyLogProxyUpstreamSSHConnect:   "amont SSH connecté : %s",
 	KeyLogProxyUpstreamSSHReconnect: "connexion amont SSH perdue, reconnexion : %s",
+
+	KeyLogProxyUpstreamSSHAgent:        "authentification ssh-agent activée pour l'amont SSH : %s",
+	KeyLogProxyUpstreamSSHAgentSkipKey: "AVERTISSEMENT : la clé privée SSH %s est chiffrée et aucune passphrase n'a été fournie ; repli sur l'authentification par ssh-agent",
 
 	KeyLogProxyUpstreamSSHKeepaliveFail: "échec de la sonde keepalive amont SSH %[2]d/%[3]d fois : %[1]s",
 	KeyLogProxyUpstreamSSHBackoff:       "reconnexion à l'amont SSH dans %s",
@@ -199,11 +205,13 @@ var messagesFR = map[string]string{
 	KeyErrProxyUpstreamSocks5:               "échec de création du dialer amont SOCKS5 : %w",
 	KeyErrProxyUpstreamHTTPConnect:          "échec du CONNECT HTTP amont vers %s : %w",
 	KeyErrProxyUpstreamHTTPStatus:           "le CONNECT HTTP amont vers %s a renvoyé un statut inattendu : %s",
-	KeyErrProxyUpstreamSSHNoAuth:            "l'amont ssh nécessite un fichier de clé (-upstream-identity) ou un mot de passe dans l'URL amont",
+	KeyErrProxyUpstreamSSHNoAuth:            "l'amont ssh nécessite un ssh-agent joignable (SSH_AUTH_SOCK ou -upstream-agent-socket), un fichier de clé (-upstream-identity), un mot de passe dans l'URL amont, ou un mot de passe fourni via PORTMAP_UPSTREAM_PASSWORD / la saisie interactive au terminal",
 	KeyErrProxyUpstreamSSHIdentity:          "échec de lecture du fichier de clé SSH %s : %w",
 	KeyErrProxyUpstreamSSHParseKey:          "échec d'analyse de la clé privée SSH : %w",
+	KeyErrProxyUpstreamSSHAgent:             "échec de connexion à ssh-agent %s : %w",
 	KeyErrProxyUpstreamSSHPassphraseMissing: "la clé privée SSH est chiffrée et nécessite une passphrase (fournissez-la via la variable d'environnement PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE, le champ de configuration upstream_identity_passphrase, ou une invite interactive dans le terminal)",
 	KeyPromptUpstreamIdentityPassphrase:     "Saisissez la passphrase de la clé privée SSH (%s) : ",
+	KeyPromptUpstreamPassword:               "Saisissez le mot de passe du proxy amont SSH (%s) : ",
 	KeyErrProxyUpstreamSSHKnownHosts:        "échec du chargement de SSH known_hosts %s : %w",
 	KeyErrProxyUpstreamSSHDial:              "échec de l'établissement de la connexion amont SSH vers %s : %w",
 	KeyErrProxyUpstreamSSHChannel:           "échec de l'ouverture du canal SSH vers %s : %w",

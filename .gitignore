@@ -11,3 +11,9 @@ coverage.*
 .DS_Store
 .idea/
 .vscode/
+
+# 本地配置（可能含服务器地址、私钥路径与凭据）；示例文件仍需跟踪
+config.yaml
+/config.yaml
+/config.*.yaml
+!/config.example.yaml

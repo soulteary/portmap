@@ -29,6 +29,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -654,6 +655,8 @@ type proxyOptions struct {
 	upstreamIdentityPassphrase   string
 	upstreamKnownHosts           string
 	upstreamInsecure             bool
+	upstreamAgent                bool
+	upstreamAgentSocket          string
 	upstreamKeepalive            time.Duration
 	upstreamKeepaliveMaxFailures int
 	showVersion                  bool
@@ -681,6 +684,8 @@ func runProxy(argv []string) error {
 	fs.StringVar(&opt.upstreamIdentity, "upstream-identity", "", i18n.T(i18n.KeyFlagProxyUpstreamIdentity))
 	fs.StringVar(&opt.upstreamKnownHosts, "upstream-known-hosts", "", i18n.T(i18n.KeyFlagProxyUpstreamKnownHosts))
 	fs.BoolVar(&opt.upstreamInsecure, "upstream-insecure", false, i18n.T(i18n.KeyFlagProxyUpstreamInsecure))
+	fs.BoolVar(&opt.upstreamAgent, "upstream-agent", true, i18n.T(i18n.KeyFlagProxyUpstreamAgent))
+	fs.StringVar(&opt.upstreamAgentSocket, "upstream-agent-socket", "", i18n.T(i18n.KeyFlagProxyUpstreamAgentSocket))
 	fs.DurationVar(&opt.upstreamKeepalive, "upstream-keepalive", 0, i18n.T(i18n.KeyFlagProxyUpstreamKeepalive))
 	fs.IntVar(&opt.upstreamKeepaliveMaxFailures, "upstream-keepalive-max-failures", 0, i18n.T(i18n.KeyFlagProxyUpstreamKeepaliveMaxFailures))
 	fs.BoolVar(&opt.showVersion, "version", false, i18n.T(i18n.KeyFlagVersion))
@@ -791,9 +796,9 @@ func validateProxyOptions(opt *proxyOptions) error {
 //	> 交互式终端输入。
 //
 // 交互式输入仅在以下条件同时满足时触发：环境变量与已有值均为空、配置了
-// -upstream-identity 私钥文件、且 stdin 是 TTY。读取使用 term.ReadPassword，
-// 不回显。passphrase 不会写入日志。出于安全考虑不提供命令行 flag，避免明文
-// 出现在进程列表或 shell 历史中。
+// -upstream-identity 私钥文件、ssh-agent 不可用、且 stdin 是 TTY。读取使用
+// term.ReadPassword，不回显。passphrase 不会写入日志。出于安全考虑不提供命令行
+// flag，避免明文出现在进程列表或 shell 历史中。
 func resolveIdentityPassphrase(opt *proxyOptions) {
 	if env := os.Getenv("PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE"); env != "" {
 		opt.upstreamIdentityPassphrase = env
@@ -804,6 +809,11 @@ func resolveIdentityPassphrase(opt *proxyOptions) {
 	}
 	// 仅当配置了私钥文件且 stdin 是交互式终端时才提示输入。
 	if strings.TrimSpace(opt.upstreamIdentity) == "" {
+		return
+	}
+	// agent 可用时不索要口令：把加密私钥的口令交给 agent 管理正是它的用途，
+	// 私钥因此被跳过（internal/proxy 会记录告警）。
+	if upstreamAgentAvailable(opt.upstreamAgent, opt.upstreamAgentSocket) {
 		return
 	}
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
@@ -818,6 +828,86 @@ func resolveIdentityPassphrase(opt *proxyOptions) {
 	opt.upstreamIdentityPassphrase = string(pw)
 }
 
+// expandTilde 将开头的 ~ 展开为当前用户的 home 目录。配置文件中的路径不经过
+// shell，需要自行展开；无法确定 home 时原样返回，交由后续文件读取报错。
+func expandTilde(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, strings.TrimPrefix(path, "~"))
+}
+
+// agentProbeTimeout 是 agent socket 连通性探测的超时。socket 文件存在但对端不再
+// accept（agent 卡死、backlog 满）时 connect 会一直阻塞，取值需短到不影响启动，
+// 又足以容纳本机 unix socket 的正常建连。
+const agentProbeTimeout = 500 * time.Millisecond
+
+// upstreamAgentAvailable 判断 ssh-agent 是否可用：未被 -upstream-agent=false
+// 关闭，且显式 socket 或 SSH_AUTH_SOCK 指向的 socket 能够连通。
+//
+// 这里只用于决定「是否还需要向用户索要口令」，因此判定必须与 internal/proxy 构造
+// 上游时一致——后者同样 dial 一次 socket，不可达即静默跳过 agent 认证。若此处只看
+// 路径非空，SSH_AUTH_SOCK 残留指向一个已退出的 agent 时，交互式提示被压制而 agent
+// 又用不上，加密私钥只能报缺少 passphrase 直接退出；探测后这种情形会回退到提示。
+//
+// 探测止于「socket 能否建连」，不做 agent 协议握手（agent.NewClient().Signers()）：
+// 决定提示与否无需知道 agent 装了哪些密钥，也不必为此让主包依赖 internal/proxy。
+// Windows 的 agent 走 named pipe，net.Dial("unix", ...) 必然失败从而判为不可用并
+// 回退到交互式提示，与该平台不支持 agent 的现状一致。
+func upstreamAgentAvailable(enabled bool, socket string) bool {
+	if !enabled {
+		return false
+	}
+	path := strings.TrimSpace(socket)
+	if path == "" {
+		path = strings.TrimSpace(os.Getenv("SSH_AUTH_SOCK"))
+	}
+	if path == "" {
+		return false
+	}
+	// 展开 ~：resolveIdentityPassphrase 早于 buildProxyUpstream 调用，此时
+	// opt.upstreamAgentSocket 仍是配置文件里的原始路径。
+	conn, err := net.DialTimeout("unix", expandTilde(path), agentProbeTimeout)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+// promptUpstreamPassword 在 ssh 上游既未提供私钥、上游 URL 中也未带密码时，
+// 交互式读取登录密码。优先级：环境变量 PORTMAP_UPSTREAM_PASSWORD > 终端输入。
+//
+// ssh-agent 可用或 stdin 不是 TTY 时静默跳过：前者由 agent 完成认证，后者由后续
+// 认证阶段报缺少认证方式的错误。读取使用 term.ReadPassword，不回显；密码不会写入
+// 日志。出于安全考虑不提供命令行 flag，避免明文出现在进程列表或 shell 历史中。
+func promptUpstreamPassword(u *proxy.UpstreamConfig) {
+	if u.Scheme != proxy.UpstreamSchemeSSH || u.Password != "" || u.IdentityFile != "" {
+		return
+	}
+	if env := os.Getenv("PORTMAP_UPSTREAM_PASSWORD"); env != "" {
+		u.Password = env
+		return
+	}
+	if upstreamAgentAvailable(!u.DisableAgent, u.AgentSocket) {
+		return
+	}
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return
+	}
+	fmt.Fprint(os.Stderr, i18n.T(i18n.KeyPromptUpstreamPassword, u.Addr))
+	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return
+	}
+	u.Password = string(pw)
+}
+
 // buildProxyUpstream 依据 proxyOptions 解析上游代理链配置；upstream 为空表示
 // 直连（返回 nil, nil），保持向后兼容。
 func buildProxyUpstream(opt *proxyOptions) (*proxy.UpstreamConfig, error) {
@@ -828,12 +918,15 @@ func buildProxyUpstream(opt *proxyOptions) (*proxy.UpstreamConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	u.IdentityFile = opt.upstreamIdentity
+	u.IdentityFile = expandTilde(opt.upstreamIdentity)
 	u.IdentityPassphrase = opt.upstreamIdentityPassphrase
-	u.KnownHostsFile = opt.upstreamKnownHosts
+	u.KnownHostsFile = expandTilde(opt.upstreamKnownHosts)
 	u.Insecure = opt.upstreamInsecure
+	u.AgentSocket = expandTilde(opt.upstreamAgentSocket)
+	u.DisableAgent = !opt.upstreamAgent
 	u.KeepaliveInterval = opt.upstreamKeepalive
 	u.KeepaliveMaxFailures = opt.upstreamKeepaliveMaxFailures
+	promptUpstreamPassword(u)
 	return u, nil
 }
 
@@ -959,7 +1052,8 @@ func serveProxy(ctx context.Context, srv *proxy.Server, statsAddr string, statsA
 var proxyPerInstanceFlags = []string{
 	"addr", "dial-timeout", "max-conns", "handshake-timeout", "idle-timeout",
 	"allow-public", "upstream", "upstream-identity", "upstream-known-hosts",
-	"upstream-insecure", "upstream-keepalive", "upstream-keepalive-max-failures",
+	"upstream-insecure", "upstream-agent", "upstream-agent-socket",
+	"upstream-keepalive", "upstream-keepalive-max-failures",
 }
 
 // defaultProxyOptions 返回与 proxy flag 默认值一致的基线运行参数，供多实例逐个
@@ -971,6 +1065,7 @@ func defaultProxyOptions() proxyOptions {
 		maxConns:         256,
 		handshakeTimeout: 10 * time.Second,
 		idleTimeout:      5 * time.Minute,
+		upstreamAgent:    true,
 		webLogMax:        1000,
 	}
 }

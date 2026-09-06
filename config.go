@@ -160,6 +160,8 @@ type ProxyConfig struct {
 	UpstreamIdentityPassphrase *string `yaml:"upstream_identity_passphrase"`
 	UpstreamKnownHosts         *string `yaml:"upstream_known_hosts"`
 	UpstreamInsecure           *bool   `yaml:"upstream_insecure"`
+	UpstreamAgent              *bool   `yaml:"upstream_agent"`
+	UpstreamAgentSocket        *string `yaml:"upstream_agent_socket"`
 
 	UpstreamKeepalive            *string `yaml:"upstream_keepalive"`
 	UpstreamKeepaliveMaxFailures *int    `yaml:"upstream_keepalive_max_failures"`
@@ -385,6 +387,12 @@ func applyProxyConfig(opt *proxyOptions, pc *ProxyConfig, setFlags map[string]bo
 	}
 	if pc.UpstreamInsecure != nil && !setFlags["upstream-insecure"] {
 		opt.upstreamInsecure = *pc.UpstreamInsecure
+	}
+	if pc.UpstreamAgent != nil && !setFlags["upstream-agent"] {
+		opt.upstreamAgent = *pc.UpstreamAgent
+	}
+	if pc.UpstreamAgentSocket != nil && !setFlags["upstream-agent-socket"] {
+		opt.upstreamAgentSocket = *pc.UpstreamAgentSocket
 	}
 	if pc.UpstreamKeepalive != nil && !setFlags["upstream-keepalive"] {
 		d, err := time.ParseDuration(*pc.UpstreamKeepalive)

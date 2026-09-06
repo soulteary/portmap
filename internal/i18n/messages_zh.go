@@ -145,6 +145,9 @@ var messagesZH = map[string]string{
 	KeyFlagProxyUpstreamKnownHosts: "SSH host key 校验使用的 known_hosts 文件（默认 ~/.ssh/known_hosts）",
 	KeyFlagProxyUpstreamInsecure:   "跳过 SSH 上游 host key 校验（不安全，仅用于自建测试环境）",
 
+	KeyFlagProxyUpstreamAgent:       "允许使用 ssh-agent 认证 SSH 上游（默认开启；agent 不可达时自动跳过）",
+	KeyFlagProxyUpstreamAgentSocket: "ssh-agent 的 socket 路径（留空表示读取环境变量 SSH_AUTH_SOCK）",
+
 	KeyFlagProxyUpstreamKeepalive:            "SSH 上游主动保活探测间隔（0 表示默认 30s；负数表示禁用主动保活）",
 	KeyFlagProxyUpstreamKeepaliveMaxFailures: "连续保活探测失败多少次后判定 SSH 上游断线并重连（默认 3）",
 
@@ -164,6 +167,9 @@ var messagesZH = map[string]string{
 	KeyLogProxyUpstreamInsecure:     "警告: 已禁用 SSH 上游 host key 校验（-upstream-insecure），连接易受中间人攻击",
 	KeyLogProxyUpstreamSSHConnect:   "SSH 上游已连接: %s",
 	KeyLogProxyUpstreamSSHReconnect: "SSH 上游连接已断开，正在重连: %s",
+
+	KeyLogProxyUpstreamSSHAgent:        "已启用 ssh-agent 认证 SSH 上游: %s",
+	KeyLogProxyUpstreamSSHAgentSkipKey: "警告: SSH 私钥 %s 已加密且未提供 passphrase，改用 ssh-agent 认证",
 
 	KeyLogProxyUpstreamSSHKeepaliveFail: "SSH 上游保活探测失败 %[2]d/%[3]d 次: %[1]s",
 	KeyLogProxyUpstreamSSHBackoff:       "将在 %s 后重连 SSH 上游",
@@ -199,11 +205,13 @@ var messagesZH = map[string]string{
 	KeyErrProxyUpstreamSocks5:               "创建 SOCKS5 上游拨号器失败: %w",
 	KeyErrProxyUpstreamHTTPConnect:          "上游 HTTP CONNECT 到 %s 失败: %w",
 	KeyErrProxyUpstreamHTTPStatus:           "上游 HTTP CONNECT 到 %s 返回异常状态: %s",
-	KeyErrProxyUpstreamSSHNoAuth:            "ssh 上游需要私钥文件（-upstream-identity）或上游 URL 中的密码",
+	KeyErrProxyUpstreamSSHNoAuth:            "ssh 上游需要可达的 ssh-agent（SSH_AUTH_SOCK 或 -upstream-agent-socket）、私钥文件（-upstream-identity）、上游 URL 中的密码，或通过环境变量 PORTMAP_UPSTREAM_PASSWORD / 终端交互式输入的密码",
 	KeyErrProxyUpstreamSSHIdentity:          "读取 SSH 私钥文件 %s 失败: %w",
 	KeyErrProxyUpstreamSSHParseKey:          "解析 SSH 私钥失败: %w",
+	KeyErrProxyUpstreamSSHAgent:             "连接 ssh-agent %s 失败: %w",
 	KeyErrProxyUpstreamSSHPassphraseMissing: "SSH 私钥已加密，需要提供 passphrase（通过环境变量 PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE、配置项 upstream_identity_passphrase，或在终端交互式输入）",
 	KeyPromptUpstreamIdentityPassphrase:     "请输入 SSH 私钥的 passphrase（%s）: ",
+	KeyPromptUpstreamPassword:               "请输入 SSH 上游的登录密码（%s）: ",
 	KeyErrProxyUpstreamSSHKnownHosts:        "加载 SSH known_hosts %s 失败: %w",
 	KeyErrProxyUpstreamSSHDial:              "建立到 %s 的 SSH 上游连接失败: %w",
 	KeyErrProxyUpstreamSSHChannel:           "打开到 %s 的 SSH 通道失败: %w",

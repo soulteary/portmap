@@ -440,7 +440,8 @@ func TestMergeProxyConfigAllFields(t *testing.T) {
 	boolPtr := func(b bool) *bool { return &b }
 
 	t.Run("全部上游字段合并", func(t *testing.T) {
-		opt := proxyOptions{}
+		// upstreamAgent 以 flag 默认值（true）为起点，才能验证配置文件确实覆盖了它。
+		opt := proxyOptions{upstreamAgent: true}
 		cfg := &Config{
 			Lang: strPtr("de"),
 			Proxy: ProxyConfigList{{
@@ -451,6 +452,8 @@ func TestMergeProxyConfigAllFields(t *testing.T) {
 				UpstreamIdentityPassphrase:   strPtr("s3cret"),
 				UpstreamKnownHosts:           strPtr("/tmp/known_hosts"),
 				UpstreamInsecure:             boolPtr(true),
+				UpstreamAgent:                boolPtr(false),
+				UpstreamAgentSocket:          strPtr("/tmp/agent.sock"),
 				UpstreamKeepalive:            strPtr("45s"),
 				UpstreamKeepaliveMaxFailures: intPtr(5),
 			}},
@@ -468,8 +471,26 @@ func TestMergeProxyConfigAllFields(t *testing.T) {
 		if opt.upstreamIdentityPassphrase != "s3cret" {
 			t.Fatalf("upstream_identity_passphrase 未合并: %+v", opt)
 		}
+		if opt.upstreamAgent || opt.upstreamAgentSocket != "/tmp/agent.sock" {
+			t.Fatalf("agent 字段合并错误: %+v", opt)
+		}
 		if opt.upstreamKeepalive != 45*time.Second || opt.upstreamKeepaliveMaxFailures != 5 {
 			t.Fatalf("keepalive 字段合并错误: %+v", opt)
+		}
+	})
+
+	t.Run("命令行 agent flag 优先于配置文件", func(t *testing.T) {
+		opt := proxyOptions{}
+		cfg := &Config{Proxy: ProxyConfigList{{
+			UpstreamAgent:       boolPtr(true),
+			UpstreamAgentSocket: strPtr("/tmp/agent.sock"),
+		}}}
+		setFlags := map[string]bool{"upstream-agent": true, "upstream-agent-socket": true}
+		if err := mergeProxyConfig(&opt, cfg, setFlags); err != nil {
+			t.Fatalf("mergeProxyConfig: %v", err)
+		}
+		if opt.upstreamAgent || opt.upstreamAgentSocket != "" {
+			t.Fatalf("显式 agent flag 应优先: %+v", opt)
 		}
 	})
 

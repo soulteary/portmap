@@ -34,6 +34,9 @@ const (
 	KeyFlagProxyUpstreamKnownHosts = "flag.proxy-upstream-known-hosts"
 	KeyFlagProxyUpstreamInsecure   = "flag.proxy-upstream-insecure"
 
+	KeyFlagProxyUpstreamAgent       = "flag.proxy-upstream-agent"
+	KeyFlagProxyUpstreamAgentSocket = "flag.proxy-upstream-agent-socket"
+
 	KeyFlagProxyUpstreamKeepalive            = "flag.proxy-upstream-keepalive"
 	KeyFlagProxyUpstreamKeepaliveMaxFailures = "flag.proxy-upstream-keepalive-max-failures"
 
@@ -55,6 +58,9 @@ const (
 	KeyLogProxyUpstreamInsecure     = "proxy.upstream-insecure"
 	KeyLogProxyUpstreamSSHConnect   = "proxy.upstream-ssh-connect"
 	KeyLogProxyUpstreamSSHReconnect = "proxy.upstream-ssh-reconnect"
+
+	KeyLogProxyUpstreamSSHAgent        = "proxy.upstream-ssh-agent"
+	KeyLogProxyUpstreamSSHAgentSkipKey = "proxy.upstream-ssh-agent-skip-key"
 
 	KeyLogProxyUpstreamSSHKeepaliveFail = "proxy.upstream-ssh-keepalive-fail"
 	KeyLogProxyUpstreamSSHBackoff       = "proxy.upstream-ssh-backoff"
@@ -98,9 +104,11 @@ const (
 	KeyErrProxyUpstreamSSHNoAuth   = "err.proxy-upstream-ssh-no-auth"
 	KeyErrProxyUpstreamSSHIdentity = "err.proxy-upstream-ssh-identity"
 	KeyErrProxyUpstreamSSHParseKey = "err.proxy-upstream-ssh-parse-key"
+	KeyErrProxyUpstreamSSHAgent    = "err.proxy-upstream-ssh-agent"
 
 	KeyErrProxyUpstreamSSHPassphraseMissing = "err.proxy-upstream-ssh-passphrase-missing"
 	KeyPromptUpstreamIdentityPassphrase     = "prompt.proxy-upstream-identity-passphrase"
+	KeyPromptUpstreamPassword               = "prompt.proxy-upstream-password"
 
 	KeyErrProxyUpstreamSSHKnownHosts = "err.proxy-upstream-ssh-known-hosts"
 	KeyErrProxyUpstreamSSHDial       = "err.proxy-upstream-ssh-dial"
