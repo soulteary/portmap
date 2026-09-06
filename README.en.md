@@ -102,11 +102,19 @@ docker pull soulteary/portmap:latest
 docker pull ghcr.io/soulteary/portmap:1.2.0
 ```
 
-The image is based on `scratch` and contains only the single static binary. Use host networking so port forwarding works:
+The image is based on `scratch`, contains only the static binary, and runs as the non-root `65532:65532` user by default. Use host networking so port forwarding works:
 
 ```bash
-# forward host port 22 to the container listening on 2222 (low ports need privileges)
+# non-root default: forward high host port 8022 to 2222
 docker run --rm --network host ghcr.io/soulteary/portmap:latest \
+  -listen-port 8022 -target 127.0.0.1:2222
+```
+
+To bind a port below 1024 directly, grant only the capability required for low ports:
+
+```bash
+docker run --rm --network host --cap-drop ALL --cap-add NET_BIND_SERVICE \
+  --security-opt no-new-privileges:true ghcr.io/soulteary/portmap:latest \
   -listen-port 22 -target 127.0.0.1:2222
 ```
 
