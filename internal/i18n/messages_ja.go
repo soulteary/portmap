@@ -97,6 +97,8 @@ var messagesJA = map[string]string{
 	KeyErrConfigHandshake: "設定ファイルの handshake_timeout が不正です: %w",
 	KeyErrConfigKeepalive: "設定ファイルの upstream_keepalive が不正です: %w",
 
+	KeyErrConfigSectionEmpty: "設定ファイルに %s インスタンスが定義されていません",
+
 	KeyLogForwardStartingInstances: "設定から %d 個の forward インスタンスを起動します",
 	KeyLogProxyStartingInstances:   "設定から %d 個の proxy インスタンスを起動します",
 	KeyLogInstanceStarting:         "インスタンス #%d 起動: %s",

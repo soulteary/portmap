@@ -259,26 +259,32 @@ func loadTopConfig(path string) (*Config, error) {
 	if err := decodeStrict(data, &flat); err != nil {
 		return nil, err
 	}
-	cfg := &Config{
-		Forward: ForwardConfigList{{
-			ListenPort:  flat.ListenPort,
-			ListenHost:  flat.ListenHost,
-			Target:      flat.Target,
-			Mode:        flat.Mode,
-			Proto:       flat.Proto,
-			ReuseAddr:   flat.ReuseAddr,
-			Sudo:        flat.Sudo,
-			DialTimeout: flat.DialTimeout,
-			MaxConns:    flat.MaxConns,
-			IdleTimeout: flat.IdleTimeout,
-			LogLevel:    flat.LogLevel,
-			Quiet:       flat.Quiet,
-			StatsAddr:   flat.StatsAddr,
-			WebAddr:     flat.WebAddr,
-			WebLogMax:   flat.WebLogMax,
-		}},
-		Lang: flat.Lang,
+	cfg := &Config{Lang: flat.Lang}
+	// An explicitly supplied but empty/irrelevant config must not silently
+	// start the default forwarder. Keep Forward empty so the selected command
+	// can fail closed with a clear error.
+	legacy := flat
+	legacy.Lang = nil
+	if legacy == (fileConfig{}) {
+		return cfg, nil
 	}
+	cfg.Forward = ForwardConfigList{{
+		ListenPort:  flat.ListenPort,
+		ListenHost:  flat.ListenHost,
+		Target:      flat.Target,
+		Mode:        flat.Mode,
+		Proto:       flat.Proto,
+		ReuseAddr:   flat.ReuseAddr,
+		Sudo:        flat.Sudo,
+		DialTimeout: flat.DialTimeout,
+		MaxConns:    flat.MaxConns,
+		IdleTimeout: flat.IdleTimeout,
+		LogLevel:    flat.LogLevel,
+		Quiet:       flat.Quiet,
+		StatsAddr:   flat.StatsAddr,
+		WebAddr:     flat.WebAddr,
+		WebLogMax:   flat.WebLogMax,
+	}}
 	return cfg, nil
 }
 

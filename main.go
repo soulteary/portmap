@@ -204,33 +204,39 @@ func runForward(argv []string) error {
 	// 多实例（多端口映射）：仅当 -config 指向的配置文件中 forward: 段声明了
 	// 多个实例时触发；此时逐个实例转换为运行参数并发启动，per-instance 忽略
 	// CLI 显式 flag（多实例场景下 -listen-port 等 flag 无法一一对应）。
+	var topCfg *Config
 	if opt.configPath != "" {
-		topCfg, err := loadTopConfig(opt.configPath)
+		var err error
+		topCfg, err = loadTopConfig(opt.configPath)
 		if err != nil {
 			return err
+		}
+		if !setFlags["lang"] && topCfg.Lang != nil {
+			if l, ok := i18n.ParseLang(*topCfg.Lang); ok {
+				i18n.SetLang(l)
+			}
+		}
+		if len(topCfg.Forward) == 0 {
+			return errors.New(i18n.T(i18n.KeyErrConfigSectionEmpty, "forward"))
+		}
+		for _, instance := range topCfg.Forward {
+			if instance == nil || *instance == (ForwardConfig{}) {
+				return errors.New(i18n.T(i18n.KeyErrConfigSectionEmpty, "forward"))
+			}
 		}
 		if len(topCfg.Forward) > 1 {
 			return runForwardMulti(opt, topCfg, setFlags)
 		}
 	}
 
-	// 加载配置文件并合并：仅对配置文件中出现、且命令行未显式设置的字段生效。
-	// 优先级：命令行显式 flag > 配置文件 > 内置默认值。
-	if opt.configPath != "" {
-		cfg, err := loadForwardConfig(opt.configPath)
-		if err != nil {
+	// 合并上面已经校验过的同一份配置快照，避免配置文件在两次读取之间
+	// 被原子替换后重新落回默认服务。优先级仍为：命令行显式 flag > 配置文件 > 默认值。
+	if topCfg != nil {
+		if err := applyForwardConfig(&opt, topCfg.Forward[0], setFlags); err != nil {
 			return err
 		}
-		if err := mergeConfig(&opt, cfg, setFlags); err != nil {
-			return err
-		}
-		// 若语言来自配置文件（命令行未显式 -lang，但配置文件提供了 lang），
-		// 在此补一次 SetLang，使运行期消息（日志/错误）使用该语言。
-		// 注意：--help 与 flag 描述在 flag 解析前已定稿，配置文件无法改变其语言。
-		if !setFlags["lang"] && opt.lang != "" {
-			if l, ok := i18n.ParseLang(opt.lang); ok {
-				i18n.SetLang(l)
-			}
+		if !setFlags["lang"] && topCfg.Lang != nil {
+			opt.lang = *topCfg.Lang
 		}
 	}
 
@@ -725,29 +731,35 @@ func runProxy(argv []string) error {
 
 	// 多实例（多端口映射）：仅当 -config 指向的配置文件中 proxy: 段声明了多个
 	// 实例时触发；逐个实例转换为运行参数并发启动，per-instance 忽略 CLI 显式 flag。
+	var topCfg *Config
 	if opt.configPath != "" {
-		topCfg, err := loadTopConfig(opt.configPath)
+		var err error
+		topCfg, err = loadTopConfig(opt.configPath)
 		if err != nil {
 			return err
+		}
+		if !setFlags["lang"] && topCfg.Lang != nil {
+			if l, ok := i18n.ParseLang(*topCfg.Lang); ok {
+				i18n.SetLang(l)
+			}
+		}
+		if len(topCfg.Proxy) == 0 {
+			return errors.New(i18n.T(i18n.KeyErrConfigSectionEmpty, "proxy"))
+		}
+		for _, instance := range topCfg.Proxy {
+			if instance == nil || *instance == (ProxyConfig{}) {
+				return errors.New(i18n.T(i18n.KeyErrConfigSectionEmpty, "proxy"))
+			}
 		}
 		if len(topCfg.Proxy) > 1 {
 			return runProxyMulti(opt, topCfg, setFlags)
 		}
 	}
 
-	// 加载配置文件并合并 proxy 段：命令行显式 flag > 配置文件 > 默认值。
-	if opt.configPath != "" {
-		cfg, err := loadTopConfig(opt.configPath)
-		if err != nil {
+	// 合并已经校验过的同一份 proxy 配置快照。
+	if topCfg != nil {
+		if err := mergeProxyConfig(&opt, topCfg, setFlags); err != nil {
 			return err
-		}
-		if err := mergeProxyConfig(&opt, cfg, setFlags); err != nil {
-			return err
-		}
-		if !setFlags["lang"] && opt.lang != "" {
-			if l, ok := i18n.ParseLang(opt.lang); ok {
-				i18n.SetLang(l)
-			}
 		}
 	}
 

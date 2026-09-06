@@ -97,6 +97,8 @@ var messagesFR = map[string]string{
 	KeyErrConfigHandshake: "handshake_timeout invalide dans le fichier de configuration : %w",
 	KeyErrConfigKeepalive: "upstream_keepalive invalide dans le fichier de configuration : %w",
 
+	KeyErrConfigSectionEmpty: "le fichier de configuration ne définit aucune instance %s",
+
 	KeyLogForwardStartingInstances: "démarrage de %d instance(s) forward depuis la configuration",
 	KeyLogProxyStartingInstances:   "démarrage de %d instance(s) proxy depuis la configuration",
 	KeyLogInstanceStarting:         "instance #%d démarrage : %s",

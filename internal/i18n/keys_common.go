@@ -85,6 +85,8 @@ const (
 	KeyErrConfigHandshake = "err.config-handshake"
 	KeyErrConfigKeepalive = "err.config-keepalive"
 
+	KeyErrConfigSectionEmpty = "err.config-section-empty"
+
 	// 多实例（多端口映射）相关（main.go）。
 	KeyLogForwardStartingInstances = "log.forward-starting-instances"
 	KeyLogProxyStartingInstances   = "log.proxy-starting-instances"
