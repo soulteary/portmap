@@ -63,7 +63,14 @@ func (s *Server) handleHTTP(ctx context.Context, conn net.Conn, reader *bufio.Re
 }
 
 func isUpgradeRequest(req *http.Request) bool {
-	if strings.TrimSpace(req.Header.Get("Upgrade")) == "" {
+	hasUpgradeValue := false
+	for _, value := range req.Header.Values("Upgrade") {
+		if strings.TrimSpace(value) != "" {
+			hasUpgradeValue = true
+			break
+		}
+	}
+	if !hasUpgradeValue {
 		return false
 	}
 	for _, option := range connectionOptionNames(req.Header) {

@@ -606,6 +606,7 @@ func TestHTTPProxyRejectsUpgradeExplicitly(t *testing.T) {
 		"GET http://127.0.0.1:1/chat HTTP/1.1\r\n"+
 			"Host: 127.0.0.1:1\r\n"+
 			"Connection: keep-alive, Upgrade\r\n"+
+			"Upgrade:\r\n"+
 			"Upgrade: websocket\r\n\r\n",
 	); err != nil {
 		t.Fatal(err)
