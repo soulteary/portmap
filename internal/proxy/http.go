@@ -197,9 +197,24 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 	req.Close = true
 	req.Header.Set("Connection", "close")
 
+	// A client using Expect: 100-continue waits before sending the body. Request.Write
+	// consumes that body before we start reading upstream responses, so forwarding the
+	// expectation unchanged would deadlock when the origin sends the interim response.
+	// A proxy may answer the expectation itself: acknowledge it immediately and remove
+	// the header so the origin reads the subsequently forwarded body normally.
+	downCounter := &countingWriter{w: conn}
+	if headerHasToken(req.Header.Values("Expect"), "100-continue") {
+		req.Header.Del("Expect")
+		if _, err := io.WriteString(downCounter, "HTTP/1.1 100 Continue\r\n\r\n"); err != nil {
+			s.Stats().AddDown(downCounter.n)
+			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), err)
+		}
+	}
+
 	upCounter := &countingWriter{w: remote}
 	if err := req.Write(upCounter); err != nil {
 		s.Stats().AddUp(upCounter.n)
+		s.Stats().AddDown(downCounter.n)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPForward), host, err)
 	}
 	s.Stats().AddUp(upCounter.n)
@@ -208,7 +223,6 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 
 	// 解析响应后清理响应侧逐跳首部并追加 Via；1xx（101 除外）可能在最终
 	// 响应之前出现，因此需要逐个转发。
-	downCounter := &countingWriter{w: conn}
 	remoteReader := newProxyResponseReader(remote)
 	for {
 		resp, connectionOptions, err := remoteReader.read(req)
@@ -434,6 +448,17 @@ func connectionOptionNames(h http.Header) []string {
 		}
 	}
 	return keys
+}
+
+func headerHasToken(values []string, want string) bool {
+	for _, value := range values {
+		for _, token := range strings.Split(value, ",") {
+			if strings.EqualFold(textproto.TrimString(token), want) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func appendVia(h http.Header, major, minor int) {

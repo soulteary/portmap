@@ -590,3 +590,71 @@ func containsString(values []string, target string) bool {
 	}
 	return false
 }
+
+func TestHTTPProxyHandlesExpectContinueWithoutDeadlock(t *testing.T) {
+	bodySeen := make(chan string, 1)
+	expectSeen := make(chan string, 1)
+	backend := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expectSeen <- r.Header.Get("Expect")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		bodySeen <- string(body)
+		w.WriteHeader(http.StatusNoContent)
+	})}
+	backendLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = backend.Serve(backendLn) }()
+	defer func() { _ = backend.Close() }()
+
+	proxyAddr, stopProxy := startTestProxy(t)
+	defer stopProxy()
+	conn, err := net.DialTimeout("tcp", proxyAddr, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+
+	target := backendLn.Addr().String()
+	if _, err := fmt.Fprintf(conn,
+		"POST http://%s/upload HTTP/1.1\r\nHost: %s\r\nContent-Length: 5\r\nExpect: 100-continue\r\n\r\n",
+		target, target,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	reader := bufio.NewReader(conn)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("reading interim response: %v", err)
+	}
+	if line != "HTTP/1.1 100 Continue\r\n" {
+		t.Fatalf("unexpected interim status: %q", line)
+	}
+	if blank, err := reader.ReadString('\n'); err != nil || blank != "\r\n" {
+		t.Fatalf("invalid interim response terminator %q: %v", blank, err)
+	}
+	if _, err := io.WriteString(conn, "hello"); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.ReadResponse(reader, &http.Request{Method: http.MethodPost})
+	if err != nil {
+		t.Fatalf("reading final response: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status=%d, want %d", resp.StatusCode, http.StatusNoContent)
+	}
+	if got := <-bodySeen; got != "hello" {
+		t.Fatalf("backend body=%q, want hello", got)
+	}
+	if got := <-expectSeen; got != "" {
+		t.Fatalf("proxy should consume Expect before forwarding, got %q", got)
+	}
+}
