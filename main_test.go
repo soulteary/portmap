@@ -572,3 +572,31 @@ func TestStartForwardInstancesWithStatsEndpoint(t *testing.T) {
 		t.Fatal("未在超时内退出")
 	}
 }
+
+func TestRunRejectsEmptySelectedConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		argv    []string
+	}{
+		{name: "empty file for forward", content: "", argv: nil},
+		{name: "language-only file for forward", content: "lang: en\n", argv: nil},
+		{name: "missing forward section", content: "proxy:\n  addr: 127.0.0.1:1080\n", argv: nil},
+		{name: "empty forward list", content: "forward: []\n", argv: nil},
+		{name: "missing proxy section", content: "forward:\n  listen_port: 13001\n", argv: []string{"proxy"}},
+		{name: "empty proxy list", content: "proxy: []\n", argv: []string{"proxy"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(tt.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			argv := append(append([]string(nil), tt.argv...), "-config", path)
+			if err := run(argv); err == nil {
+				t.Fatal("expected an empty selected config section to fail closed")
+			}
+		})
+	}
+}

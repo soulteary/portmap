@@ -259,8 +259,16 @@ func loadTopConfig(path string) (*Config, error) {
 	if err := decodeStrict(data, &flat); err != nil {
 		return nil, err
 	}
-	cfg := &Config{
-		Forward: ForwardConfigList{{
+	cfg := &Config{Lang: flat.Lang}
+	// An explicitly supplied but empty/irrelevant config must not silently
+	// start the default forwarder. Keep Forward empty so the selected command
+	// can fail closed with a clear error.
+	legacy := flat
+	legacy.Lang = nil
+	if legacy == (fileConfig{}) {
+		return cfg, nil
+	}
+	cfg.Forward = ForwardConfigList{{
 			ListenPort:  flat.ListenPort,
 			ListenHost:  flat.ListenHost,
 			Target:      flat.Target,
@@ -276,9 +284,7 @@ func loadTopConfig(path string) (*Config, error) {
 			StatsAddr:   flat.StatsAddr,
 			WebAddr:     flat.WebAddr,
 			WebLogMax:   flat.WebLogMax,
-		}},
-		Lang: flat.Lang,
-	}
+		}}
 	return cfg, nil
 }
 

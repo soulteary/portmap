@@ -204,6 +204,9 @@ func runForward(argv []string) error {
 		if err != nil {
 			return err
 		}
+		if len(topCfg.Forward) == 0 {
+			return errors.New(i18n.T(i18n.KeyErrConfigSectionEmpty, "forward"))
+		}
 		if len(topCfg.Forward) > 1 {
 			return runForwardMulti(opt, topCfg, setFlags)
 		}
@@ -723,6 +726,9 @@ func runProxy(argv []string) error {
 		topCfg, err := loadTopConfig(opt.configPath)
 		if err != nil {
 			return err
+		}
+		if len(topCfg.Proxy) == 0 {
+			return errors.New(i18n.T(i18n.KeyErrConfigSectionEmpty, "proxy"))
 		}
 		if len(topCfg.Proxy) > 1 {
 			return runProxyMulti(opt, topCfg, setFlags)

@@ -91,6 +91,7 @@ var messagesFR = map[string]string{
 	KeyWebEmpty:         "Aucun journal pour le moment",
 
 	KeyErrConfigRead:      "échec de lecture du fichier de configuration : %w",
+	KeyErrConfigSectionEmpty: "le fichier de configuration ne définit aucune instance %s",
 	KeyErrConfigParse:     "échec d'analyse du fichier de configuration : %w",
 	KeyErrConfigDial:      "dial_timeout invalide dans le fichier de configuration : %w",
 	KeyErrConfigIdle:      "idle_timeout invalide dans le fichier de configuration : %w",

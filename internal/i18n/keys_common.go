@@ -80,6 +80,7 @@ const (
 	// 配置文件错误（config.go）。
 	KeyErrConfigRead      = "err.config-read"
 	KeyErrConfigParse     = "err.config-parse"
+	KeyErrConfigSectionEmpty = "err.config-section-empty"
 	KeyErrConfigDial      = "err.config-dial"
 	KeyErrConfigIdle      = "err.config-idle"
 	KeyErrConfigHandshake = "err.config-handshake"

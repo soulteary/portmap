@@ -91,6 +91,7 @@ var messagesKO = map[string]string{
 	KeyWebEmpty:         "아직 로그가 없습니다",
 
 	KeyErrConfigRead:      "설정 파일 읽기에 실패했습니다: %w",
+	KeyErrConfigSectionEmpty: "설정 파일에 %s 인스턴스가 정의되어 있지 않습니다",
 	KeyErrConfigParse:     "설정 파일 파싱에 실패했습니다: %w",
 	KeyErrConfigDial:      "설정 파일의 dial_timeout이 잘못되었습니다: %w",
 	KeyErrConfigIdle:      "설정 파일의 idle_timeout이 잘못되었습니다: %w",

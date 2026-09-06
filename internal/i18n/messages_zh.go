@@ -91,6 +91,7 @@ var messagesZH = map[string]string{
 	KeyWebEmpty:         "暂无日志",
 
 	KeyErrConfigRead:      "读取配置文件失败: %w",
+	KeyErrConfigSectionEmpty: "配置文件未定义任何 %s 实例",
 	KeyErrConfigParse:     "解析配置文件失败: %w",
 	KeyErrConfigDial:      "配置文件 dial_timeout 非法: %w",
 	KeyErrConfigIdle:      "配置文件 idle_timeout 非法: %w",

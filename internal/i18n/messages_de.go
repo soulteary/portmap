@@ -91,6 +91,7 @@ var messagesDE = map[string]string{
 	KeyWebEmpty:         "Noch keine Protokolle",
 
 	KeyErrConfigRead:      "Konfigurationsdatei konnte nicht gelesen werden: %w",
+	KeyErrConfigSectionEmpty: "die Konfigurationsdatei definiert keine %s-Instanz",
 	KeyErrConfigParse:     "Konfigurationsdatei konnte nicht geparst werden: %w",
 	KeyErrConfigDial:      "ungültiges dial_timeout in der Konfigurationsdatei: %w",
 	KeyErrConfigIdle:      "ungültiges idle_timeout in der Konfigurationsdatei: %w",

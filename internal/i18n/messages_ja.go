@@ -91,6 +91,7 @@ var messagesJA = map[string]string{
 	KeyWebEmpty:         "ログはまだありません",
 
 	KeyErrConfigRead:      "設定ファイルの読み込みに失敗しました: %w",
+	KeyErrConfigSectionEmpty: "設定ファイルに %s インスタンスが定義されていません",
 	KeyErrConfigParse:     "設定ファイルの解析に失敗しました: %w",
 	KeyErrConfigDial:      "設定ファイルの dial_timeout が不正です: %w",
 	KeyErrConfigIdle:      "設定ファイルの idle_timeout が不正です: %w",
