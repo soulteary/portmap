@@ -725,11 +725,10 @@ func runProxy(argv []string) error {
 
 	// 多实例（多端口映射）：仅当 -config 指向的配置文件中 proxy: 段声明了多个
 	// 实例时触发；逐个实例转换为运行参数并发启动，per-instance 忽略 CLI 显式 flag。
-	var topProxyCfg *Config
+	var topCfg *Config
 	if opt.configPath != "" {
 		var err error
-		topProxyCfg, err = loadTopConfig(opt.configPath)
-		topCfg := topProxyCfg
+		topCfg, err = loadTopConfig(opt.configPath)
 		if err != nil {
 			return err
 		}
@@ -752,8 +751,8 @@ func runProxy(argv []string) error {
 	}
 
 	// 合并已经校验过的同一份 proxy 配置快照。
-	if topProxyCfg != nil {
-		if err := mergeProxyConfig(&opt, topProxyCfg, setFlags); err != nil {
+	if topCfg != nil {
+		if err := mergeProxyConfig(&opt, topCfg, setFlags); err != nil {
 			return err
 		}
 	}
