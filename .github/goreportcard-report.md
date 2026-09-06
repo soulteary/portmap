@@ -22,13 +22,6 @@
 
 ### gocyclo
 
-- `config_test.go`
-  - Line 437: cyclomatic complexity 28 for function TestMergeProxyConfigAllFields
-  - Line 120: cyclomatic complexity 23 for function TestMergeConfig
-  - Line 34: cyclomatic complexity 23 for function TestLoadConfig
-- `cmd/loadtest/main.go`
-  - Line 64: cyclomatic complexity 25 for function parseFlags
-  - Line 636: cyclomatic complexity 16 for function (*worker).runTCP
 - `internal/forward/events_test.go`
   - Line 29: cyclomatic complexity 21 for function TestForwardRecordsOpenCloseEvents
 - `internal/proxy/http.go`
@@ -37,25 +30,32 @@
   - Line 105: cyclomatic complexity 19 for function socks5Dial
   - Line 290: cyclomatic complexity 17 for function TestHTTPProxySanitizesBothDirectionsAndAddsVia
   - Line 359: cyclomatic complexity 16 for function TestHTTPProxyForwardsInformationalResponses
-- `internal/proxy/server.go`
-  - Line 131: cyclomatic complexity 18 for function (*Server).ListenAndServe
-- `internal/proxy/events_test.go`
-  - Line 106: cyclomatic complexity 17 for function TestProxyRecordsOpenCloseEvents
+- `internal/proxy/socks5.go`
+  - Line 62: cyclomatic complexity 18 for function (*Server).handleSOCKS5WithReader
 - `main.go`
   - Line 151: cyclomatic complexity 31 for function runForward
   - Line 1151: cyclomatic complexity 26 for function runProxyMulti
   - Line 685: cyclomatic complexity 19 for function runProxy
   - Line 1103: cyclomatic complexity 17 for function collectProxyAdminOptions
-- `coverage_test.go`
-  - Line 158: cyclomatic complexity 24 for function TestBuildProxyUpstream
-- `internal/proxy/socks5.go`
-  - Line 62: cyclomatic complexity 18 for function (*Server).handleSOCKS5WithReader
+- `internal/proxy/server.go`
+  - Line 131: cyclomatic complexity 18 for function (*Server).ListenAndServe
+- `internal/proxy/events_test.go`
+  - Line 106: cyclomatic complexity 17 for function TestProxyRecordsOpenCloseEvents
 - `internal/forward/udp.go`
   - Line 45: cyclomatic complexity 17 for function (*Server).serveUDP
 - `config.go`
   - Line 346: cyclomatic complexity 45 for function applyProxyConfig
   - Line 459: cyclomatic complexity 36 for function mergeConfig
   - Line 527: cyclomatic complexity 34 for function applyForwardConfig
+- `config_test.go`
+  - Line 437: cyclomatic complexity 28 for function TestMergeProxyConfigAllFields
+  - Line 120: cyclomatic complexity 23 for function TestMergeConfig
+  - Line 34: cyclomatic complexity 23 for function TestLoadConfig
+- `cmd/loadtest/main.go`
+  - Line 64: cyclomatic complexity 25 for function parseFlags
+  - Line 636: cyclomatic complexity 16 for function (*worker).runTCP
+- `coverage_test.go`
+  - Line 158: cyclomatic complexity 24 for function TestBuildProxyUpstream
 
 ### misspell
 
@@ -317,22 +317,38 @@
   - Line 317: "marrage" is a misspelling of "marriage"
   - Line 318: "conflit" is a misspelling of "conflict"
   - Line 319: "commandes" is a misspelling of "commands"
+  - Line 320: "terminaison" is a misspelling of "termination"
   - Line 321: "terminaison" is a misspelling of "termination"
   - Line 322: "terminaison" is a misspelling of "termination"
   - Line 323: "terminaison" is a misspelling of "termination"
   - Line 324: "terminaison" is a misspelling of "termination"
-  - Line 325: "terminaison" is a misspelling of "termination"
+  - Line 325: "marrage" is a misspelling of "marriage"
   - Line 326: "marrage" is a misspelling of "marriage"
   - Line 327: "marrage" is a misspelling of "marriage"
-  - Line 328: "marrage" is a misspelling of "marriage"
-  - Line 329: "conflit" is a misspelling of "conflict"
-  - Line 330: "commandes" is a misspelling of "commands"
+  - Line 328: "conflit" is a misspelling of "conflict"
+  - Line 329: "commandes" is a misspelling of "commands"
+  - Line 330: "Konfiguration" is a misspelling of "Configuration"
+  - Line 331: "Konfiguration" is a misspelling of "Configuration"
   - Line 332: "Konfiguration" is a misspelling of "Configuration"
   - Line 333: "Konfiguration" is a misspelling of "Configuration"
   - Line 334: "Konfiguration" is a misspelling of "Configuration"
-  - Line 335: "Konfiguration" is a misspelling of "Configuration"
-  - Line 336: "Konfiguration" is a misspelling of "Configuration"
-  - Line 337: "interaktive" is a misspelling of "interactive"
+  - Line 335: "interaktive" is a misspelling of "interactive"
+  - Line 337: "Konfiguration" is a misspelling of "Configuration"
+  - Line 338: "Konfiguration" is a misspelling of "Configuration"
+  - Line 339: "Konfiguration" is a misspelling of "Configuration"
+  - Line 340: "Konfiguration" is a misspelling of "Configuration"
+  - Line 341: "Konfiguration" is a misspelling of "Configuration"
+  - Line 342: "interaktive" is a misspelling of "interactive"
+  - Line 344: "terminaison" is a misspelling of "termination"
+  - Line 345: "terminaison" is a misspelling of "termination"
+  - Line 346: "terminaison" is a misspelling of "termination"
+  - Line 347: "terminaison" is a misspelling of "termination"
+  - Line 348: "terminaison" is a misspelling of "termination"
+  - Line 349: "marrage" is a misspelling of "marriage"
+  - Line 350: "marrage" is a misspelling of "marriage"
+  - Line 351: "marrage" is a misspelling of "marriage"
+  - Line 352: "conflit" is a misspelling of "conflict"
+  - Line 353: "commandes" is a misspelling of "commands"
 - `internal/i18n/messages_de.go`
   - Line 51: "Konfiguration" is a misspelling of "Configuration"
   - Line 102: "Konfiguration" is a misspelling of "Configuration"
@@ -354,4 +370,4 @@
 
 ---
 
-_Generated by [Go Report Card](https://github.com/soulteary/goreportcard-action) on 2026-09-06 14:10:51 UTC._
+_Generated by [Go Report Card](https://github.com/soulteary/goreportcard-action) on 2026-09-06 14:22:01 UTC._
