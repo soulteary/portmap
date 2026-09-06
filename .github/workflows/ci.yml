@@ -105,6 +105,8 @@ jobs:
         run: go build -o portmap .
       - name: build and verify non-root image
         run: |
-          docker build -t portmap:test .
+          mkdir -p build/container-test
+          cp Dockerfile portmap build/container-test/
+          docker build -t portmap:test build/container-test
           test "$(docker image inspect --format '{{.Config.User}}' portmap:test)" = "65532:65532"
           docker run --rm portmap:test version
