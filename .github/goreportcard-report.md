@@ -22,40 +22,40 @@
 
 ### gocyclo
 
+- `internal/proxy/server.go`
+  - Line 131: cyclomatic complexity 18 for function (*Server).ListenAndServe
+- `internal/proxy/events_test.go`
+  - Line 106: cyclomatic complexity 17 for function TestProxyRecordsOpenCloseEvents
+- `config.go`
+  - Line 346: cyclomatic complexity 45 for function applyProxyConfig
+  - Line 459: cyclomatic complexity 36 for function mergeConfig
+  - Line 527: cyclomatic complexity 34 for function applyForwardConfig
+- `main.go`
+  - Line 151: cyclomatic complexity 31 for function runForward
+  - Line 1151: cyclomatic complexity 26 for function runProxyMulti
+  - Line 685: cyclomatic complexity 19 for function runProxy
+  - Line 1103: cyclomatic complexity 17 for function collectProxyAdminOptions
 - `config_test.go`
   - Line 437: cyclomatic complexity 28 for function TestMergeProxyConfigAllFields
   - Line 120: cyclomatic complexity 23 for function TestMergeConfig
   - Line 34: cyclomatic complexity 23 for function TestLoadConfig
-- `main.go`
-  - Line 1139: cyclomatic complexity 26 for function runProxyMulti
-  - Line 151: cyclomatic complexity 26 for function runForward
-  - Line 1091: cyclomatic complexity 17 for function collectProxyAdminOptions
-  - Line 679: cyclomatic complexity 16 for function runProxy
 - `cmd/loadtest/main.go`
   - Line 64: cyclomatic complexity 25 for function parseFlags
   - Line 636: cyclomatic complexity 16 for function (*worker).runTCP
 - `coverage_test.go`
   - Line 158: cyclomatic complexity 24 for function TestBuildProxyUpstream
-- `internal/forward/events_test.go`
-  - Line 29: cyclomatic complexity 21 for function TestForwardRecordsOpenCloseEvents
-- `internal/proxy/socks5.go`
-  - Line 62: cyclomatic complexity 18 for function (*Server).handleSOCKS5WithReader
-- `internal/proxy/server.go`
-  - Line 131: cyclomatic complexity 18 for function (*Server).ListenAndServe
 - `internal/proxy/http.go`
   - Line 177: cyclomatic complexity 17 for function (*Server).handlePlainHTTP
-- `config.go`
-  - Line 340: cyclomatic complexity 45 for function applyProxyConfig
-  - Line 453: cyclomatic complexity 36 for function mergeConfig
-  - Line 521: cyclomatic complexity 34 for function applyForwardConfig
+- `internal/forward/udp.go`
+  - Line 45: cyclomatic complexity 17 for function (*Server).serveUDP
+- `internal/forward/events_test.go`
+  - Line 29: cyclomatic complexity 21 for function TestForwardRecordsOpenCloseEvents
 - `internal/proxy/proxy_test.go`
   - Line 105: cyclomatic complexity 19 for function socks5Dial
   - Line 290: cyclomatic complexity 17 for function TestHTTPProxySanitizesBothDirectionsAndAddsVia
   - Line 359: cyclomatic complexity 16 for function TestHTTPProxyForwardsInformationalResponses
-- `internal/proxy/events_test.go`
-  - Line 106: cyclomatic complexity 17 for function TestProxyRecordsOpenCloseEvents
-- `internal/forward/udp.go`
-  - Line 45: cyclomatic complexity 17 for function (*Server).serveUDP
+- `internal/proxy/socks5.go`
+  - Line 62: cyclomatic complexity 18 for function (*Server).handleSOCKS5WithReader
 
 ### misspell
 
@@ -285,41 +285,57 @@
   - Line 285: "marrage" is a misspelling of "marriage"
   - Line 286: "conflit" is a misspelling of "conflict"
   - Line 287: "commandes" is a misspelling of "commands"
+  - Line 288: "Konfiguration" is a misspelling of "Configuration"
   - Line 289: "Konfiguration" is a misspelling of "Configuration"
   - Line 290: "Konfiguration" is a misspelling of "Configuration"
   - Line 291: "Konfiguration" is a misspelling of "Configuration"
   - Line 292: "Konfiguration" is a misspelling of "Configuration"
-  - Line 293: "Konfiguration" is a misspelling of "Configuration"
-  - Line 294: "interaktive" is a misspelling of "interactive"
+  - Line 293: "interaktive" is a misspelling of "interactive"
+  - Line 294: "terminaison" is a misspelling of "termination"
+  - Line 295: "terminaison" is a misspelling of "termination"
   - Line 296: "terminaison" is a misspelling of "termination"
   - Line 297: "terminaison" is a misspelling of "termination"
   - Line 298: "terminaison" is a misspelling of "termination"
-  - Line 299: "terminaison" is a misspelling of "termination"
-  - Line 300: "terminaison" is a misspelling of "termination"
+  - Line 299: "marrage" is a misspelling of "marriage"
+  - Line 300: "marrage" is a misspelling of "marriage"
   - Line 301: "marrage" is a misspelling of "marriage"
-  - Line 302: "marrage" is a misspelling of "marriage"
-  - Line 303: "marrage" is a misspelling of "marriage"
-  - Line 304: "conflit" is a misspelling of "conflict"
-  - Line 305: "commandes" is a misspelling of "commands"
-- `internal/i18n/messages_de.go`
-  - Line 51: "Konfiguration" is a misspelling of "Configuration"
-  - Line 100: "Konfiguration" is a misspelling of "Configuration"
-  - Line 101: "Konfiguration" is a misspelling of "Configuration"
-  - Line 104: "Konfiguration" is a misspelling of "Configuration"
-  - Line 107: "Konfiguration" is a misspelling of "Configuration"
-  - Line 214: "interaktive" is a misspelling of "interactive"
+  - Line 302: "conflit" is a misspelling of "conflict"
+  - Line 303: "commandes" is a misspelling of "commands"
+  - Line 305: "Konfiguration" is a misspelling of "Configuration"
+  - Line 306: "Konfiguration" is a misspelling of "Configuration"
+  - Line 307: "Konfiguration" is a misspelling of "Configuration"
+  - Line 308: "Konfiguration" is a misspelling of "Configuration"
+  - Line 309: "Konfiguration" is a misspelling of "Configuration"
+  - Line 310: "interaktive" is a misspelling of "interactive"
+  - Line 312: "terminaison" is a misspelling of "termination"
+  - Line 313: "terminaison" is a misspelling of "termination"
+  - Line 314: "terminaison" is a misspelling of "termination"
+  - Line 315: "terminaison" is a misspelling of "termination"
+  - Line 316: "terminaison" is a misspelling of "termination"
+  - Line 317: "marrage" is a misspelling of "marriage"
+  - Line 318: "marrage" is a misspelling of "marriage"
+  - Line 319: "marrage" is a misspelling of "marriage"
+  - Line 320: "conflit" is a misspelling of "conflict"
+  - Line 321: "commandes" is a misspelling of "commands"
 - `internal/i18n/messages_fr.go`
   - Line 37: "terminaison" is a misspelling of "termination"
   - Line 57: "terminaison" is a misspelling of "termination"
   - Line 58: "terminaison" is a misspelling of "termination"
   - Line 59: "terminaison" is a misspelling of "termination"
   - Line 60: "terminaison" is a misspelling of "termination"
-  - Line 100: "marrage" is a misspelling of "marriage"
-  - Line 101: "marrage" is a misspelling of "marriage"
   - Line 102: "marrage" is a misspelling of "marriage"
-  - Line 105: "conflit" is a misspelling of "conflict"
-  - Line 130: "commandes" is a misspelling of "commands"
+  - Line 103: "marrage" is a misspelling of "marriage"
+  - Line 104: "marrage" is a misspelling of "marriage"
+  - Line 107: "conflit" is a misspelling of "conflict"
+  - Line 132: "commandes" is a misspelling of "commands"
+- `internal/i18n/messages_de.go`
+  - Line 51: "Konfiguration" is a misspelling of "Configuration"
+  - Line 102: "Konfiguration" is a misspelling of "Configuration"
+  - Line 103: "Konfiguration" is a misspelling of "Configuration"
+  - Line 106: "Konfiguration" is a misspelling of "Configuration"
+  - Line 109: "Konfiguration" is a misspelling of "Configuration"
+  - Line 216: "interaktive" is a misspelling of "interactive"
 
 ---
 
-_Generated by [Go Report Card](https://github.com/soulteary/goreportcard-action) on 2026-09-06 13:54:33 UTC._
+_Generated by [Go Report Card](https://github.com/soulteary/goreportcard-action) on 2026-09-06 14:03:40 UTC._
