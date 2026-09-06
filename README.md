@@ -101,11 +101,19 @@ docker pull soulteary/portmap:latest
 docker pull ghcr.io/soulteary/portmap:1.2.0
 ```
 
-容器基于 `scratch`，仅包含单个静态二进制。运行时需使用 host 网络才能完成端口转发：
+容器基于 `scratch`，仅包含单个静态二进制，并默认以非 root 的 `65532:65532` 运行。运行时需使用 host 网络才能完成端口转发：
 
 ```bash
-# 把宿主机 22 转发到容器监听的 2222（低位端口需特权）
+# 非 root 默认配置：把宿主机高位端口 8022 转发到 2222
 docker run --rm --network host ghcr.io/soulteary/portmap:latest \
+  -listen-port 8022 -target 127.0.0.1:2222
+```
+
+需要直接监听 1024 以下的端口时，仅授予绑定低位端口所需的 capability：
+
+```bash
+docker run --rm --network host --cap-drop ALL --cap-add NET_BIND_SERVICE \
+  --security-opt no-new-privileges:true ghcr.io/soulteary/portmap:latest \
   -listen-port 22 -target 127.0.0.1:2222
 ```
 
