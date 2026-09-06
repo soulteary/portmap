@@ -75,8 +75,19 @@ func TestTotalConnsIncrements(t *testing.T) {
 	addr, srv, wait := startServerRef(t, Config{Target: target, ReuseAddr: true})
 	defer wait()
 
-	if srv.TotalConns() != 0 {
-		t.Fatalf("初始 TotalConns 应为 0，实际 %d", srv.TotalConns())
+	// startServerRef 通过建立一次真实 TCP 连接等待监听器就绪。该探测连接
+	// 同样会被转发并计入统计；等待它处理完毕后记录基线，避免测试结果依赖
+	// 调度时序（较快的 macOS runner 往往会在这里已经观察到 TotalConns=1）。
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if srv.TotalConns() > 0 && srv.ActiveConns() == 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	baseline := srv.TotalConns()
+	if baseline == 0 || srv.ActiveConns() != 0 {
+		t.Fatalf("就绪探测连接未完成: TotalConns=%d ActiveConns=%d", baseline, srv.ActiveConns())
 	}
 
 	const rounds = 3
@@ -96,15 +107,16 @@ func TestTotalConnsIncrements(t *testing.T) {
 		_ = conn.Close()
 	}
 
-	// TotalConns 在 handle 中于拨号成功后自增；轮询等待其达到期望值。
-	deadline := time.Now().Add(2 * time.Second)
+	// TotalConns 在 handle 中于拨号成功后自增；轮询等待测试连接全部计入。
+	want := baseline + rounds
+	deadline = time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if srv.TotalConns() >= rounds {
+		if srv.TotalConns() >= want {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if got := srv.TotalConns(); got < rounds {
-		t.Fatalf("TotalConns=%d，期望至少 %d", got, rounds)
+	if got := srv.TotalConns(); got != want {
+		t.Fatalf("TotalConns=%d，期望 %d（基线 %d + 测试连接 %d）", got, want, baseline, rounds)
 	}
 }
