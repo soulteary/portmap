@@ -418,6 +418,7 @@ func applyProxyConfig(opt *proxyOptions, pc *ProxyConfig, setFlags map[string]bo
 	}
 	if pc.WebLogMax != nil && !setFlags["web-log-max"] {
 		opt.webLogMax = *pc.WebLogMax
+		opt.webLogMaxSet = true
 	}
 	return nil
 }

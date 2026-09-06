@@ -582,3 +582,99 @@ func TestStartForwardInstancesWithStatsEndpoint(t *testing.T) {
 		t.Fatal("未在超时内退出")
 	}
 }
+
+func TestCollectProxyAdminOptionsRejectsConflicts(t *testing.T) {
+	tests := []struct {
+		name      string
+		instances []proxyOptions
+	}{
+		{
+			name: "stats addresses",
+			instances: []proxyOptions{
+				{statsAddr: "127.0.0.1:9090"},
+				{statsAddr: "127.0.0.1:9091"},
+			},
+		},
+		{
+			name: "stats public policy",
+			instances: []proxyOptions{
+				{statsAddr: "0.0.0.0:9090", statsAllowPublic: true},
+				{statsAddr: "0.0.0.0:9090", statsAllowPublic: false},
+			},
+		},
+		{
+			name: "web addresses",
+			instances: []proxyOptions{
+				{webAddr: "127.0.0.1:8080", webLogMax: 1000},
+				{webAddr: "127.0.0.1:8081", webLogMax: 1000},
+			},
+		},
+		{
+			name: "web public policy",
+			instances: []proxyOptions{
+				{webAddr: "0.0.0.0:8080", webAllowPublic: true, webLogMax: 1000},
+				{webAddr: "0.0.0.0:8080", webAllowPublic: false, webLogMax: 1000},
+			},
+		},
+		{
+			name: "web log capacity",
+			instances: []proxyOptions{
+				{webAddr: "127.0.0.1:8080", webLogMax: 100, webLogMaxSet: true},
+				{webAddr: "127.0.0.1:8080", webLogMax: 200, webLogMaxSet: true},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := collectProxyAdminOptions(tt.instances); err == nil {
+				t.Fatal("expected conflicting admin options to be rejected")
+			}
+		})
+	}
+}
+
+func TestCollectProxyAdminOptionsAcceptsConsistentSettings(t *testing.T) {
+	instances := []proxyOptions{
+		{
+			statsAddr:        "127.0.0.1:9090",
+			statsAllowPublic: false,
+			webAddr:          "127.0.0.1:8080",
+			webAllowPublic:   false,
+			webLogMax:        200,
+			webLogMaxSet:     true,
+		},
+		{
+			statsAddr:        "127.0.0.1:9090",
+			statsAllowPublic: false,
+			webAddr:          "127.0.0.1:8080",
+			webAllowPublic:   false,
+			webLogMax:        200,
+		},
+	}
+	got, err := collectProxyAdminOptions(instances)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.statsAddr != "127.0.0.1:9090" || got.webAddr != "127.0.0.1:8080" || got.webLogMax != 200 {
+		t.Fatalf("unexpected consolidated options: %+v", got)
+	}
+
+	for _, instances := range [][]proxyOptions{
+		{
+			{webAddr: "127.0.0.1:8080"},
+			{webAddr: "127.0.0.1:8080", webLogMax: 200, webLogMaxSet: true},
+		},
+		{
+			{webAddr: "127.0.0.1:8080", webLogMax: 200, webLogMaxSet: true},
+			{webAddr: "127.0.0.1:8080"},
+		},
+	} {
+		got, err := collectProxyAdminOptions(instances)
+		if err != nil {
+			t.Fatalf("omitted capacity should not conflict: %v", err)
+		}
+		if got.webLogMax != 200 {
+			t.Fatalf("webLogMax=%d, want explicit value 200", got.webLogMax)
+		}
+	}
+}
