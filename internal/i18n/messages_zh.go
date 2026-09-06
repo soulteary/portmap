@@ -97,7 +97,7 @@ var messagesZH = map[string]string{
 	KeyErrConfigHandshake: "配置文件 handshake_timeout 非法: %w",
 	KeyErrConfigKeepalive: "配置文件 upstream_keepalive 非法: %w",
 
-KeyErrConfigSectionEmpty: "配置文件未定义任何 %s 实例",
+	KeyErrConfigSectionEmpty: "配置文件未定义任何 %s 实例",
 
 	KeyLogForwardStartingInstances: "根据配置启动 %d 个 forward 实例",
 	KeyLogProxyStartingInstances:   "根据配置启动 %d 个 proxy 实例",

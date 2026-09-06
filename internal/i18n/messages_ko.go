@@ -97,7 +97,7 @@ var messagesKO = map[string]string{
 	KeyErrConfigHandshake: "설정 파일의 handshake_timeout이 잘못되었습니다: %w",
 	KeyErrConfigKeepalive: "설정 파일의 upstream_keepalive가 잘못되었습니다: %w",
 
-KeyErrConfigSectionEmpty: "설정 파일에 %s 인스턴스가 정의되어 있지 않습니다",
+	KeyErrConfigSectionEmpty: "설정 파일에 %s 인스턴스가 정의되어 있지 않습니다",
 
 	KeyLogForwardStartingInstances: "설정에서 %d개의 forward 인스턴스를 시작합니다",
 	KeyLogProxyStartingInstances:   "설정에서 %d개의 proxy 인스턴스를 시작합니다",

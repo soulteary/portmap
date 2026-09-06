@@ -97,7 +97,7 @@ var messagesDE = map[string]string{
 	KeyErrConfigHandshake: "ungültiges handshake_timeout in der Konfigurationsdatei: %w",
 	KeyErrConfigKeepalive: "ungültiges upstream_keepalive in der Konfigurationsdatei: %w",
 
-KeyErrConfigSectionEmpty: "die Konfigurationsdatei definiert keine %s-Instanz",
+	KeyErrConfigSectionEmpty: "die Konfigurationsdatei definiert keine %s-Instanz",
 
 	KeyLogForwardStartingInstances: "starte %d Forward-Instanz(en) aus der Konfiguration",
 	KeyLogProxyStartingInstances:   "starte %d Proxy-Instanz(en) aus der Konfiguration",
