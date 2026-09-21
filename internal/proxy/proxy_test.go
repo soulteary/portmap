@@ -229,7 +229,16 @@ func TestHTTPProxyByteAccounting(t *testing.T) {
 	_, _ = io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 
+	// handlePlainHTTP 在把整个响应写回客户端之后才累计下行字节，客户端读完
+	// body 可能早于代理 goroutine 完成记账，所以这里轮询等待统计落地，
+	// 避免断言依赖 goroutine 调度时序（参见 TestProxyRecordsOpenCloseEvents）。
 	snap := srv.Snapshot()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && (snap.UpBytes <= 0 || snap.DownBytes <= 0 || snap.TotalConns < 1) {
+		time.Sleep(20 * time.Millisecond)
+		snap = srv.Snapshot()
+	}
+
 	if snap.UpBytes <= 0 {
 		t.Fatalf("UpBytes=%d, 期望 > 0", snap.UpBytes)
 	}
