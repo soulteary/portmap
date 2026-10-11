@@ -1,0 +1,81 @@
+{
+  "schema_version": "1.0",
+  "tests": {
+    "total": 247,
+    "passed": 247,
+    "failed": 0,
+    "skipped": 0
+  },
+  "coverage": {
+    "covered_statements": 2597,
+    "total_statements": 3169,
+    "percentage": 81.95,
+    "threshold": 0
+  },
+  "packages": [
+    {
+      "name": ".",
+      "status": "pass",
+      "tests": 47,
+      "failed": 0,
+      "coverage": 79.45
+    },
+    {
+      "name": "cmd/loadtest",
+      "status": "pass",
+      "tests": 26,
+      "failed": 0,
+      "coverage": 90.45
+    },
+    {
+      "name": "internal/forward",
+      "status": "pass",
+      "tests": 29,
+      "failed": 0,
+      "coverage": 78.04
+    },
+    {
+      "name": "internal/i18n",
+      "status": "pass",
+      "tests": 13,
+      "failed": 0,
+      "coverage": 96.49
+    },
+    {
+      "name": "internal/netutil",
+      "status": "pass",
+      "tests": 9,
+      "failed": 0,
+      "coverage": 78.38
+    },
+    {
+      "name": "internal/proxy",
+      "status": "pass",
+      "tests": 84,
+      "failed": 0,
+      "coverage": 81.73
+    },
+    {
+      "name": "internal/socat",
+      "status": "pass",
+      "tests": 18,
+      "failed": 0,
+      "coverage": 98
+    },
+    {
+      "name": "internal/stats",
+      "status": "pass",
+      "tests": 15,
+      "failed": 0,
+      "coverage": 83.5
+    },
+    {
+      "name": "internal/web",
+      "status": "pass",
+      "tests": 6,
+      "failed": 0,
+      "coverage": 51.52
+    }
+  ],
+  "failures": null
+}
