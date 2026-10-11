@@ -64,7 +64,7 @@ sudo portmap -listen-port 22 -target 127.0.0.1:2222
 
 ## 构建
 
-需要 Go 1.27+（准确版本以 `go.mod` 为准）。
+需要 Go 1.27.2+（准确版本以 `go.mod` 为准）。
 
 ```bash
 go build -o portmap .
