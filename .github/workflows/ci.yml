@@ -37,7 +37,7 @@ jobs:
 
         if: "!(github.event_name == 'pull_request' && runner.os == 'Linux')"
       - name: Remove stale generated report evidence
-        if: "github.event_name == 'pull_request' && runner.os == 'Linux'"
+        if: always() && (github.event_name == 'pull_request' && runner.os == 'Linux')
         shell: bash
         run: |
           set -euo pipefail
