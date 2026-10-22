@@ -65,7 +65,7 @@ sudo portmap -listen-port 22 -target 127.0.0.1:2222
 
 ## Build
 
-Requires Go 1.27.2+ (the exact version in `go.mod` is the source of truth).
+Requires Go 1.27.3+ (the exact version in `go.mod` is the source of truth).
 
 ```bash
 go build -o portmap .

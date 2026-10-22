@@ -67,6 +67,11 @@ jobs:
           report: "true"
           commit: "false"
         if: github.event_name == 'pull_request' && runner.os == 'Linux'
+      - name: Restore project Go toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
       - name: Reuse GTR coverage profile
         if: github.event_name == 'pull_request' && runner.os == 'Linux'
         shell: bash
