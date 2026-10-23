@@ -8,7 +8,7 @@
 | Passed | 247 |
 | Failed | 0 |
 | Skipped | 0 |
-| Coverage | 82.11% |
+| Coverage | 82.17% |
 | Threshold | 0.00% |
 
 ### Packages
@@ -16,7 +16,7 @@
 | Package | Status | Tests | Failed | Coverage |
 | --- | --- | --- | --- | --- |
 | . | pass | 47 | 0 | 79.45% |
-| cmd/loadtest | pass | 26 | 0 | 91.23% |
+| cmd/loadtest | pass | 26 | 0 | 91.62% |
 | internal/forward | pass | 29 | 0 | 78.31% |
 | internal/i18n | pass | 13 | 0 | 96.49% |
 | internal/netutil | pass | 9 | 0 | 78.38% |

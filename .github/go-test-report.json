@@ -7,9 +7,9 @@
     "skipped": 0
   },
   "coverage": {
-    "covered_statements": 2602,
+    "covered_statements": 2604,
     "total_statements": 3169,
-    "percentage": 82.11,
+    "percentage": 82.17,
     "threshold": 0
   },
   "packages": [
@@ -25,7 +25,7 @@
       "status": "pass",
       "tests": 26,
       "failed": 0,
-      "coverage": 91.23
+      "coverage": 91.62
     },
     {
       "name": "internal/forward",
