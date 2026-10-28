@@ -5,6 +5,38 @@ All notable changes to portmap are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.3] - 2026-10-28
+
+### Changed
+
+- Update golang.org/x/net from 0.61.0 to 0.62.0; keep Go 1.27.3.
+- Align CI report binaries with their pinned Action wrappers: go-test-report
+  1.1.3 and goreportcard 1.1.4.
+- Refresh artifact upload/download, container login and GoReleaser Actions.
+
+## [1.3.2] - 2026-10-22
+
+- Require Go 1.27.3 and align CI, documentation and report toolchain restoration.
+- Include the compatible dependency updates recorded in the
+  [published release](https://github.com/soulteary/portmap/releases/tag/v1.3.2).
+
+## [1.3.1] - 2026-10-11
+
+- Build release artifacts with Go 1.27.2 and align CI and packaging tools.
+- Include the merged dependency and CI maintenance updates recorded in the
+  [published release](https://github.com/soulteary/portmap/releases/tag/v1.3.1).
+
+## [1.3.0] - 2026-09-06
+
+- Bound SSH agent operations by dial timeout and default forward session resources.
+- Run the container as a non-root user.
+- Reject conflicting multi-instance admin options, HTTP Upgrade requests and
+  empty selected service sections.
+- Handle Expect: 100-continue without deadlock and remove the macOS timing
+  dependency from the connection-counter test.
+- These entries summarize the
+  [published release](https://github.com/soulteary/portmap/releases/tag/v1.3.0).
+
 ## [1.2.0] - 2026-09-05
 
 ### Added
@@ -59,3 +91,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 [1.2.0]: https://github.com/soulteary/portmap/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/soulteary/portmap/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/soulteary/portmap/releases/tag/v1.0.0
+
+[1.3.3]: https://github.com/soulteary/portmap/compare/v1.3.2...v1.3.3
+[1.3.2]: https://github.com/soulteary/portmap/compare/v1.3.1...v1.3.2
+[1.3.1]: https://github.com/soulteary/portmap/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/soulteary/portmap/compare/v1.2.0...v1.3.0
