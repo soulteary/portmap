@@ -331,9 +331,7 @@ func mergeProxyConfig(opt *proxyOptions, cfg *Config, setFlags map[string]bool) 
 	if cfg == nil {
 		return nil
 	}
-	if cfg.Lang != nil && !setFlags["lang"] {
-		opt.lang = *cfg.Lang
-	}
+	applyConfigValue(&opt.lang, cfg.Lang, setFlags, "lang")
 	if len(cfg.Proxy) == 0 || cfg.Proxy[0] == nil {
 		return nil
 	}
@@ -347,81 +345,37 @@ func applyProxyConfig(opt *proxyOptions, pc *ProxyConfig, setFlags map[string]bo
 	if pc == nil {
 		return nil
 	}
-	if pc.Addr != nil && !setFlags["addr"] {
-		opt.addr = *pc.Addr
+	applyConfigValue(&opt.addr, pc.Addr, setFlags, "addr")
+	if err := applyConfigDuration(&opt.dialTimeout, pc.DialTimeout, setFlags, "dial-timeout", i18n.KeyErrConfigDial); err != nil {
+		return err
 	}
-	if pc.DialTimeout != nil && !setFlags["dial-timeout"] {
-		d, err := time.ParseDuration(*pc.DialTimeout)
-		if err != nil {
-			return fmt.Errorf(i18n.T(i18n.KeyErrConfigDial), err)
-		}
-		opt.dialTimeout = d
+	applyConfigValue(&opt.maxConns, pc.MaxConns, setFlags, "max-conns")
+	if err := applyConfigDuration(&opt.handshakeTimeout, pc.HandshakeTimeout, setFlags, "handshake-timeout", i18n.KeyErrConfigHandshake); err != nil {
+		return err
 	}
-	if pc.MaxConns != nil && !setFlags["max-conns"] {
-		opt.maxConns = *pc.MaxConns
+	if err := applyConfigDuration(&opt.idleTimeout, pc.IdleTimeout, setFlags, "idle-timeout", i18n.KeyErrConfigIdle); err != nil {
+		return err
 	}
-	if pc.HandshakeTimeout != nil && !setFlags["handshake-timeout"] {
-		d, err := time.ParseDuration(*pc.HandshakeTimeout)
-		if err != nil {
-			return fmt.Errorf(i18n.T(i18n.KeyErrConfigHandshake), err)
-		}
-		opt.handshakeTimeout = d
-	}
-	if pc.IdleTimeout != nil && !setFlags["idle-timeout"] {
-		d, err := time.ParseDuration(*pc.IdleTimeout)
-		if err != nil {
-			return fmt.Errorf(i18n.T(i18n.KeyErrConfigIdle), err)
-		}
-		opt.idleTimeout = d
-	}
-	if pc.AllowPublic != nil && !setFlags["allow-public"] {
-		opt.allowPublic = *pc.AllowPublic
-	}
-	if pc.Upstream != nil && !setFlags["upstream"] {
-		opt.upstream = *pc.Upstream
-	}
-	if pc.UpstreamIdentity != nil && !setFlags["upstream-identity"] {
-		opt.upstreamIdentity = *pc.UpstreamIdentity
-	}
+	applyConfigValue(&opt.allowPublic, pc.AllowPublic, setFlags, "allow-public")
+	applyConfigValue(&opt.upstream, pc.Upstream, setFlags, "upstream")
+	applyConfigValue(&opt.upstreamIdentity, pc.UpstreamIdentity, setFlags, "upstream-identity")
 	// upstream_identity_passphrase 无对应命令行 flag（安全考虑），故不参与
 	// setFlags 门控；环境变量优先级更高，在 resolveIdentityPassphrase 中处理。
 	if pc.UpstreamIdentityPassphrase != nil {
 		opt.upstreamIdentityPassphrase = *pc.UpstreamIdentityPassphrase
 	}
-	if pc.UpstreamKnownHosts != nil && !setFlags["upstream-known-hosts"] {
-		opt.upstreamKnownHosts = *pc.UpstreamKnownHosts
+	applyConfigValue(&opt.upstreamKnownHosts, pc.UpstreamKnownHosts, setFlags, "upstream-known-hosts")
+	applyConfigValue(&opt.upstreamInsecure, pc.UpstreamInsecure, setFlags, "upstream-insecure")
+	applyConfigValue(&opt.upstreamAgent, pc.UpstreamAgent, setFlags, "upstream-agent")
+	applyConfigValue(&opt.upstreamAgentSocket, pc.UpstreamAgentSocket, setFlags, "upstream-agent-socket")
+	if err := applyConfigDuration(&opt.upstreamKeepalive, pc.UpstreamKeepalive, setFlags, "upstream-keepalive", i18n.KeyErrConfigKeepalive); err != nil {
+		return err
 	}
-	if pc.UpstreamInsecure != nil && !setFlags["upstream-insecure"] {
-		opt.upstreamInsecure = *pc.UpstreamInsecure
-	}
-	if pc.UpstreamAgent != nil && !setFlags["upstream-agent"] {
-		opt.upstreamAgent = *pc.UpstreamAgent
-	}
-	if pc.UpstreamAgentSocket != nil && !setFlags["upstream-agent-socket"] {
-		opt.upstreamAgentSocket = *pc.UpstreamAgentSocket
-	}
-	if pc.UpstreamKeepalive != nil && !setFlags["upstream-keepalive"] {
-		d, err := time.ParseDuration(*pc.UpstreamKeepalive)
-		if err != nil {
-			return fmt.Errorf(i18n.T(i18n.KeyErrConfigKeepalive), err)
-		}
-		opt.upstreamKeepalive = d
-	}
-	if pc.UpstreamKeepaliveMaxFailures != nil && !setFlags["upstream-keepalive-max-failures"] {
-		opt.upstreamKeepaliveMaxFailures = *pc.UpstreamKeepaliveMaxFailures
-	}
-	if pc.StatsAddr != nil && !setFlags["stats-addr"] {
-		opt.statsAddr = *pc.StatsAddr
-	}
-	if pc.StatsAllowPublic != nil && !setFlags["stats-allow-public"] {
-		opt.statsAllowPublic = *pc.StatsAllowPublic
-	}
-	if pc.WebAddr != nil && !setFlags["web-addr"] {
-		opt.webAddr = *pc.WebAddr
-	}
-	if pc.WebAllowPublic != nil && !setFlags["web-allow-public"] {
-		opt.webAllowPublic = *pc.WebAllowPublic
-	}
+	applyConfigValue(&opt.upstreamKeepaliveMaxFailures, pc.UpstreamKeepaliveMaxFailures, setFlags, "upstream-keepalive-max-failures")
+	applyConfigValue(&opt.statsAddr, pc.StatsAddr, setFlags, "stats-addr")
+	applyConfigValue(&opt.statsAllowPublic, pc.StatsAllowPublic, setFlags, "stats-allow-public")
+	applyConfigValue(&opt.webAddr, pc.WebAddr, setFlags, "web-addr")
+	applyConfigValue(&opt.webAllowPublic, pc.WebAllowPublic, setFlags, "web-allow-public")
 	if pc.WebLogMax != nil && !setFlags["web-log-max"] {
 		opt.webLogMax = *pc.WebLogMax
 		opt.webLogMaxSet = true
@@ -461,61 +415,25 @@ func mergeConfig(opt *options, cfg *fileConfig, setFlags map[string]bool) error 
 		return nil
 	}
 
-	if cfg.ListenPort != nil && !setFlags["listen-port"] {
-		opt.listenPort = *cfg.ListenPort
+	applyConfigValue(&opt.listenPort, cfg.ListenPort, setFlags, "listen-port")
+	applyConfigValue(&opt.listenHost, cfg.ListenHost, setFlags, "listen-host")
+	applyConfigValue(&opt.target, cfg.Target, setFlags, "target")
+	applyConfigValue(&opt.mode, cfg.Mode, setFlags, "mode")
+	applyConfigValue(&opt.proto, cfg.Proto, setFlags, "proto")
+	applyConfigValue(&opt.reuseAddr, cfg.ReuseAddr, setFlags, "reuseaddr")
+	applyConfigValue(&opt.useSudo, cfg.Sudo, setFlags, "sudo")
+	applyConfigValue(&opt.maxConns, cfg.MaxConns, setFlags, "max-conns")
+	applyConfigValue(&opt.logLevel, cfg.LogLevel, setFlags, "log-level")
+	applyConfigValue(&opt.quiet, cfg.Quiet, setFlags, "quiet")
+	applyConfigValue(&opt.statsAddr, cfg.StatsAddr, setFlags, "stats-addr")
+	applyConfigValue(&opt.webAddr, cfg.WebAddr, setFlags, "web-addr")
+	applyConfigValue(&opt.webLogMax, cfg.WebLogMax, setFlags, "web-log-max")
+	applyConfigValue(&opt.lang, cfg.Lang, setFlags, "lang")
+	if err := applyConfigDuration(&opt.dialTimeout, cfg.DialTimeout, setFlags, "dial-timeout", i18n.KeyErrConfigDial); err != nil {
+		return err
 	}
-	if cfg.ListenHost != nil && !setFlags["listen-host"] {
-		opt.listenHost = *cfg.ListenHost
-	}
-	if cfg.Target != nil && !setFlags["target"] {
-		opt.target = *cfg.Target
-	}
-	if cfg.Mode != nil && !setFlags["mode"] {
-		opt.mode = *cfg.Mode
-	}
-	if cfg.Proto != nil && !setFlags["proto"] {
-		opt.proto = *cfg.Proto
-	}
-	if cfg.ReuseAddr != nil && !setFlags["reuseaddr"] {
-		opt.reuseAddr = *cfg.ReuseAddr
-	}
-	if cfg.Sudo != nil && !setFlags["sudo"] {
-		opt.useSudo = *cfg.Sudo
-	}
-	if cfg.MaxConns != nil && !setFlags["max-conns"] {
-		opt.maxConns = *cfg.MaxConns
-	}
-	if cfg.LogLevel != nil && !setFlags["log-level"] {
-		opt.logLevel = *cfg.LogLevel
-	}
-	if cfg.Quiet != nil && !setFlags["quiet"] {
-		opt.quiet = *cfg.Quiet
-	}
-	if cfg.StatsAddr != nil && !setFlags["stats-addr"] {
-		opt.statsAddr = *cfg.StatsAddr
-	}
-	if cfg.WebAddr != nil && !setFlags["web-addr"] {
-		opt.webAddr = *cfg.WebAddr
-	}
-	if cfg.WebLogMax != nil && !setFlags["web-log-max"] {
-		opt.webLogMax = *cfg.WebLogMax
-	}
-	if cfg.Lang != nil && !setFlags["lang"] {
-		opt.lang = *cfg.Lang
-	}
-	if cfg.DialTimeout != nil && !setFlags["dial-timeout"] {
-		d, err := time.ParseDuration(*cfg.DialTimeout)
-		if err != nil {
-			return fmt.Errorf(i18n.T(i18n.KeyErrConfigDial), err)
-		}
-		opt.dialTimeout = d
-	}
-	if cfg.IdleTimeout != nil && !setFlags["idle-timeout"] {
-		d, err := time.ParseDuration(*cfg.IdleTimeout)
-		if err != nil {
-			return fmt.Errorf(i18n.T(i18n.KeyErrConfigIdle), err)
-		}
-		opt.idleTimeout = d
+	if err := applyConfigDuration(&opt.idleTimeout, cfg.IdleTimeout, setFlags, "idle-timeout", i18n.KeyErrConfigIdle); err != nil {
+		return err
 	}
 	return nil
 }
@@ -528,58 +446,43 @@ func applyForwardConfig(opt *options, fc *ForwardConfig, setFlags map[string]boo
 	if fc == nil {
 		return nil
 	}
-	if fc.ListenPort != nil && !setFlags["listen-port"] {
-		opt.listenPort = *fc.ListenPort
+	applyConfigValue(&opt.listenPort, fc.ListenPort, setFlags, "listen-port")
+	applyConfigValue(&opt.listenHost, fc.ListenHost, setFlags, "listen-host")
+	applyConfigValue(&opt.target, fc.Target, setFlags, "target")
+	applyConfigValue(&opt.mode, fc.Mode, setFlags, "mode")
+	applyConfigValue(&opt.proto, fc.Proto, setFlags, "proto")
+	applyConfigValue(&opt.reuseAddr, fc.ReuseAddr, setFlags, "reuseaddr")
+	applyConfigValue(&opt.useSudo, fc.Sudo, setFlags, "sudo")
+	applyConfigValue(&opt.maxConns, fc.MaxConns, setFlags, "max-conns")
+	applyConfigValue(&opt.logLevel, fc.LogLevel, setFlags, "log-level")
+	applyConfigValue(&opt.quiet, fc.Quiet, setFlags, "quiet")
+	applyConfigValue(&opt.statsAddr, fc.StatsAddr, setFlags, "stats-addr")
+	applyConfigValue(&opt.webAddr, fc.WebAddr, setFlags, "web-addr")
+	applyConfigValue(&opt.webLogMax, fc.WebLogMax, setFlags, "web-log-max")
+	if err := applyConfigDuration(&opt.dialTimeout, fc.DialTimeout, setFlags, "dial-timeout", i18n.KeyErrConfigDial); err != nil {
+		return err
 	}
-	if fc.ListenHost != nil && !setFlags["listen-host"] {
-		opt.listenHost = *fc.ListenHost
+	if err := applyConfigDuration(&opt.idleTimeout, fc.IdleTimeout, setFlags, "idle-timeout", i18n.KeyErrConfigIdle); err != nil {
+		return err
 	}
-	if fc.Target != nil && !setFlags["target"] {
-		opt.target = *fc.Target
+	return nil
+}
+
+// applyConfigValue preserves explicit CLI values, including false and zero.
+func applyConfigValue[T any](dst *T, src *T, flags map[string]bool, name string) {
+	if src != nil && !flags[name] {
+		*dst = *src
 	}
-	if fc.Mode != nil && !setFlags["mode"] {
-		opt.mode = *fc.Mode
+}
+
+func applyConfigDuration(dst *time.Duration, src *string, flags map[string]bool, name, errorKey string) error {
+	if src == nil || flags[name] {
+		return nil
 	}
-	if fc.Proto != nil && !setFlags["proto"] {
-		opt.proto = *fc.Proto
+	value, err := time.ParseDuration(*src)
+	if err != nil {
+		return fmt.Errorf(i18n.T(errorKey), err)
 	}
-	if fc.ReuseAddr != nil && !setFlags["reuseaddr"] {
-		opt.reuseAddr = *fc.ReuseAddr
-	}
-	if fc.Sudo != nil && !setFlags["sudo"] {
-		opt.useSudo = *fc.Sudo
-	}
-	if fc.MaxConns != nil && !setFlags["max-conns"] {
-		opt.maxConns = *fc.MaxConns
-	}
-	if fc.LogLevel != nil && !setFlags["log-level"] {
-		opt.logLevel = *fc.LogLevel
-	}
-	if fc.Quiet != nil && !setFlags["quiet"] {
-		opt.quiet = *fc.Quiet
-	}
-	if fc.StatsAddr != nil && !setFlags["stats-addr"] {
-		opt.statsAddr = *fc.StatsAddr
-	}
-	if fc.WebAddr != nil && !setFlags["web-addr"] {
-		opt.webAddr = *fc.WebAddr
-	}
-	if fc.WebLogMax != nil && !setFlags["web-log-max"] {
-		opt.webLogMax = *fc.WebLogMax
-	}
-	if fc.DialTimeout != nil && !setFlags["dial-timeout"] {
-		d, err := time.ParseDuration(*fc.DialTimeout)
-		if err != nil {
-			return fmt.Errorf(i18n.T(i18n.KeyErrConfigDial), err)
-		}
-		opt.dialTimeout = d
-	}
-	if fc.IdleTimeout != nil && !setFlags["idle-timeout"] {
-		d, err := time.ParseDuration(*fc.IdleTimeout)
-		if err != nil {
-			return fmt.Errorf(i18n.T(i18n.KeyErrConfigIdle), err)
-		}
-		opt.idleTimeout = d
-	}
+	*dst = value
 	return nil
 }

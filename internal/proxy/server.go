@@ -129,20 +129,8 @@ func (s *Server) Snapshot() stats.Snapshot { return s.Stats().Snapshot() }
 
 // ListenAndServe 开始监听并处理连接，阻塞直到出错或被关闭。
 func (s *Server) ListenAndServe() error {
-	if s.DialTimeout <= 0 {
-		s.DialTimeout = defaultDialTimeout
-	}
-	if s.dialer == nil {
-		if s.Upstream != nil {
-			dialer, err := NewUpstreamDialer(s.Upstream, s.DialTimeout, defaultKeepAlive, s.Logger)
-			if err != nil {
-				return err
-			}
-			s.dialer = dialer
-			s.logf(i18n.T(i18n.KeyLogProxyUpstreamEnabled), s.Upstream.Scheme, s.Upstream.describe())
-		} else {
-			s.dialer = NewDirectDialer(s.DialTimeout, defaultKeepAlive)
-		}
+	if err := s.initializeDialer(); err != nil {
+		return err
 	}
 
 	ln, err := net.Listen("tcp", s.Addr)
@@ -186,27 +174,7 @@ func (s *Server) ListenAndServe() error {
 	}()
 	s.logf(i18n.T(i18n.KeyLogProxyStarted), ln.Addr())
 
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				return nil
-			}
-			s.logf(i18n.T(i18n.KeyLogProxyAcceptFailed), err)
-			continue
-		}
-		if !s.trackConn(conn) {
-			s.Stats().Reject()
-			s.logEvent("reject", "", conn.RemoteAddr().String(), "", 0, 0, 0, 0)
-			s.logf(i18n.T(i18n.KeyLogProxyConnLimit), conn.RemoteAddr(), s.MaxConns)
-			_ = conn.Close()
-			continue
-		}
-		go func() {
-			defer s.untrackConn(conn)
-			s.serveConn(conn)
-		}()
-	}
+	return s.acceptConnections(ln)
 }
 
 // Close 立即关闭监听器和所有活动连接。
@@ -579,4 +547,48 @@ func (s *Server) logEvent(kind, proto, client, target string, up, down, durMs, c
 		DurationMs: durMs,
 		ConnID:     connID,
 	})
+}
+
+func (s *Server) initializeDialer() error {
+	if s.DialTimeout <= 0 {
+		s.DialTimeout = defaultDialTimeout
+	}
+	if s.dialer == nil {
+		if s.Upstream != nil {
+			dialer, err := NewUpstreamDialer(s.Upstream, s.DialTimeout, defaultKeepAlive, s.Logger)
+			if err != nil {
+				return err
+			}
+			s.dialer = dialer
+			s.logf(i18n.T(i18n.KeyLogProxyUpstreamEnabled), s.Upstream.Scheme, s.Upstream.describe())
+		} else {
+			s.dialer = NewDirectDialer(s.DialTimeout, defaultKeepAlive)
+		}
+	}
+
+	return nil
+}
+
+func (s *Server) acceptConnections(ln net.Listener) error {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+			s.logf(i18n.T(i18n.KeyLogProxyAcceptFailed), err)
+			continue
+		}
+		if !s.trackConn(conn) {
+			s.Stats().Reject()
+			s.logEvent("reject", "", conn.RemoteAddr().String(), "", 0, 0, 0, 0)
+			s.logf(i18n.T(i18n.KeyLogProxyConnLimit), conn.RemoteAddr(), s.MaxConns)
+			_ = conn.Close()
+			continue
+		}
+		go func() {
+			defer s.untrackConn(conn)
+			s.serveConn(conn)
+		}()
+	}
 }

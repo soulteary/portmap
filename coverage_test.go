@@ -156,106 +156,17 @@ func TestNormalizeForwardOptions(t *testing.T) {
 // TestBuildProxyUpstream 覆盖直连（空 upstream）、非法 URL、以及成功解析并回填
 // SSH 专用字段三条路径。
 func TestBuildProxyUpstream(t *testing.T) {
-	t.Run("空 upstream 返回直连 nil", func(t *testing.T) {
-		u, err := buildProxyUpstream(&proxyOptions{upstream: "  "})
-		if err != nil {
-			t.Fatalf("空 upstream 不应报错: %v", err)
-		}
-		if u != nil {
-			t.Fatalf("空 upstream 应返回 nil，实际 %+v", u)
-		}
-	})
+	t.Run("空 upstream 返回直连 nil", checkBuildProxyUpstreamDirect)
 
-	t.Run("非法 upstream URL 返回错误", func(t *testing.T) {
-		if _, err := buildProxyUpstream(&proxyOptions{upstream: "ftp://host:21"}); err == nil {
-			t.Fatal("非法 scheme 应返回错误")
-		}
-	})
+	t.Run("非法 upstream URL 返回错误", checkBuildProxyUpstreamInvalidURL)
 
-	t.Run("成功解析并回填 SSH 字段", func(t *testing.T) {
-		opt := &proxyOptions{
-			upstream:                     "ssh://root@host:22",
-			upstreamIdentity:             "/tmp/id_rsa",
-			upstreamIdentityPassphrase:   "s3cret",
-			upstreamKnownHosts:           "/tmp/known_hosts",
-			upstreamInsecure:             true,
-			upstreamKeepalive:            45 * time.Second,
-			upstreamKeepaliveMaxFailures: 5,
-		}
-		u, err := buildProxyUpstream(opt)
-		if err != nil {
-			t.Fatalf("buildProxyUpstream: %v", err)
-		}
-		if u == nil {
-			t.Fatal("期望非 nil 上游配置")
-		}
-		if u.Scheme != proxy.UpstreamSchemeSSH || u.Addr != "host:22" {
-			t.Fatalf("scheme/addr 错误: %+v", u)
-		}
-		if u.IdentityFile != "/tmp/id_rsa" || u.KnownHostsFile != "/tmp/known_hosts" || !u.Insecure {
-			t.Fatalf("SSH 字段回填错误: %+v", u)
-		}
-		if u.IdentityPassphrase != "s3cret" {
-			t.Fatalf("passphrase 未透传: %+v", u)
-		}
-		if u.KeepaliveInterval != 45*time.Second || u.KeepaliveMaxFailures != 5 {
-			t.Fatalf("keepalive 字段回填错误: %+v", u)
-		}
-	})
+	t.Run("成功解析并回填 SSH 字段", checkBuildProxyUpstreamSSHFields)
 
-	t.Run("配置文件中的 ~ 路径被展开", func(t *testing.T) {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			t.Skipf("无法确定 home 目录: %v", err)
-		}
-		opt := &proxyOptions{
-			upstream:           "ssh://root@host:22",
-			upstreamIdentity:   "~/.ssh/id_rsa",
-			upstreamKnownHosts: "~/.ssh/known_hosts",
-		}
-		u, err := buildProxyUpstream(opt)
-		if err != nil {
-			t.Fatalf("buildProxyUpstream: %v", err)
-		}
-		if want := filepath.Join(home, ".ssh", "id_rsa"); u.IdentityFile != want {
-			t.Fatalf("私钥路径未展开: 期望 %q，实际 %q", want, u.IdentityFile)
-		}
-		if want := filepath.Join(home, ".ssh", "known_hosts"); u.KnownHostsFile != want {
-			t.Fatalf("known_hosts 路径未展开: 期望 %q，实际 %q", want, u.KnownHostsFile)
-		}
-	})
+	t.Run("配置文件中的 ~ 路径被展开", checkBuildProxyUpstreamIdentityPaths)
 
-	t.Run("回填 agent 字段并展开 socket 路径", func(t *testing.T) {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			t.Skipf("无法确定 home 目录: %v", err)
-		}
-		opt := &proxyOptions{
-			upstream:            "ssh://root@host:22",
-			upstreamAgent:       true,
-			upstreamAgentSocket: "~/.ssh/agent.sock",
-		}
-		u, err := buildProxyUpstream(opt)
-		if err != nil {
-			t.Fatalf("buildProxyUpstream: %v", err)
-		}
-		if u.DisableAgent {
-			t.Fatal("upstreamAgent 为 true 时不应关闭 agent")
-		}
-		if want := filepath.Join(home, ".ssh", "agent.sock"); u.AgentSocket != want {
-			t.Fatalf("agent socket 路径未展开: 期望 %q，实际 %q", want, u.AgentSocket)
-		}
-	})
+	t.Run("回填 agent 字段并展开 socket 路径", checkBuildProxyUpstreamAgentSocket)
 
-	t.Run("关闭 agent 时回填 DisableAgent", func(t *testing.T) {
-		u, err := buildProxyUpstream(&proxyOptions{upstream: "ssh://root@host:22"})
-		if err != nil {
-			t.Fatalf("buildProxyUpstream: %v", err)
-		}
-		if !u.DisableAgent {
-			t.Fatal("upstreamAgent 为 false 时应关闭 agent")
-		}
-	})
+	t.Run("关闭 agent 时回填 DisableAgent", checkBuildProxyUpstreamAgentDisabled)
 }
 
 // fakeAgentSocket 起一个只 accept 不应答的 unix socket，用于探测「可连通」分支。
@@ -625,4 +536,105 @@ func waitProxyListening(t *testing.T, port int) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("代理未在超时内开始监听 %s", addr)
+}
+
+func checkBuildProxyUpstreamDirect(t *testing.T) {
+	u, err := buildProxyUpstream(&proxyOptions{upstream: "  "})
+	if err != nil {
+		t.Fatalf("空 upstream 不应报错: %v", err)
+	}
+	if u != nil {
+		t.Fatalf("空 upstream 应返回 nil，实际 %+v", u)
+	}
+}
+
+func checkBuildProxyUpstreamInvalidURL(t *testing.T) {
+	if _, err := buildProxyUpstream(&proxyOptions{upstream: "ftp://host:21"}); err == nil {
+		t.Fatal("非法 scheme 应返回错误")
+	}
+}
+
+func checkBuildProxyUpstreamSSHFields(t *testing.T) {
+	opt := &proxyOptions{
+		upstream:                     "ssh://root@host:22",
+		upstreamIdentity:             "/tmp/id_rsa",
+		upstreamIdentityPassphrase:   "s3cret",
+		upstreamKnownHosts:           "/tmp/known_hosts",
+		upstreamInsecure:             true,
+		upstreamKeepalive:            45 * time.Second,
+		upstreamKeepaliveMaxFailures: 5,
+	}
+	u, err := buildProxyUpstream(opt)
+	if err != nil {
+		t.Fatalf("buildProxyUpstream: %v", err)
+	}
+	if u == nil {
+		t.Fatal("期望非 nil 上游配置")
+	}
+	if u.Scheme != proxy.UpstreamSchemeSSH || u.Addr != "host:22" {
+		t.Fatalf("scheme/addr 错误: %+v", u)
+	}
+	if u.IdentityFile != "/tmp/id_rsa" || u.KnownHostsFile != "/tmp/known_hosts" || !u.Insecure {
+		t.Fatalf("SSH 字段回填错误: %+v", u)
+	}
+	if u.IdentityPassphrase != "s3cret" {
+		t.Fatalf("passphrase 未透传: %+v", u)
+	}
+	if u.KeepaliveInterval != 45*time.Second || u.KeepaliveMaxFailures != 5 {
+		t.Fatalf("keepalive 字段回填错误: %+v", u)
+	}
+}
+
+func checkBuildProxyUpstreamIdentityPaths(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("无法确定 home 目录: %v", err)
+	}
+	opt := &proxyOptions{
+		upstream:           "ssh://root@host:22",
+		upstreamIdentity:   "~/.ssh/id_rsa",
+		upstreamKnownHosts: "~/.ssh/known_hosts",
+	}
+	u, err := buildProxyUpstream(opt)
+	if err != nil {
+		t.Fatalf("buildProxyUpstream: %v", err)
+	}
+	if want := filepath.Join(home, ".ssh", "id_rsa"); u.IdentityFile != want {
+		t.Fatalf("私钥路径未展开: 期望 %q，实际 %q", want, u.IdentityFile)
+	}
+	if want := filepath.Join(home, ".ssh", "known_hosts"); u.KnownHostsFile != want {
+		t.Fatalf("known_hosts 路径未展开: 期望 %q，实际 %q", want, u.KnownHostsFile)
+	}
+}
+
+func checkBuildProxyUpstreamAgentSocket(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("无法确定 home 目录: %v", err)
+	}
+	opt := &proxyOptions{
+		upstream:            "ssh://root@host:22",
+		upstreamAgent:       true,
+		upstreamAgentSocket: "~/.ssh/agent.sock",
+	}
+	u, err := buildProxyUpstream(opt)
+	if err != nil {
+		t.Fatalf("buildProxyUpstream: %v", err)
+	}
+	if u.DisableAgent {
+		t.Fatal("upstreamAgent 为 true 时不应关闭 agent")
+	}
+	if want := filepath.Join(home, ".ssh", "agent.sock"); u.AgentSocket != want {
+		t.Fatalf("agent socket 路径未展开: 期望 %q，实际 %q", want, u.AgentSocket)
+	}
+}
+
+func checkBuildProxyUpstreamAgentDisabled(t *testing.T) {
+	u, err := buildProxyUpstream(&proxyOptions{upstream: "ssh://root@host:22"})
+	if err != nil {
+		t.Fatalf("buildProxyUpstream: %v", err)
+	}
+	if !u.DisableAgent {
+		t.Fatal("upstreamAgent 为 false 时应关闭 agent")
+	}
 }

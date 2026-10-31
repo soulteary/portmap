@@ -148,9 +148,7 @@ func TestTCPIdleBlockedWriteSurvivesOtherDirectionActivity(t *testing.T) {
 	const idle = 100 * time.Millisecond
 	x, y := TCPIdleConns(a, b, idle)
 	payload := make([]byte, 4*1024*1024)
-	for i := range payload {
-		payload[i] = byte(i ^ (i >> 8) ^ (i >> 16))
-	}
+	fillRetryPayload(payload)
 	type result struct {
 		n   int
 		err error
@@ -164,42 +162,16 @@ func TestTCPIdleBlockedWriteSurvivesOtherDirectionActivity(t *testing.T) {
 	// or duplicated when retrying the remaining suffix.
 	stop := make(chan struct{})
 	activity := make(chan error, 1)
-	go func() {
-		for {
-			select {
-			case <-stop:
-				activity <- nil
-				return
-			default:
-			}
-			if _, err := bp.Write([]byte("a")); err != nil {
-				activity <- err
-				return
-			}
-			time.Sleep(idle / 5)
-		}
-	}()
+	go keepTCPIdleActive(bp, stop, activity, idle/5)
 	readDone := make(chan struct{})
-	go func() {
-		defer close(readDone)
-		buf := make([]byte, 1)
-		for {
-			if _, err := y.Read(buf); err != nil {
-				return
-			}
-		}
-	}()
+	go drainIdleActivity(y, readDone)
 	time.Sleep(4 * idle)
 	select {
 	case r := <-done:
 		t.Fatalf("active tunnel write ended early: %d %v", r.n, r.err)
 	default:
 	}
-	select {
-	case err := <-blockedRead:
-		t.Fatalf("read returned during shared activity: %v", err)
-	default:
-	}
+	assertIdleReadStillBlocked(t, blockedRead)
 	if _, err := ap.Write([]byte("r")); err != nil {
 		t.Fatal(err)
 	}
@@ -354,5 +326,46 @@ func TestTCPIdleMaximumTimeoutStillArms(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("read did not complete")
+	}
+}
+
+func keepTCPIdleActive(bp net.Conn, stop <-chan struct{}, activity chan<- error, interval time.Duration) {
+	for {
+		select {
+		case <-stop:
+			activity <- nil
+			return
+		default:
+		}
+		if _, err := bp.Write([]byte("a")); err != nil {
+			activity <- err
+			return
+		}
+		time.Sleep(interval)
+	}
+}
+
+func drainIdleActivity(conn net.Conn, readDone chan<- struct{}) {
+	defer close(readDone)
+	buf := make([]byte, 1)
+	for {
+		if _, err := conn.Read(buf); err != nil {
+			return
+		}
+	}
+}
+
+func fillRetryPayload(payload []byte) {
+	for i := range payload {
+		payload[i] = byte(i ^ (i >> 8) ^ (i >> 16))
+	}
+}
+
+func assertIdleReadStillBlocked(t *testing.T, blockedRead <-chan error) {
+	t.Helper()
+	select {
+	case err := <-blockedRead:
+		t.Fatalf("read returned during shared activity: %v", err)
+	default:
 	}
 }

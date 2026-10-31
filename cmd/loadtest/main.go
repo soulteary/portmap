@@ -87,64 +87,33 @@ func parseFlags(args []string) (*options, error) {
 			o.errorRateSet = true
 		}
 	})
-	if o.proto != "tcp" && o.proto != "udp" {
-		return nil, fmt.Errorf("invalid -proto %q: must be tcp or udp", o.proto)
+	if err := validateLoadOptions(o); err != nil {
+		return nil, err
 	}
-	if o.mode != "throughput" && o.mode != "connrate" {
-		return nil, fmt.Errorf("invalid -mode %q: must be throughput or connrate", o.mode)
-	}
-	if o.conns <= 0 {
-		return nil, fmt.Errorf("invalid -conns %d: must be > 0", o.conns)
-	}
-	if o.payload <= 0 {
-		return nil, fmt.Errorf("invalid -payload %d: must be > 0", o.payload)
-	}
-	if o.requests < 0 {
-		return nil, fmt.Errorf("invalid -requests %d: must be >= 0", o.requests)
-	}
-	if o.duration <= 0 {
-		return nil, fmt.Errorf("invalid -duration %s: must be > 0", o.duration)
-	}
-	if o.warmup < 0 {
-		return nil, fmt.Errorf("invalid -warmup %s: must be >= 0", o.warmup)
-	}
-	if o.format != "text" && o.format != "json" {
-		return nil, fmt.Errorf("invalid -format %q: must be text or json", o.format)
-	}
-	if o.maxSamples <= 0 {
-		return nil, fmt.Errorf("invalid -max-samples %d: must be > 0", o.maxSamples)
-	}
-	if o.errorRateSet && (math.IsNaN(o.maxErrorRate) || math.IsInf(o.maxErrorRate, 0) || o.maxErrorRate < 0 || o.maxErrorRate > 100) {
-		return nil, fmt.Errorf("invalid -max-error-rate %.4g: must be between 0 and 100", o.maxErrorRate)
-	}
-	if o.maxP95 < 0 {
-		return nil, fmt.Errorf("invalid -max-p95 %s: must be >= 0", o.maxP95)
-	}
-	if o.maxConns < 0 {
-		return nil, fmt.Errorf("invalid -max-conns %d: must be >= 0", o.maxConns)
-	}
-	if o.idleTimeout < 0 {
-		return nil, fmt.Errorf("invalid -idle-timeout %s: must be >= 0", o.idleTimeout)
-	}
-	if o.proto == "udp" && o.payload > 65507 {
-		return nil, fmt.Errorf("invalid -payload %d: UDP payload must be <= 65507", o.payload)
+	if err := validateLoadLimits(o); err != nil {
+		return nil, err
 	}
 	return o, nil
 }
 
-func main() {
-	o, err := parseFlags(os.Args[1:])
+func main() { os.Exit(runCLI(os.Args[1:])) }
+
+// runCLI returns a process exit code so argument and runtime failures share one
+// tested entry point without terminating the caller.
+func runCLI(args []string) int {
+	o, err := parseFlags(args)
 	if err != nil {
 		if err == flag.ErrHelp {
-			os.Exit(0)
+			return 0
 		}
 		fmt.Fprintln(os.Stderr, "loadtest:", err)
-		os.Exit(2)
+		return 2
 	}
 	if err := run(o); err != nil {
 		fmt.Fprintln(os.Stderr, "loadtest:", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 // hostInfo 汇总当前主机与运行时环境信息。
@@ -641,26 +610,7 @@ func (w *worker) runTCP(ctx context.Context) {
 	dialer := net.Dialer{Timeout: 5 * time.Second}
 
 	if w.o.mode == "throughput" {
-		conn, err := dialer.DialContext(ctx, "tcp", w.addr)
-		if err != nil {
-			w.s.errDial.Add(1)
-			return
-		}
-		w.s.newConns.Add(1)
-		defer func() { _ = conn.Close() }()
-		for !ctxDone(ctx) {
-			if budget >= 0 && done >= budget {
-				break
-			}
-			rtt, ok := tcpRoundTrip(ctx, conn, payload, buf, w.s)
-			if !ok {
-				return
-			}
-			if w.record {
-				w.sampler.add(rtt, &w.sampleState)
-			}
-			done++
-		}
+		w.runTCPStream(ctx, &dialer, payload, buf, budget)
 		return
 	}
 
@@ -1047,4 +997,78 @@ func printReport(w io.Writer, o *options, hi hostInfo, res result, activeZero bo
 		p("  active conns : n/a (external chain)")
 	}
 	p("=================================================================")
+}
+
+func validateLoadOptions(o *options) error {
+	if o.proto != "tcp" && o.proto != "udp" {
+		return fmt.Errorf("invalid -proto %q: must be tcp or udp", o.proto)
+	}
+	if o.mode != "throughput" && o.mode != "connrate" {
+		return fmt.Errorf("invalid -mode %q: must be throughput or connrate", o.mode)
+	}
+	if o.conns <= 0 {
+		return fmt.Errorf("invalid -conns %d: must be > 0", o.conns)
+	}
+	if o.payload <= 0 {
+		return fmt.Errorf("invalid -payload %d: must be > 0", o.payload)
+	}
+	if o.requests < 0 {
+		return fmt.Errorf("invalid -requests %d: must be >= 0", o.requests)
+	}
+	if o.duration <= 0 {
+		return fmt.Errorf("invalid -duration %s: must be > 0", o.duration)
+	}
+	if o.warmup < 0 {
+		return fmt.Errorf("invalid -warmup %s: must be >= 0", o.warmup)
+	}
+	if o.format != "text" && o.format != "json" {
+		return fmt.Errorf("invalid -format %q: must be text or json", o.format)
+	}
+
+	return nil
+}
+func validateLoadLimits(o *options) error {
+	if o.maxSamples <= 0 {
+		return fmt.Errorf("invalid -max-samples %d: must be > 0", o.maxSamples)
+	}
+	if o.errorRateSet && (math.IsNaN(o.maxErrorRate) || math.IsInf(o.maxErrorRate, 0) || o.maxErrorRate < 0 || o.maxErrorRate > 100) {
+		return fmt.Errorf("invalid -max-error-rate %.4g: must be between 0 and 100", o.maxErrorRate)
+	}
+	if o.maxP95 < 0 {
+		return fmt.Errorf("invalid -max-p95 %s: must be >= 0", o.maxP95)
+	}
+	if o.maxConns < 0 {
+		return fmt.Errorf("invalid -max-conns %d: must be >= 0", o.maxConns)
+	}
+	if o.idleTimeout < 0 {
+		return fmt.Errorf("invalid -idle-timeout %s: must be >= 0", o.idleTimeout)
+	}
+	if o.proto == "udp" && o.payload > 65507 {
+		return fmt.Errorf("invalid -payload %d: UDP payload must be <= 65507", o.payload)
+	}
+	return nil
+}
+
+func (w *worker) runTCPStream(ctx context.Context, dialer *net.Dialer, payload, buf []byte, budget int) {
+	done := 0
+	conn, err := dialer.DialContext(ctx, "tcp", w.addr)
+	if err != nil {
+		w.s.errDial.Add(1)
+		return
+	}
+	w.s.newConns.Add(1)
+	defer func() { _ = conn.Close() }()
+	for !ctxDone(ctx) {
+		if budget >= 0 && done >= budget {
+			break
+		}
+		rtt, ok := tcpRoundTrip(ctx, conn, payload, buf, w.s)
+		if !ok {
+			return
+		}
+		if w.record {
+			w.sampler.add(rtt, &w.sampleState)
+		}
+		done++
+	}
 }

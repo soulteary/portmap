@@ -243,41 +243,10 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 
 	s.logf(i18n.T(i18n.KeyLogProxyHTTPPlain), req.Method, conn.RemoteAddr(), host)
 
-	// 解析响应后清理响应侧逐跳首部并追加 Via；1xx（101 除外）可能在最终
-	// 响应之前出现，因此需要逐个转发。
-	remoteReader := newProxyResponseReader(remote)
-	for {
-		resp, connectionOptions, err := remoteReader.read(req)
-		if err != nil {
-			s.Stats().AddDown(downCounter.n)
-			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), err)
-		}
-		for _, key := range connectionOptions {
-			resp.Header.Del(key)
-		}
-		stripHopByHopHeaders(resp.Header)
-		resp.Body = filterTrailers(resp.Body, resp.Trailer, connectionOptions)
-		appendVia(resp.Header, resp.ProtoMajor, resp.ProtoMinor)
-		informational := resp.StatusCode >= 100 && resp.StatusCode < 200 && resp.StatusCode != http.StatusSwitchingProtocols
-		if informational {
-			// ReadResponse 会把上游 Connection: close 保存到 Close 字段；即使
-			// 已删除原始首部，Response.Write 仍会据此重新生成该逐跳首部。
-			// 1xx 后还要在同一连接上传递最终响应，因此必须显式清除。
-			resp.Close = false
-		} else {
-			resp.Close = true
-			resp.Header.Set("Connection", "close")
-		}
-		writeErr := resp.Write(downCounter)
-		_ = resp.Body.Close()
-		if writeErr != nil {
-			s.Stats().AddDown(downCounter.n)
-			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), writeErr)
-		}
-		if !informational {
-			break
-		}
+	if err := s.relayHTTPResponses(remote, req, downCounter); err != nil {
+		return err
 	}
+
 	s.Stats().AddDown(downCounter.n)
 	s.logEvent("close", "http", conn.RemoteAddr().String(), host, upCounter.n, downCounter.n, time.Since(start).Milliseconds(), connIDFromContext(ctx))
 	return nil
@@ -546,4 +515,43 @@ func hasPort(host string) bool {
 		return strings.Contains(host, "]:")
 	}
 	return strings.LastIndex(host, ":") > strings.LastIndex(host, "]")
+}
+
+func (s *Server) relayHTTPResponses(remote net.Conn, req *http.Request, downCounter *countingWriter) error {
+	// 解析响应后清理响应侧逐跳首部并追加 Via；1xx（101 除外）可能在最终
+	// 响应之前出现，因此需要逐个转发。
+	remoteReader := newProxyResponseReader(remote)
+	for {
+		resp, connectionOptions, err := remoteReader.read(req)
+		if err != nil {
+			s.Stats().AddDown(downCounter.n)
+			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), err)
+		}
+		for _, key := range connectionOptions {
+			resp.Header.Del(key)
+		}
+		stripHopByHopHeaders(resp.Header)
+		resp.Body = filterTrailers(resp.Body, resp.Trailer, connectionOptions)
+		appendVia(resp.Header, resp.ProtoMajor, resp.ProtoMinor)
+		informational := resp.StatusCode >= 100 && resp.StatusCode < 200 && resp.StatusCode != http.StatusSwitchingProtocols
+		if informational {
+			// ReadResponse 会把上游 Connection: close 保存到 Close 字段；即使
+			// 已删除原始首部，Response.Write 仍会据此重新生成该逐跳首部。
+			// 1xx 后还要在同一连接上传递最终响应，因此必须显式清除。
+			resp.Close = false
+		} else {
+			resp.Close = true
+			resp.Header.Set("Connection", "close")
+		}
+		writeErr := resp.Write(downCounter)
+		_ = resp.Body.Close()
+		if writeErr != nil {
+			s.Stats().AddDown(downCounter.n)
+			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), writeErr)
+		}
+		if !informational {
+			break
+		}
+	}
+	return nil
 }

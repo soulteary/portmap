@@ -149,40 +149,10 @@ func socks5Dial(proxyAddr, target string) (net.Conn, error) {
 		return nil, err
 	}
 
-	// 应答：VER | REP | RSV | ATYP | BND.ADDR | BND.PORT。
-	head := make([]byte, 4)
-	if _, err := io.ReadFull(conn, head); err != nil {
-		_ = conn.Close()
+	if err := readSOCKSConnectReply(conn); err != nil {
 		return nil, err
 	}
-	if head[1] != socksRepSuccess {
-		_ = conn.Close()
-		return nil, fmt.Errorf("SOCKS5 CONNECT 失败, REP=%d", head[1])
-	}
-	// 消费 BND.ADDR + BND.PORT。
-	var skip int
-	switch head[3] {
-	case socksAddrIPv4:
-		skip = net.IPv4len + 2
-	case socksAddrIPv6:
-		skip = net.IPv6len + 2
-	case socksAddrDomain:
-		n := make([]byte, 1)
-		if _, err := io.ReadFull(conn, n); err != nil {
-			_ = conn.Close()
-			return nil, err
-		}
-		skip = int(n[0]) + 2
-	default:
-		_ = conn.Close()
-		return nil, fmt.Errorf("未知 ATYP: %d", head[3])
-	}
-	if skip > 0 {
-		if _, err := io.ReadFull(conn, make([]byte, skip)); err != nil {
-			_ = conn.Close()
-			return nil, err
-		}
-	}
+
 	return conn, nil
 }
 
@@ -348,21 +318,7 @@ func TestHTTPProxySanitizesBothDirectionsAndAddsVia(t *testing.T) {
 		t.Errorf("响应 Via 不完整: %q", responseVia)
 	}
 
-	select {
-	case header := <-requestHeaders:
-		if got := header.Get("X-Client-Secret"); got != "" {
-			t.Errorf("请求侧 Connection 命名首部泄漏: %q", got)
-		}
-		if got := header.Get("X-End-To-End"); got != "kept" {
-			t.Errorf("请求端到端首部丢失: %q", got)
-		}
-		requestVia := strings.Join(header.Values("Via"), ", ")
-		if !strings.Contains(requestVia, "1.0 client-gateway") || !strings.Contains(requestVia, "1.1 portmap") {
-			t.Errorf("请求 Via 不完整: %q", requestVia)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("后端未收到请求")
-	}
+	assertSanitizedRequest(t, requestHeaders)
 }
 
 func TestHTTPProxyForwardsInformationalResponses(t *testing.T) {
@@ -403,18 +359,7 @@ func TestHTTPProxyForwardsInformationalResponses(t *testing.T) {
 		t.Fatalf("读取 103 响应失败: %v", err)
 	}
 	_ = early.Body.Close()
-	if early.StatusCode != http.StatusEarlyHints || !strings.Contains(early.Header.Get("Via"), "1.1 portmap") {
-		t.Fatalf("103 响应转发不正确: status=%d Via=%q", early.StatusCode, early.Header.Get("Via"))
-	}
-	if early.Close {
-		t.Fatal("信息响应不应要求关闭连接")
-	}
-	if got := early.Header.Get("Connection"); got != "" {
-		t.Fatalf("103 响应泄漏 Connection 首部: %q", got)
-	}
-	if got := early.Header.Get("X-Info-Hop"); got != "" {
-		t.Fatalf("103 响应泄漏 Connection 命名首部: %q", got)
-	}
+	assertEarlyHints(t, early)
 
 	final, err := http.ReadResponse(reader, nil)
 	if err != nil {
@@ -737,4 +682,78 @@ func TestRequestCanContinueRequiresHTTP11Body(t *testing.T) {
 			}
 		})
 	}
+}
+
+func assertSanitizedRequest(t *testing.T, requestHeaders <-chan http.Header) {
+	t.Helper()
+	select {
+	case header := <-requestHeaders:
+		if got := header.Get("X-Client-Secret"); got != "" {
+			t.Errorf("请求侧 Connection 命名首部泄漏: %q", got)
+		}
+		if got := header.Get("X-End-To-End"); got != "kept" {
+			t.Errorf("请求端到端首部丢失: %q", got)
+		}
+		requestVia := strings.Join(header.Values("Via"), ", ")
+		if !strings.Contains(requestVia, "1.0 client-gateway") || !strings.Contains(requestVia, "1.1 portmap") {
+			t.Errorf("请求 Via 不完整: %q", requestVia)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("后端未收到请求")
+	}
+}
+
+func readSOCKSConnectReply(conn net.Conn) error {
+	// 应答：VER | REP | RSV | ATYP | BND.ADDR | BND.PORT。
+	head := make([]byte, 4)
+	if _, err := io.ReadFull(conn, head); err != nil {
+		_ = conn.Close()
+		return err
+	}
+	if head[1] != socksRepSuccess {
+		_ = conn.Close()
+		return fmt.Errorf("SOCKS5 CONNECT 失败, REP=%d", head[1])
+	}
+	// 消费 BND.ADDR + BND.PORT。
+	var skip int
+	switch head[3] {
+	case socksAddrIPv4:
+		skip = net.IPv4len + 2
+	case socksAddrIPv6:
+		skip = net.IPv6len + 2
+	case socksAddrDomain:
+		n := make([]byte, 1)
+		if _, err := io.ReadFull(conn, n); err != nil {
+			_ = conn.Close()
+			return err
+		}
+		skip = int(n[0]) + 2
+	default:
+		_ = conn.Close()
+		return fmt.Errorf("未知 ATYP: %d", head[3])
+	}
+	if skip > 0 {
+		if _, err := io.ReadFull(conn, make([]byte, skip)); err != nil {
+			_ = conn.Close()
+			return err
+		}
+	}
+	return nil
+}
+
+func assertEarlyHints(t *testing.T, early *http.Response) {
+	t.Helper()
+	if early.StatusCode != http.StatusEarlyHints || !strings.Contains(early.Header.Get("Via"), "1.1 portmap") {
+		t.Fatalf("103 响应转发不正确: status=%d Via=%q", early.StatusCode, early.Header.Get("Via"))
+	}
+	if early.Close {
+		t.Fatal("信息响应不应要求关闭连接")
+	}
+	if got := early.Header.Get("Connection"); got != "" {
+		t.Fatalf("103 响应泄漏 Connection 首部: %q", got)
+	}
+	if got := early.Header.Get("X-Info-Hop"); got != "" {
+		t.Fatalf("103 响应泄漏 Connection 命名首部: %q", got)
+	}
+
 }

@@ -94,52 +94,7 @@ func (s *Server) serveUDP(ctx context.Context) error {
 			}
 			return err
 		}
-		sess, err := sessions.get(ctx, client)
-		if err != nil {
-			if errors.Is(err, errSessionLimit) {
-				s.stats.Reject()
-				s.cfg.Events.Append(stats.Event{Time: eventTime(), Kind: "reject", Proto: "udp", Client: client.String(), Target: s.cfg.Target})
-				s.debugf(i18n.T(i18n.KeyLogUDPLimit), client)
-			} else {
-				s.stats.DialError()
-				s.cfg.Events.Append(stats.Event{Time: eventTime(), Kind: "dial-error", Proto: "udp", Client: client.String(), Target: s.cfg.Target})
-				s.warnf(i18n.T(i18n.KeyLogUDPDialFailed), s.cfg.Target, err)
-			}
-			continue
-		}
-		if _, err := sess.dst.Write(buf[:n]); err != nil {
-			// 拿到的会话可能刚被 relay 关闭，只下线自己手里的这个会话
-			// （仅当表中仍是本指针时删除），再重建后重试一次，避免误删/误关
-			// 其他包刚重建或 relay 已回收的会话。
-			sessions.removeIf(client, sess)
-			sess.cancel()
-			// 等待旧会话 relay 退出后再重建：relay 的 defer 才释放 sem 并
-			// close(dst)，若此时直接 get() 会因 sem 尚未归还而被误判为限流。
-			// 加超时兜底，避免 relay 异常卡住时主循环死等。
-			select {
-			case <-sess.done:
-			case <-time.After(2 * time.Second):
-			}
-			sess, err = sessions.get(ctx, client)
-			if err != nil {
-				if errors.Is(err, errSessionLimit) {
-					s.stats.Reject()
-					s.cfg.Events.Append(stats.Event{Time: eventTime(), Kind: "reject", Proto: "udp", Client: client.String(), Target: s.cfg.Target})
-					s.debugf(i18n.T(i18n.KeyLogUDPLimit), client)
-				} else {
-					s.stats.DialError()
-					s.cfg.Events.Append(stats.Event{Time: eventTime(), Kind: "dial-error", Proto: "udp", Client: client.String(), Target: s.cfg.Target})
-					s.warnf(i18n.T(i18n.KeyLogUDPDialFailed), s.cfg.Target, err)
-				}
-				continue
-			}
-			if _, err := sess.dst.Write(buf[:n]); err != nil {
-				s.debugf(i18n.T(i18n.KeyLogUDPWriteTarget), err)
-				continue
-			}
-		}
-		s.stats.AddUp(int64(n))
-		sess.touch()
+		sessions.forward(ctx, client, buf[:n])
 	}
 }
 
@@ -315,4 +270,53 @@ func (m *udpSessions) closeAll() {
 		ss.cancel()
 		_ = ss.dst.Close()
 	}
+}
+
+func (m *udpSessions) forward(ctx context.Context, client *net.UDPAddr, payload []byte) {
+	sess, err := m.get(ctx, client)
+	if err != nil {
+		if errors.Is(err, errSessionLimit) {
+			m.server.stats.Reject()
+			m.server.cfg.Events.Append(stats.Event{Time: eventTime(), Kind: "reject", Proto: "udp", Client: client.String(), Target: m.server.cfg.Target})
+			m.server.debugf(i18n.T(i18n.KeyLogUDPLimit), client)
+		} else {
+			m.server.stats.DialError()
+			m.server.cfg.Events.Append(stats.Event{Time: eventTime(), Kind: "dial-error", Proto: "udp", Client: client.String(), Target: m.server.cfg.Target})
+			m.server.warnf(i18n.T(i18n.KeyLogUDPDialFailed), m.server.cfg.Target, err)
+		}
+		return
+	}
+	if _, err := sess.dst.Write(payload); err != nil {
+		// 拿到的会话可能刚被 relay 关闭，只下线自己手里的这个会话
+		// （仅当表中仍是本指针时删除），再重建后重试一次，避免误删/误关
+		// 其他包刚重建或 relay 已回收的会话。
+		m.removeIf(client, sess)
+		sess.cancel()
+		// 等待旧会话 relay 退出后再重建：relay 的 defer 才释放 sem 并
+		// close(dst)，若此时直接 get() 会因 sem 尚未归还而被误判为限流。
+		// 加超时兜底，避免 relay 异常卡住时主循环死等。
+		select {
+		case <-sess.done:
+		case <-time.After(2 * time.Second):
+		}
+		sess, err = m.get(ctx, client)
+		if err != nil {
+			if errors.Is(err, errSessionLimit) {
+				m.server.stats.Reject()
+				m.server.cfg.Events.Append(stats.Event{Time: eventTime(), Kind: "reject", Proto: "udp", Client: client.String(), Target: m.server.cfg.Target})
+				m.server.debugf(i18n.T(i18n.KeyLogUDPLimit), client)
+			} else {
+				m.server.stats.DialError()
+				m.server.cfg.Events.Append(stats.Event{Time: eventTime(), Kind: "dial-error", Proto: "udp", Client: client.String(), Target: m.server.cfg.Target})
+				m.server.warnf(i18n.T(i18n.KeyLogUDPDialFailed), m.server.cfg.Target, err)
+			}
+			return
+		}
+		if _, err := sess.dst.Write(payload); err != nil {
+			m.server.debugf(i18n.T(i18n.KeyLogUDPWriteTarget), err)
+			return
+		}
+	}
+	m.server.stats.AddUp(int64(len(payload)))
+	sess.touch()
 }

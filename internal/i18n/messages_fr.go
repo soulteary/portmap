@@ -34,7 +34,7 @@ var messagesFR = map[string]string{
 	KeyFlagVersion:          "afficher les informations de version et quitter",
 	KeyFlagConfig:           "chemin du fichier de configuration YAML",
 	KeyFlagLang:             "langue de l'interface (%s) ; détectée automatiquement depuis le système par défaut",
-	KeyFlagStatsAddr:        "adresse optionnelle du point de terminaison HTTP de statistiques (p. ex. 127.0.0.1:9090), vide pour désactiver ; boucle locale uniquement par défaut",
+	KeyFlagStatsAddr:        "adresse optionnelle du point d’accès HTTP de statistiques (p. ex. 127.0.0.1:9090), vide pour désactiver ; boucle locale uniquement par défaut",
 	KeyFlagStatsAllowPublic: "autoriser le point de statistiques sur une adresse hors boucle locale",
 
 	KeyErrListenPort:  "port d'écoute invalide : %d",
@@ -54,10 +54,10 @@ var messagesFR = map[string]string{
 	KeyLogStatus:          "status: active=%d total=%d",
 	KeyLogStatusFull:      "status: active=%d total=%d rejected=%d dial-errors=%d up=%dB down=%dB uptime=%s",
 
-	KeyLogStatsHTTPStarted: "point de terminaison HTTP de statistiques en écoute sur %s (/stats, /metrics)",
-	KeyLogStatsHTTPStopped: "point de terminaison HTTP de statistiques arrêté",
-	KeyErrStatsHTTPServe:   "le point de terminaison HTTP de statistiques s'est arrêté : %w",
-	KeyErrStatsHTTPPublic:  "refus du point de terminaison de statistiques sur l'adresse non-boucle-locale %s ; liez à la boucle locale ou autorisez explicitement l'accès public",
+	KeyLogStatsHTTPStarted: "point d’accès HTTP de statistiques en écoute sur %s (/stats, /metrics)",
+	KeyLogStatsHTTPStopped: "point d’accès HTTP de statistiques arrêté",
+	KeyErrStatsHTTPServe:   "le point d’accès HTTP de statistiques s'est arrêté : %w",
+	KeyErrStatsHTTPPublic:  "refus du point d’accès de statistiques sur l'adresse non-boucle-locale %s ; liez à la boucle locale ou autorisez explicitement l'accès public",
 
 	KeyFlagWebAddr:        "adresse facultative du panneau Web (ex. 127.0.0.1:8080), vide pour désactiver ; boucle locale uniquement par défaut",
 	KeyFlagWebAllowPublic: "autoriser le panneau Web sur une adresse hors boucle locale",
@@ -99,12 +99,12 @@ var messagesFR = map[string]string{
 
 	KeyErrConfigSectionEmpty: "le fichier de configuration ne définit aucune instance %s",
 
-	KeyLogForwardStartingInstances: "démarrage de %d instance(s) forward depuis la configuration",
-	KeyLogProxyStartingInstances:   "démarrage de %d instance(s) proxy depuis la configuration",
-	KeyLogInstanceStarting:         "instance #%d démarrage : %s",
+	KeyLogForwardStartingInstances: "lancement de %d instance(s) forward depuis la configuration",
+	KeyLogProxyStartingInstances:   "lancement de %d instance(s) proxy depuis la configuration",
+	KeyLogInstanceStarting:         "instance #%d lancement : %s",
 	KeyErrInstanceFailed:           "échec de l'instance %s : %w",
 	KeyErrDuplicateListen:          "adresse d'écoute en double dans la configuration : %s",
-	KeyErrConflictingMultiOption:   "option multi-instance %s en conflit : %v et %v",
+	KeyErrConflictingMultiOption:   "option multi-instance %s en désaccord : %v et %v",
 	KeyErrMultiForwardMode:         "le transfert multi-instance prend uniquement en charge le mode go, reçu : %q",
 	KeyLogMultiIgnoreFlags:         "note : la configuration multi-instances ignore les drapeaux CLI par instance : %s",
 
@@ -129,7 +129,7 @@ var messagesFR = map[string]string{
 	KeyErrSocatNotFound:   "%q introuvable dans le PATH : %w",
 	KeyErrSocatInvalidStr: "<options socat invalides>",
 
-	KeyUsageSubcommands: "sous-commandes :\n  forward   redirection de ports TCP/UDP (par défaut)\n  proxy     proxy SOCKS5 + HTTP sur un seul port\n  version   afficher les informations de version",
+	KeyUsageSubcommands: "actions disponibles :\n  forward   redirection de ports TCP/UDP (par défaut)\n  proxy     proxy SOCKS5 + HTTP sur un seul port\n  version   afficher les informations de version",
 	KeyErrUnknownSub:    "sous-commande inconnue : %q (choisir forward, proxy ou version)",
 
 	KeyProxyUsageTitle: "portmap proxy - proxy SOCKS5 + HTTP sur un seul port",

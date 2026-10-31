@@ -60,52 +60,9 @@ const (
 // 版本字节已经被探测逻辑消费，握手报文的剩余部分从 reader 读取
 // （reader 可能已缓冲了部分数据，因此不能直接读裸连接）。
 func (s *Server) handleSOCKS5WithReader(ctx context.Context, conn net.Conn, reader *bufio.Reader) error {
-	// 1. 方法协商：VER(已读) | NMETHODS | METHODS...
-	nMethods, err := reader.ReadByte()
+	target, err := s.readSOCKSRequest(conn, reader)
 	if err != nil {
-		return fmt.Errorf(i18n.T(i18n.KeyErrProxySocksReadNMethods), err)
-	}
-	methods := make([]byte, nMethods)
-	if _, err := io.ReadFull(reader, methods); err != nil {
-		return fmt.Errorf(i18n.T(i18n.KeyErrProxySocksReadMethods), err)
-	}
-
-	// 本实现只支持“无认证”。
-	if !containsByte(methods, socksAuthNone) {
-		_, _ = conn.Write([]byte{socks5Version, socksAuthNoAcceptable})
-		return errors.New(i18n.T(i18n.KeyErrProxySocksNoAuth))
-	}
-	if _, err := conn.Write([]byte{socks5Version, socksAuthNone}); err != nil {
-		return fmt.Errorf(i18n.T(i18n.KeyErrProxySocksReplyAuth), err)
-	}
-
-	// 2. 请求：VER | CMD | RSV | ATYP | DST.ADDR | DST.PORT
-	header := make([]byte, 4)
-	if _, err := io.ReadFull(reader, header); err != nil {
-		return fmt.Errorf(i18n.T(i18n.KeyErrProxySocksReadHeader), err)
-	}
-	if header[0] != socks5Version {
-		return fmt.Errorf(i18n.T(i18n.KeyErrProxySocksBadVersion), header[0])
-	}
-
-	cmd := header[1]
-	atyp := header[3]
-
-	host, err := readSOCKSAddr(reader, atyp)
-	if err != nil {
-		_ = s.sendSOCKSReply(conn, socksRepAddrNotSupported)
-		return fmt.Errorf(i18n.T(i18n.KeyErrProxySocksParseAddr), err)
-	}
-	portBuf := make([]byte, 2)
-	if _, err := io.ReadFull(reader, portBuf); err != nil {
-		return fmt.Errorf(i18n.T(i18n.KeyErrProxySocksReadPort), err)
-	}
-	port := binary.BigEndian.Uint16(portBuf)
-	target := net.JoinHostPort(host, strconv.Itoa(int(port)))
-
-	if cmd != socksCmdConnect {
-		_ = s.sendSOCKSReply(conn, socksRepCmdNotSupported)
-		return fmt.Errorf(i18n.T(i18n.KeyErrProxySocksBadCommand), cmd)
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -221,4 +178,55 @@ func containsByte(bs []byte, target byte) bool {
 		}
 	}
 	return false
+}
+
+func (s *Server) readSOCKSRequest(conn net.Conn, reader *bufio.Reader) (string, error) {
+	// 1. 方法协商：VER(已读) | NMETHODS | METHODS...
+	nMethods, err := reader.ReadByte()
+	if err != nil {
+		return "", fmt.Errorf(i18n.T(i18n.KeyErrProxySocksReadNMethods), err)
+	}
+	methods := make([]byte, nMethods)
+	if _, err := io.ReadFull(reader, methods); err != nil {
+		return "", fmt.Errorf(i18n.T(i18n.KeyErrProxySocksReadMethods), err)
+	}
+
+	// 本实现只支持“无认证”。
+	if !containsByte(methods, socksAuthNone) {
+		_, _ = conn.Write([]byte{socks5Version, socksAuthNoAcceptable})
+		return "", errors.New(i18n.T(i18n.KeyErrProxySocksNoAuth))
+	}
+	if _, err := conn.Write([]byte{socks5Version, socksAuthNone}); err != nil {
+		return "", fmt.Errorf(i18n.T(i18n.KeyErrProxySocksReplyAuth), err)
+	}
+
+	// 2. 请求：VER | CMD | RSV | ATYP | DST.ADDR | DST.PORT
+	header := make([]byte, 4)
+	if _, err := io.ReadFull(reader, header); err != nil {
+		return "", fmt.Errorf(i18n.T(i18n.KeyErrProxySocksReadHeader), err)
+	}
+	if header[0] != socks5Version {
+		return "", fmt.Errorf(i18n.T(i18n.KeyErrProxySocksBadVersion), header[0])
+	}
+
+	cmd := header[1]
+	atyp := header[3]
+
+	host, err := readSOCKSAddr(reader, atyp)
+	if err != nil {
+		_ = s.sendSOCKSReply(conn, socksRepAddrNotSupported)
+		return "", fmt.Errorf(i18n.T(i18n.KeyErrProxySocksParseAddr), err)
+	}
+	portBuf := make([]byte, 2)
+	if _, err := io.ReadFull(reader, portBuf); err != nil {
+		return "", fmt.Errorf(i18n.T(i18n.KeyErrProxySocksReadPort), err)
+	}
+	port := binary.BigEndian.Uint16(portBuf)
+	target := net.JoinHostPort(host, strconv.Itoa(int(port)))
+
+	if cmd != socksCmdConnect {
+		_ = s.sendSOCKSReply(conn, socksRepCmdNotSupported)
+		return "", fmt.Errorf(i18n.T(i18n.KeyErrProxySocksBadCommand), cmd)
+	}
+	return target, nil
 }

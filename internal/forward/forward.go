@@ -167,6 +167,10 @@ func (s *Server) serveTCP(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	return s.serveTCPListener(ctx, serveCtx, cancel, ln)
+}
+
+func (s *Server) serveTCPListener(ctx, serveCtx context.Context, cancel context.CancelFunc, ln net.Listener) error {
 	defer func() { _ = ln.Close() }()
 	dualStack := listenerDualStack(ln)
 	if targetMatchesListener(ctx, s.cfg.Target, ln.Addr(), dualStack) {
