@@ -112,7 +112,7 @@ func (c *tcpIdleConn) Read(p []byte) (int, error) {
 	c.group.touch()
 	expired := false
 	for {
-		if err := c.arm(&c.read, c.Conn.SetReadDeadline, expired); err != nil {
+		if err := c.arm(&c.read, c.SetReadDeadline, expired); err != nil {
 			return 0, err
 		}
 		n, err := c.Conn.Read(p)
@@ -131,7 +131,7 @@ func (c *tcpIdleConn) Write(p []byte) (int, error) {
 	total := 0
 	expired := false
 	for {
-		if err := c.arm(&c.write, c.Conn.SetWriteDeadline, expired); err != nil {
+		if err := c.arm(&c.write, c.SetWriteDeadline, expired); err != nil {
 			return total, err
 		}
 		n, err := c.Conn.Write(p)

@@ -29,6 +29,12 @@ It supports two modes:
 - **`go` (default)**: A pure Go implementation that does not depend on the system `socat`. It supports Linux and macOS, maps to `TCP-LISTEN`/`fork`/`reuseaddr`, and extends this with UDP, concurrency limiting, idle timeouts, and per-connection logging (see below).
 - **`socat`**: Directly invokes the local `socat` command (optionally with `-sudo`), generating an equivalent command line (supports TCP/UDP).
 
+## What's New in 1.3.4
+
+- Reduce native TCP idle deadline updates, copy-buffer allocations and goroutine overhead.
+- Preserve tunnel-wide idle timeout and half-close behavior; prevent deadline overflow for very large timeouts.
+- Continue supporting Linux and macOS on amd64 and arm64. See [CHANGELOG.md](CHANGELOG.md) for details.
+
 ## What's New in 1.2.0
 
 - Single-port SOCKS5 + HTTP/HTTPS proxying, with optional SOCKS5, HTTP CONNECT,
@@ -86,7 +92,7 @@ Verify:
 
 ```bash
 portmap --version
-# portmap 1.2.0 (commit <short-sha>, built <timestamp>)
+# portmap 1.3.4 (commit <short-sha>, built <timestamp>)
 ```
 
 ## Container Image
@@ -98,8 +104,8 @@ Prebuilt multi-arch images (`linux/amd64` + `linux/arm64`) are published to ghcr
 docker pull ghcr.io/soulteary/portmap:latest
 # or pull from Docker Hub
 docker pull soulteary/portmap:latest
-# pin the 1.2.0 release in production
-docker pull ghcr.io/soulteary/portmap:1.2.0
+# pin the 1.3.4 release in production
+docker pull ghcr.io/soulteary/portmap:1.3.4
 ```
 
 The image is based on `scratch`, contains only the static binary, and runs as the non-root `65532:65532` user by default. Use host networking so port forwarding works:

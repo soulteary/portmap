@@ -5,6 +5,21 @@ All notable changes to portmap are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.4] - 2026-10-31
+
+### Changed
+
+- Reduce native TCP forwarding overhead with shared activity tracking and lazy
+  per-direction idle deadlines, preserving tunnel-wide idle timeout behavior.
+- Reuse buffers for generic copying and remove one forwarding goroutine per
+  tunnel while preserving bidirectional half-close and raw TCP copy fast paths.
+
+### Fixed
+
+- Prevent deadline arithmetic overflow for very large positive idle timeouts.
+- Add regression coverage for concurrent stale deadlines, partial writes and
+  externally shortened directional deadlines.
+
 ## [1.3.3] - 2026-10-28
 
 ### Changed
