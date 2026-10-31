@@ -1,15 +1,15 @@
 {
   "schema_version": "1.0",
   "tests": {
-    "total": 247,
-    "passed": 247,
+    "total": 256,
+    "passed": 256,
     "failed": 0,
     "skipped": 0
   },
   "coverage": {
-    "covered_statements": 2603,
-    "total_statements": 3169,
-    "percentage": 82.14,
+    "covered_statements": 2664,
+    "total_statements": 3238,
+    "percentage": 82.27,
     "threshold": 0
   },
   "packages": [
@@ -25,14 +25,14 @@
       "status": "pass",
       "tests": 26,
       "failed": 0,
-      "coverage": 91.42
+      "coverage": 91.62
     },
     {
       "name": "internal/forward",
       "status": "pass",
       "tests": 29,
       "failed": 0,
-      "coverage": 78.31
+      "coverage": 78.25
     },
     {
       "name": "internal/i18n",
@@ -44,9 +44,9 @@
     {
       "name": "internal/netutil",
       "status": "pass",
-      "tests": 9,
+      "tests": 18,
       "failed": 0,
-      "coverage": 78.38
+      "coverage": 82.64
     },
     {
       "name": "internal/proxy",
