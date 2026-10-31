@@ -83,7 +83,8 @@ type Server struct {
 	// 为 nil 时所有事件写入均为零成本的空操作（EventLog.Append 对 nil 安全）。
 	Events *stats.EventLog
 
-	dialer Dialer
+	dialer       Dialer
+	dialerInitMu sync.Mutex
 
 	mu              sync.Mutex
 	listener        net.Listener
@@ -549,23 +550,57 @@ func (s *Server) logEvent(kind, proto, client, target string, up, down, durMs, c
 	})
 }
 
+// initializeDialer serializes constructors without holding the lifecycle lock
+// across agent/identity setup, so Shutdown can still mark the server closed.
 func (s *Server) initializeDialer() error {
+	s.dialerInitMu.Lock()
+	defer s.dialerInitMu.Unlock()
+	s.mu.Lock()
+	if s.closing {
+		s.mu.Unlock()
+		return net.ErrClosed
+	}
 	if s.DialTimeout <= 0 {
 		s.DialTimeout = defaultDialTimeout
 	}
-	if s.dialer == nil {
-		if s.Upstream != nil {
-			dialer, err := NewUpstreamDialer(s.Upstream, s.DialTimeout, defaultKeepAlive, s.Logger)
-			if err != nil {
-				return err
-			}
-			s.dialer = dialer
-			s.logf(i18n.T(i18n.KeyLogProxyUpstreamEnabled), s.Upstream.Scheme, s.Upstream.describe())
-		} else {
-			s.dialer = NewDirectDialer(s.DialTimeout, defaultKeepAlive)
-		}
+	if s.dialer != nil {
+		s.mu.Unlock()
+		return nil
 	}
+	timeout := s.DialTimeout
+	s.mu.Unlock()
+	var dialer Dialer
+	if s.Upstream != nil {
+		var err error
+		dialer, err = NewUpstreamDialer(s.Upstream, timeout, defaultKeepAlive, s.Logger)
+		if err != nil {
+			return err
+		}
+	} else {
+		dialer = NewDirectDialer(timeout, defaultKeepAlive)
+	}
+	if err := s.installDialer(dialer); err != nil {
+		return err
+	}
+	if s.Upstream != nil {
+		s.logf(i18n.T(i18n.KeyLogProxyUpstreamEnabled), s.Upstream.Scheme, s.Upstream.describe())
+	}
+	return nil
+}
 
+// installDialer publishes under the same lock used by closeDialer. A constructor
+// finishing after Shutdown owns cleanup of its unpublished resources.
+func (s *Server) installDialer(dialer Dialer) error {
+	s.mu.Lock()
+	if s.closing {
+		s.mu.Unlock()
+		if closer, ok := dialer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+		return net.ErrClosed
+	}
+	s.dialer = dialer
+	s.mu.Unlock()
 	return nil
 }
 

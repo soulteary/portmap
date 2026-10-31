@@ -555,3 +555,48 @@ func TestSOCKSPostDialFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestDialerPublicationAfterShutdownClosesResources(t *testing.T) {
+	s := New("")
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	candidate := &closeTrackingDialer{}
+	if err := s.installDialer(candidate); !errors.Is(err, net.ErrClosed) {
+		t.Fatal(err)
+	}
+	if !candidate.closed {
+		t.Fatal("late constructor leaked resources")
+	}
+	if s.dialer != nil {
+		t.Fatal("dialer published after shutdown")
+	}
+	if err := s.installDialer(NewDirectDialer(time.Second, time.Second)); !errors.Is(err, net.ErrClosed) {
+		t.Fatal(err)
+	}
+}
+
+type closeTrackingDialer struct{ closed bool }
+
+func (*closeTrackingDialer) DialContext(context.Context, string, string) (net.Conn, error) {
+	return nil, net.ErrClosed
+}
+func (d *closeTrackingDialer) Close() error { d.closed = true; return nil }
+func TestConcurrentProxyInitializationAndClose(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		s := New("")
+		start := make(chan struct{})
+		done := make(chan error, 2)
+		go func() { <-start; done <- s.initializeDialer() }()
+		go func() { <-start; done <- s.Close() }()
+		close(start)
+		for n := 0; n < 2; n++ {
+			if err := <-done; err != nil && !errors.Is(err, net.ErrClosed) {
+				t.Fatal(err)
+			}
+		}
+		if err := s.initializeDialer(); !errors.Is(err, net.ErrClosed) {
+			t.Fatal("closed server reinitialized")
+		}
+	}
+}
