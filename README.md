@@ -33,6 +33,12 @@ sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222
 - **`go`（默认）**：纯 Go 实现，不依赖系统 `socat`，支持 Linux 与 macOS，对应 `TCP-LISTEN`/`fork`/`reuseaddr`，并扩展了 UDP、并发限流、空闲超时与连接级日志（见下）。
 - **`socat`**：直接调用本机的 `socat` 命令（可选 `-sudo`），生成等价命令行（支持 TCP/UDP）。
 
+## 1.3.4 版本更新
+
+- 减少原生 TCP 空闲 deadline 更新、复制缓冲分配和 goroutine 开销。
+- 保留双向共享的空闲超时与半关闭行为，修复极大超时值的 deadline 溢出。
+- 支持平台仍为 Linux/macOS 的 amd64 与 arm64。完整记录见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## 1.2.0 版本亮点
 
 - 新增单端口 SOCKS5 + HTTP/HTTPS 代理，并支持 SOCKS5、HTTP CONNECT 与 SSH 上游。
@@ -85,7 +91,7 @@ brew install soulteary/tap/portmap
 
 ```bash
 portmap --version
-# portmap 1.2.0 (commit <short-sha>, built <timestamp>)
+# portmap 1.3.4 (commit <short-sha>, built <timestamp>)
 ```
 
 ## 容器镜像
@@ -97,8 +103,8 @@ portmap --version
 docker pull ghcr.io/soulteary/portmap:latest
 # 或从 Docker Hub 拉取
 docker pull soulteary/portmap:latest
-# 生产环境固定使用 1.2.0
-docker pull ghcr.io/soulteary/portmap:1.2.0
+# 生产环境固定使用 1.3.4
+docker pull ghcr.io/soulteary/portmap:1.3.4
 ```
 
 容器基于 `scratch`，仅包含单个静态二进制，并默认以非 root 的 `65532:65532` 运行。运行时需使用 host 网络才能完成端口转发：

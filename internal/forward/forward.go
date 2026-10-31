@@ -26,7 +26,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -294,46 +293,49 @@ func (s *Server) handle(ctx context.Context, src net.Conn, listenAddr net.Addr, 
 		_ = dst.Close()
 	}(src, dst)
 
-	var upBytes, downBytes int64
+	var upBytes int64
 	var wg sync.WaitGroup
 	src, dst = s.tunnelConns(src, dst)
-	wg.Add(2)
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		n := s.pipe(connID, "dst<-src", dst, src)
-		atomic.AddInt64(&upBytes, n)
+		upBytes = s.pipe(connID, "dst<-src", dst, src)
 	}()
-	go func() {
-		defer wg.Done()
-		n := s.pipe(connID, "src<-dst", src, dst)
-		atomic.AddInt64(&downBytes, n)
-	}()
+	// The handler itself copies the reverse direction. Wait synchronizes the
+	// byte counts without atomics and preserves bidirectional half-close.
+	downBytes := s.pipe(connID, "src<-dst", src, dst)
 	wg.Wait()
 
-	s.stats.AddUp(atomic.LoadInt64(&upBytes))
-	s.stats.AddDown(atomic.LoadInt64(&downBytes))
+	s.stats.AddUp(upBytes)
+	s.stats.AddDown(downBytes)
 
 	s.infof(i18n.T(i18n.KeyLogConnClose),
 		connID, src.RemoteAddr(), dst.RemoteAddr(),
-		atomic.LoadInt64(&upBytes), atomic.LoadInt64(&downBytes), time.Since(start).Round(time.Millisecond))
+		upBytes, downBytes, time.Since(start).Round(time.Millisecond))
 	s.cfg.Events.Append(stats.Event{
 		Time:       eventTime(),
 		Kind:       "close",
 		Proto:      s.cfg.Network,
 		Client:     src.RemoteAddr().String(),
 		Target:     dst.RemoteAddr().String(),
-		UpBytes:    atomic.LoadInt64(&upBytes),
-		DownBytes:  atomic.LoadInt64(&downBytes),
+		UpBytes:    upBytes,
+		DownBytes:  downBytes,
 		DurationMs: time.Since(start).Milliseconds(),
 		ConnID:     connID,
 	})
 }
 
-// tunnelConns 为隧道两端建立共享空闲状态。任一方向发生 I/O 都会刷新两端
-// 的截止时间，因此只有整条隧道均无活动时才会超时。
+// tunnelConns 为隧道两端建立共享空闲状态。任一方向发生 I/O 都会续期，
+// 因此只有整条隧道均无活动时才会超时。原生 TCP 按需刷新 socket deadline；
+// 其它连接类型保留通用 IdleConn 的处理方式。
 func (s *Server) tunnelConns(src, dst net.Conn) (net.Conn, net.Conn) {
 	if s.cfg.IdleTimeout <= 0 {
 		return src, dst
+	}
+	if a, ok := src.(*net.TCPConn); ok {
+		if b, ok := dst.(*net.TCPConn); ok {
+			return netutil.TCPIdleConns(a, b, s.cfg.IdleTimeout)
+		}
 	}
 	srcIdle := &netutil.IdleConn{Conn: src}
 	dstIdle := &netutil.IdleConn{Conn: dst}

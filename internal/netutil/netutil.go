@@ -24,6 +24,11 @@ import (
 	"time"
 )
 
+var copyBufPool = sync.Pool{New: func() any {
+	buf := make([]byte, 32*1024)
+	return &buf
+}}
+
 // halfCloser 表示支持半关闭写方向（CloseWrite）的连接，TCP 连接均实现此接口。
 type halfCloser interface {
 	CloseWrite() error
@@ -43,7 +48,19 @@ func closeWrite(c net.Conn) {
 // 拷贝结束后尝试半关闭 dst 的写方向，以便对端感知 EOF。
 // 调用方可通过返回的 error 自行决定是否记录（例如过滤正常关闭类错误）。
 func CopyAndCloseWrite(dst net.Conn, src io.Reader) (int64, error) {
-	n, err := io.Copy(dst, src)
+	// Keep the standard library fast paths (including Linux splice) for raw
+	// connections. Only the generic userspace path needs a pooled buffer.
+	var n int64
+	var err error
+	_, writerTo := src.(io.WriterTo)
+	_, readerFrom := dst.(io.ReaderFrom)
+	if writerTo || readerFrom {
+		n, err = io.Copy(dst, src)
+	} else {
+		buf := copyBufPool.Get().(*[]byte)
+		n, err = io.CopyBuffer(dst, src, *buf)
+		copyBufPool.Put(buf)
+	}
 	closeWrite(dst)
 	return n, err
 }
