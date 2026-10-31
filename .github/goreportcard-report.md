@@ -1,11 +1,11 @@
 # Go Report Card
 
-**Grade: A+** (97.1%)
+**Grade: A+** (100.0%)
 
 | Metric | Value |
 | ------ | ----- |
-| Files | 53 |
-| Issues | 15 |
+| Files | 62 |
+| Issues | 0 |
 
 ## Checks
 
@@ -13,72 +13,12 @@
 | ----- | ----- |
 | gofmt | 100% |
 | go_vet | 100% |
-| gocyclo | 75% |
+| gocyclo | 100% |
 | ineffassign | 100% |
 | license | 100% |
-| misspell | 96% |
+| misspell | 100% |
 
-## Issues
-
-### gocyclo
-
-- `internal/forward/udp.go`
-  - Line 45: cyclomatic complexity 17 for function (*Server).serveUDP
-- `config_test.go`
-  - Line 437: cyclomatic complexity 28 for function TestMergeProxyConfigAllFields
-  - Line 120: cyclomatic complexity 23 for function TestMergeConfig
-  - Line 34: cyclomatic complexity 23 for function TestLoadConfig
-- `cmd/loadtest/main.go`
-  - Line 64: cyclomatic complexity 25 for function parseFlags
-  - Line 636: cyclomatic complexity 16 for function (*worker).runTCP
-- `coverage_test.go`
-  - Line 158: cyclomatic complexity 24 for function TestBuildProxyUpstream
-- `internal/forward/events_test.go`
-  - Line 29: cyclomatic complexity 21 for function TestForwardRecordsOpenCloseEvents
-- `internal/proxy/socks5.go`
-  - Line 62: cyclomatic complexity 18 for function (*Server).handleSOCKS5WithReader
-- `internal/proxy/server.go`
-  - Line 131: cyclomatic complexity 18 for function (*Server).ListenAndServe
-- `config.go`
-  - Line 346: cyclomatic complexity 45 for function applyProxyConfig
-  - Line 459: cyclomatic complexity 36 for function mergeConfig
-  - Line 527: cyclomatic complexity 34 for function applyForwardConfig
-- `main.go`
-  - Line 151: cyclomatic complexity 31 for function runForward
-  - Line 1151: cyclomatic complexity 26 for function runProxyMulti
-  - Line 685: cyclomatic complexity 19 for function runProxy
-  - Line 1103: cyclomatic complexity 17 for function collectProxyAdminOptions
-- `internal/netutil/tcp_idle_test.go`
-  - Line 142: cyclomatic complexity 22 for function TestTCPIdleBlockedWriteSurvivesOtherDirectionActivity
-- `internal/proxy/http.go`
-  - Line 177: cyclomatic complexity 20 for function (*Server).handlePlainHTTP
-- `internal/proxy/proxy_test.go`
-  - Line 105: cyclomatic complexity 19 for function socks5Dial
-  - Line 299: cyclomatic complexity 17 for function TestHTTPProxySanitizesBothDirectionsAndAddsVia
-  - Line 368: cyclomatic complexity 16 for function TestHTTPProxyForwardsInformationalResponses
-- `internal/proxy/events_test.go`
-  - Line 106: cyclomatic complexity 17 for function TestProxyRecordsOpenCloseEvents
-
-### misspell
-
-- `internal/i18n/messages_fr.go`
-  - Line 37: "terminaison" is a misspelling of "termination"
-  - Line 57: "terminaison" is a misspelling of "termination"
-  - Line 58: "terminaison" is a misspelling of "termination"
-  - Line 59: "terminaison" is a misspelling of "termination"
-  - Line 60: "terminaison" is a misspelling of "termination"
-  - Line 102: "marrage" is a misspelling of "marriage"
-  - Line 103: "marrage" is a misspelling of "marriage"
-  - Line 104: "marrage" is a misspelling of "marriage"
-  - Line 107: "conflit" is a misspelling of "conflict"
-  - Line 132: "commandes" is a misspelling of "commands"
-- `internal/i18n/messages_de.go`
-  - Line 51: "Konfiguration" is a misspelling of "Configuration"
-  - Line 102: "Konfiguration" is a misspelling of "Configuration"
-  - Line 103: "Konfiguration" is a misspelling of "Configuration"
-  - Line 106: "Konfiguration" is a misspelling of "Configuration"
-  - Line 109: "Konfiguration" is a misspelling of "Configuration"
-  - Line 216: "interaktive" is a misspelling of "interactive"
+No issues found. Nice work!
 
 ---
 

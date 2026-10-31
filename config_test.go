@@ -32,266 +32,52 @@ func writeTempConfig(t *testing.T, content string) string {
 }
 
 func TestLoadConfig(t *testing.T) {
-	t.Run("正常解析全部字段", func(t *testing.T) {
-		path := writeTempConfig(t, `
-listen_port: 8022
-listen_host: 127.0.0.1
-target: 127.0.0.1:2222
-mode: go
-proto: udp
-reuseaddr: false
-sudo: true
-dial_timeout: 15s
-max_conns: 100
-idle_timeout: 5m
-log_level: debug
-quiet: true
-`)
-		cfg, err := loadConfig(path)
-		if err != nil {
-			t.Fatalf("loadConfig 返回错误: %v", err)
-		}
-		if cfg.ListenPort == nil || *cfg.ListenPort != 8022 {
-			t.Errorf("listen_port 解析错误: %v", cfg.ListenPort)
-		}
-		if cfg.Proto == nil || *cfg.Proto != "udp" {
-			t.Errorf("proto 解析错误: %v", cfg.Proto)
-		}
-		if cfg.ReuseAddr == nil || *cfg.ReuseAddr != false {
-			t.Errorf("reuseaddr 解析错误: %v", cfg.ReuseAddr)
-		}
-		if cfg.DialTimeout == nil || *cfg.DialTimeout != "15s" {
-			t.Errorf("dial_timeout 解析错误: %v", cfg.DialTimeout)
-		}
-		if cfg.IdleTimeout == nil || *cfg.IdleTimeout != "5m" {
-			t.Errorf("idle_timeout 解析错误: %v", cfg.IdleTimeout)
-		}
-	})
+	t.Run("正常解析全部字段", checkLoadConfigAllFields)
 
-	t.Run("字段缺省时对应指针为 nil", func(t *testing.T) {
-		path := writeTempConfig(t, "listen_port: 2200\n")
-		cfg, err := loadConfig(path)
-		if err != nil {
-			t.Fatalf("loadConfig 返回错误: %v", err)
-		}
-		if cfg.ListenPort == nil || *cfg.ListenPort != 2200 {
-			t.Errorf("listen_port 解析错误: %v", cfg.ListenPort)
-		}
-		if cfg.Target != nil {
-			t.Errorf("target 未出现应为 nil，实际: %v", *cfg.Target)
-		}
-		if cfg.DialTimeout != nil {
-			t.Errorf("dial_timeout 未出现应为 nil，实际: %v", *cfg.DialTimeout)
-		}
-	})
+	t.Run("字段缺省时对应指针为 nil", checkLoadConfigAbsentFields)
 
-	t.Run("空文件返回空配置", func(t *testing.T) {
-		path := writeTempConfig(t, "")
-		cfg, err := loadConfig(path)
-		if err != nil {
-			t.Fatalf("空文件不应返回错误: %v", err)
-		}
-		if cfg == nil || cfg.ListenPort != nil {
-			t.Errorf("空文件应返回空配置，实际: %+v", cfg)
-		}
-	})
+	t.Run("空文件返回空配置", checkLoadConfigEmptyFile)
 
-	t.Run("未知字段报错", func(t *testing.T) {
-		path := writeTempConfig(t, "unknown_field: 1\n")
-		if _, err := loadConfig(path); err == nil {
-			t.Fatal("未知字段应返回错误，但未返回")
-		}
-	})
+	t.Run("未知字段报错", checkLoadConfigUnknownField)
 
-	t.Run("非法 YAML 报错", func(t *testing.T) {
-		path := writeTempConfig(t, "listen_port: : :\n")
-		if _, err := loadConfig(path); err == nil {
-			t.Fatal("非法 YAML 应返回错误，但未返回")
-		}
-	})
+	t.Run("非法 YAML 报错", checkLoadConfigInvalidYAML)
 
-	t.Run("文件不存在报错", func(t *testing.T) {
-		if _, err := loadConfig(filepath.Join(t.TempDir(), "nope.yaml")); err == nil {
-			t.Fatal("文件不存在应返回错误，但未返回")
-		}
-	})
+	t.Run("文件不存在报错", checkLoadConfigMissingFile)
 }
 
 func TestMergeConfig(t *testing.T) {
-	strPtr := func(s string) *string { return &s }
-	intPtr := func(i int) *int { return &i }
-	boolPtr := func(b bool) *bool { return &b }
 
-	t.Run("配置文件覆盖未显式设置的字段", func(t *testing.T) {
-		opt := options{listenPort: 22, target: "127.0.0.1:2222", dialTimeout: 10 * time.Second}
-		cfg := &fileConfig{
-			ListenPort:  intPtr(9000),
-			Target:      strPtr("10.0.0.1:3333"),
-			DialTimeout: strPtr("30s"),
-		}
-		if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
-			t.Fatalf("mergeConfig 返回错误: %v", err)
-		}
-		if opt.listenPort != 9000 {
-			t.Errorf("listenPort 期望 9000，实际 %d", opt.listenPort)
-		}
-		if opt.target != "10.0.0.1:3333" {
-			t.Errorf("target 期望 10.0.0.1:3333，实际 %s", opt.target)
-		}
-		if opt.dialTimeout != 30*time.Second {
-			t.Errorf("dialTimeout 期望 30s，实际 %s", opt.dialTimeout)
-		}
-	})
+	t.Run("配置文件覆盖未显式设置的字段", checkMergeConfigFileOverridesDefaults)
 
-	t.Run("命令行显式设置的字段优先于配置文件", func(t *testing.T) {
-		opt := options{listenPort: 8080}
-		cfg := &fileConfig{ListenPort: intPtr(9000)}
-		setFlags := map[string]bool{"listen-port": true}
-		if err := mergeConfig(&opt, cfg, setFlags); err != nil {
-			t.Fatalf("mergeConfig 返回错误: %v", err)
-		}
-		if opt.listenPort != 8080 {
-			t.Errorf("命令行应优先，listenPort 期望 8080，实际 %d", opt.listenPort)
-		}
-	})
+	t.Run("命令行显式设置的字段优先于配置文件", checkMergeConfigCLIOverridesFile)
 
-	t.Run("非法 duration 返回错误", func(t *testing.T) {
-		opt := options{}
-		cfg := &fileConfig{DialTimeout: strPtr("abc")}
-		if err := mergeConfig(&opt, cfg, map[string]bool{}); err == nil {
-			t.Fatal("非法 dial_timeout 应返回错误，但未返回")
-		}
-	})
+	t.Run("非法 duration 返回错误", checkMergeConfigInvalidDialTimeout)
 
-	t.Run("零值 bool 也能被配置文件覆盖", func(t *testing.T) {
-		opt := options{reuseAddr: true}
-		cfg := &fileConfig{ReuseAddr: boolPtr(false)}
-		if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
-			t.Fatalf("mergeConfig 返回错误: %v", err)
-		}
-		if opt.reuseAddr != false {
-			t.Error("reuseAddr 应被配置文件覆盖为 false")
-		}
-	})
+	t.Run("零值 bool 也能被配置文件覆盖", checkMergeConfigExplicitFalse)
 
-	t.Run("配置文件的 lang 在命令行未设置时生效", func(t *testing.T) {
-		opt := options{}
-		cfg := &fileConfig{Lang: strPtr("zh")}
-		if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
-			t.Fatalf("mergeConfig 返回错误: %v", err)
-		}
-		if opt.lang != "zh" {
-			t.Errorf("lang 期望 zh，实际 %s", opt.lang)
-		}
-	})
+	t.Run("配置文件的 lang 在命令行未设置时生效", checkMergeConfigFileLanguage)
 
-	t.Run("命令行显式 lang 优先于配置文件", func(t *testing.T) {
-		opt := options{lang: "en"}
-		cfg := &fileConfig{Lang: strPtr("zh")}
-		setFlags := map[string]bool{"lang": true}
-		if err := mergeConfig(&opt, cfg, setFlags); err != nil {
-			t.Fatalf("mergeConfig 返回错误: %v", err)
-		}
-		if opt.lang != "en" {
-			t.Errorf("命令行应优先，lang 期望 en，实际 %s", opt.lang)
-		}
-	})
+	t.Run("命令行显式 lang 优先于配置文件", checkMergeConfigCLILanguage)
 
-	t.Run("stats_addr 在命令行未设置时由配置文件生效", func(t *testing.T) {
-		opt := options{}
-		cfg := &fileConfig{StatsAddr: strPtr("127.0.0.1:9090")}
-		if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
-			t.Fatalf("mergeConfig 返回错误: %v", err)
-		}
-		if opt.statsAddr != "127.0.0.1:9090" {
-			t.Errorf("statsAddr 期望 127.0.0.1:9090，实际 %q", opt.statsAddr)
-		}
-	})
+	t.Run("stats_addr 在命令行未设置时由配置文件生效", checkMergeConfigFileStatsAddress)
 
-	t.Run("命令行显式 stats-addr 优先于配置文件", func(t *testing.T) {
-		opt := options{statsAddr: "127.0.0.1:1111"}
-		cfg := &fileConfig{StatsAddr: strPtr("127.0.0.1:9090")}
-		setFlags := map[string]bool{"stats-addr": true}
-		if err := mergeConfig(&opt, cfg, setFlags); err != nil {
-			t.Fatalf("mergeConfig 返回错误: %v", err)
-		}
-		if opt.statsAddr != "127.0.0.1:1111" {
-			t.Errorf("命令行应优先，statsAddr 期望 127.0.0.1:1111，实际 %q", opt.statsAddr)
-		}
-	})
+	t.Run("命令行显式 stats-addr 优先于配置文件", checkMergeConfigCLIStatsAddress)
 
-	t.Run("全部字段均可被配置文件覆盖", func(t *testing.T) {
-		opt := options{}
-		cfg := &fileConfig{
-			ListenPort:  intPtr(2200),
-			ListenHost:  strPtr("0.0.0.0"),
-			Target:      strPtr("10.1.1.1:22"),
-			Mode:        strPtr("socat"),
-			Proto:       strPtr("udp"),
-			ReuseAddr:   boolPtr(true),
-			Sudo:        boolPtr(true),
-			DialTimeout: strPtr("15s"),
-			MaxConns:    intPtr(128),
-			IdleTimeout: strPtr("90s"),
-			LogLevel:    strPtr("debug"),
-			Quiet:       boolPtr(true),
-			StatsAddr:   strPtr("127.0.0.1:9090"),
-			Lang:        strPtr("de"),
-		}
-		if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
-			t.Fatalf("mergeConfig 返回错误: %v", err)
-		}
-		want := options{
-			listenPort:  2200,
-			listenHost:  "0.0.0.0",
-			target:      "10.1.1.1:22",
-			mode:        "socat",
-			proto:       "udp",
-			reuseAddr:   true,
-			useSudo:     true,
-			dialTimeout: 15 * time.Second,
-			maxConns:    128,
-			idleTimeout: 90 * time.Second,
-			logLevel:    "debug",
-			quiet:       true,
-			statsAddr:   "127.0.0.1:9090",
-			lang:        "de",
-		}
-		if opt != want {
-			t.Fatalf("合并结果=%+v，期望 %+v", opt, want)
-		}
-	})
+	t.Run("全部字段均可被配置文件覆盖", checkMergeConfigAllFields)
 
-	t.Run("非法 idle_timeout 返回错误", func(t *testing.T) {
-		opt := options{}
-		cfg := &fileConfig{IdleTimeout: strPtr("nope")}
-		if err := mergeConfig(&opt, cfg, map[string]bool{}); err == nil {
-			t.Fatal("非法 idle_timeout 应返回错误")
-		}
-	})
+	t.Run("非法 idle_timeout 返回错误", checkMergeConfigInvalidIdleTimeout)
 
-	t.Run("nil 配置安全返回", func(t *testing.T) {
-		opt := options{listenPort: 22}
-		if err := mergeConfig(&opt, nil, map[string]bool{}); err != nil {
-			t.Fatalf("nil 配置不应报错: %v", err)
-		}
-		if opt.listenPort != 22 {
-			t.Error("nil 配置不应修改字段")
-		}
-	})
+	t.Run("nil 配置安全返回", checkMergeConfigNilConfig)
 }
 
 func TestMergeProxyConfigSecurityLimits(t *testing.T) {
-	strPtr := func(s string) *string { return &s }
-	intPtr := func(i int) *int { return &i }
-	boolPtr := func(b bool) *bool { return &b }
 
 	opt := proxyOptions{}
 	cfg := &Config{Proxy: ProxyConfigList{{
-		MaxConns:         intPtr(64),
-		HandshakeTimeout: strPtr("3s"),
-		IdleTimeout:      strPtr("2m"),
-		AllowPublic:      boolPtr(true),
+		MaxConns:         intp(64),
+		HandshakeTimeout: strp("3s"),
+		IdleTimeout:      strp("2m"),
+		AllowPublic:      boolp(true),
 	}}}
 	if err := mergeProxyConfig(&opt, cfg, map[string]bool{}); err != nil {
 		t.Fatalf("mergeProxyConfig 返回错误: %v", err)
@@ -300,7 +86,7 @@ func TestMergeProxyConfigSecurityLimits(t *testing.T) {
 		t.Fatalf("代理安全配置未正确合并: %+v", opt)
 	}
 
-	bad := &Config{Proxy: ProxyConfigList{{HandshakeTimeout: strPtr("invalid")}}}
+	bad := &Config{Proxy: ProxyConfigList{{HandshakeTimeout: strp("invalid")}}}
 	if err := mergeProxyConfig(&proxyOptions{}, bad, map[string]bool{}); err == nil {
 		t.Fatal("非法 handshake_timeout 应返回错误")
 	}
@@ -435,125 +221,22 @@ func TestLoadForwardConfigBothLayouts(t *testing.T) {
 // TestMergeProxyConfigAllFields 覆盖 mergeProxyConfig 中此前未测的字段：
 // upstream 相关、keepalive、以及 flag 优先与非法 duration 分支。
 func TestMergeProxyConfigAllFields(t *testing.T) {
-	strPtr := func(s string) *string { return &s }
-	intPtr := func(i int) *int { return &i }
-	boolPtr := func(b bool) *bool { return &b }
 
-	t.Run("全部上游字段合并", func(t *testing.T) {
-		// upstreamAgent 以 flag 默认值（true）为起点，才能验证配置文件确实覆盖了它。
-		opt := proxyOptions{upstreamAgent: true}
-		cfg := &Config{
-			Lang: strPtr("de"),
-			Proxy: ProxyConfigList{{
-				Addr:                         strPtr("0.0.0.0:1080"),
-				DialTimeout:                  strPtr("20s"),
-				Upstream:                     strPtr("ssh://root@host:22"),
-				UpstreamIdentity:             strPtr("/tmp/id_rsa"),
-				UpstreamIdentityPassphrase:   strPtr("s3cret"),
-				UpstreamKnownHosts:           strPtr("/tmp/known_hosts"),
-				UpstreamInsecure:             boolPtr(true),
-				UpstreamAgent:                boolPtr(false),
-				UpstreamAgentSocket:          strPtr("/tmp/agent.sock"),
-				UpstreamKeepalive:            strPtr("45s"),
-				UpstreamKeepaliveMaxFailures: intPtr(5),
-			}},
-		}
-		if err := mergeProxyConfig(&opt, cfg, map[string]bool{}); err != nil {
-			t.Fatalf("mergeProxyConfig: %v", err)
-		}
-		if opt.lang != "de" || opt.addr != "0.0.0.0:1080" || opt.dialTimeout != 20*time.Second {
-			t.Fatalf("基础字段合并错误: %+v", opt)
-		}
-		if opt.upstream != "ssh://root@host:22" || opt.upstreamIdentity != "/tmp/id_rsa" ||
-			opt.upstreamKnownHosts != "/tmp/known_hosts" || !opt.upstreamInsecure {
-			t.Fatalf("上游字段合并错误: %+v", opt)
-		}
-		if opt.upstreamIdentityPassphrase != "s3cret" {
-			t.Fatalf("upstream_identity_passphrase 未合并: %+v", opt)
-		}
-		if opt.upstreamAgent || opt.upstreamAgentSocket != "/tmp/agent.sock" {
-			t.Fatalf("agent 字段合并错误: %+v", opt)
-		}
-		if opt.upstreamKeepalive != 45*time.Second || opt.upstreamKeepaliveMaxFailures != 5 {
-			t.Fatalf("keepalive 字段合并错误: %+v", opt)
-		}
-	})
+	t.Run("全部上游字段合并", checkMergeProxyConfigAllFieldsUpstreamFields)
 
-	t.Run("命令行 agent flag 优先于配置文件", func(t *testing.T) {
-		opt := proxyOptions{}
-		cfg := &Config{Proxy: ProxyConfigList{{
-			UpstreamAgent:       boolPtr(true),
-			UpstreamAgentSocket: strPtr("/tmp/agent.sock"),
-		}}}
-		setFlags := map[string]bool{"upstream-agent": true, "upstream-agent-socket": true}
-		if err := mergeProxyConfig(&opt, cfg, setFlags); err != nil {
-			t.Fatalf("mergeProxyConfig: %v", err)
-		}
-		if opt.upstreamAgent || opt.upstreamAgentSocket != "" {
-			t.Fatalf("显式 agent flag 应优先: %+v", opt)
-		}
-	})
+	t.Run("命令行 agent flag 优先于配置文件", checkMergeProxyConfigAllFieldsCLIAgent)
 
-	t.Run("命令行 flag 优先于配置文件", func(t *testing.T) {
-		opt := proxyOptions{addr: "127.0.0.1:9999"}
-		cfg := &Config{Proxy: ProxyConfigList{{Addr: strPtr("0.0.0.0:1080")}}}
-		setFlags := map[string]bool{"addr": true}
-		if err := mergeProxyConfig(&opt, cfg, setFlags); err != nil {
-			t.Fatalf("mergeProxyConfig: %v", err)
-		}
-		if opt.addr != "127.0.0.1:9999" {
-			t.Fatalf("命令行应优先，addr=%q", opt.addr)
-		}
-	})
+	t.Run("命令行 flag 优先于配置文件", checkMergeProxyConfigAllFieldsCLIAddress)
 
-	t.Run("非法 dial_timeout 返回错误", func(t *testing.T) {
-		cfg := &Config{Proxy: ProxyConfigList{{DialTimeout: strPtr("bad")}}}
-		if err := mergeProxyConfig(&proxyOptions{}, cfg, map[string]bool{}); err == nil {
-			t.Fatal("非法 dial_timeout 应返回错误")
-		}
-	})
+	t.Run("非法 dial_timeout 返回错误", checkMergeProxyConfigAllFieldsInvalidDialTimeout)
 
-	t.Run("非法 idle_timeout 返回错误", func(t *testing.T) {
-		cfg := &Config{Proxy: ProxyConfigList{{IdleTimeout: strPtr("bad")}}}
-		if err := mergeProxyConfig(&proxyOptions{}, cfg, map[string]bool{}); err == nil {
-			t.Fatal("非法 idle_timeout 应返回错误")
-		}
-	})
+	t.Run("非法 idle_timeout 返回错误", checkMergeProxyConfigAllFieldsInvalidIdleTimeout)
 
-	t.Run("非法 keepalive 返回错误", func(t *testing.T) {
-		cfg := &Config{Proxy: ProxyConfigList{{UpstreamKeepalive: strPtr("bad")}}}
-		if err := mergeProxyConfig(&proxyOptions{}, cfg, map[string]bool{}); err == nil {
-			t.Fatal("非法 upstream_keepalive 应返回错误")
-		}
-	})
+	t.Run("非法 keepalive 返回错误", checkMergeProxyConfigAllFieldsInvalidKeepalive)
 
-	t.Run("stats_addr 合并与命令行优先", func(t *testing.T) {
-		opt := proxyOptions{}
-		cfg := &Config{Proxy: ProxyConfigList{{StatsAddr: strPtr("127.0.0.1:9090")}}}
-		if err := mergeProxyConfig(&opt, cfg, map[string]bool{}); err != nil {
-			t.Fatalf("mergeProxyConfig: %v", err)
-		}
-		if opt.statsAddr != "127.0.0.1:9090" {
-			t.Fatalf("statsAddr 期望 127.0.0.1:9090，实际 %q", opt.statsAddr)
-		}
+	t.Run("stats_addr 合并与命令行优先", checkMergeProxyConfigAllFieldsStatsPrecedence)
 
-		opt2 := proxyOptions{statsAddr: "127.0.0.1:1111"}
-		if err := mergeProxyConfig(&opt2, cfg, map[string]bool{"stats-addr": true}); err != nil {
-			t.Fatalf("mergeProxyConfig: %v", err)
-		}
-		if opt2.statsAddr != "127.0.0.1:1111" {
-			t.Fatalf("命令行应优先，statsAddr=%q", opt2.statsAddr)
-		}
-	})
-
-	t.Run("nil Config 与 nil Proxy 段安全返回", func(t *testing.T) {
-		if err := mergeProxyConfig(&proxyOptions{}, nil, map[string]bool{}); err != nil {
-			t.Fatalf("nil Config 不应报错: %v", err)
-		}
-		if err := mergeProxyConfig(&proxyOptions{}, &Config{}, map[string]bool{}); err != nil {
-			t.Fatalf("nil Proxy 段不应报错: %v", err)
-		}
-	})
+	t.Run("nil Config 与 nil Proxy 段安全返回", checkMergeProxyConfigAllFieldsNilConfig)
 }
 
 // TestConfigListSingleObject 验证 forward:/proxy: 写成单个对象时归一化为 1 个实例。
@@ -652,5 +335,363 @@ func TestLoadForwardConfigUsesFirstInstance(t *testing.T) {
 	}
 	if fc.ListenPort == nil || *fc.ListenPort != 2201 {
 		t.Fatalf("应取第一个实例，listen_port=%v", fc.ListenPort)
+	}
+}
+
+func checkLoadConfigAllFields(t *testing.T) {
+	path := writeTempConfig(t, `
+listen_port: 8022
+listen_host: 127.0.0.1
+target: 127.0.0.1:2222
+mode: go
+proto: udp
+reuseaddr: false
+sudo: true
+dial_timeout: 15s
+max_conns: 100
+idle_timeout: 5m
+log_level: debug
+quiet: true
+`)
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig 返回错误: %v", err)
+	}
+	if cfg.ListenPort == nil || *cfg.ListenPort != 8022 {
+		t.Errorf("listen_port 解析错误: %v", cfg.ListenPort)
+	}
+	if cfg.Proto == nil || *cfg.Proto != "udp" {
+		t.Errorf("proto 解析错误: %v", cfg.Proto)
+	}
+	if cfg.ReuseAddr == nil || *cfg.ReuseAddr != false {
+		t.Errorf("reuseaddr 解析错误: %v", cfg.ReuseAddr)
+	}
+	if cfg.DialTimeout == nil || *cfg.DialTimeout != "15s" {
+		t.Errorf("dial_timeout 解析错误: %v", cfg.DialTimeout)
+	}
+	if cfg.IdleTimeout == nil || *cfg.IdleTimeout != "5m" {
+		t.Errorf("idle_timeout 解析错误: %v", cfg.IdleTimeout)
+	}
+}
+
+func checkLoadConfigAbsentFields(t *testing.T) {
+	path := writeTempConfig(t, "listen_port: 2200\n")
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig 返回错误: %v", err)
+	}
+	if cfg.ListenPort == nil || *cfg.ListenPort != 2200 {
+		t.Errorf("listen_port 解析错误: %v", cfg.ListenPort)
+	}
+	if cfg.Target != nil {
+		t.Errorf("target 未出现应为 nil，实际: %v", *cfg.Target)
+	}
+	if cfg.DialTimeout != nil {
+		t.Errorf("dial_timeout 未出现应为 nil，实际: %v", *cfg.DialTimeout)
+	}
+}
+
+func checkLoadConfigEmptyFile(t *testing.T) {
+	path := writeTempConfig(t, "")
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("空文件不应返回错误: %v", err)
+	}
+	if cfg == nil || cfg.ListenPort != nil {
+		t.Errorf("空文件应返回空配置，实际: %+v", cfg)
+	}
+}
+
+func checkLoadConfigUnknownField(t *testing.T) {
+	path := writeTempConfig(t, "unknown_field: 1\n")
+	if _, err := loadConfig(path); err == nil {
+		t.Fatal("未知字段应返回错误，但未返回")
+	}
+}
+
+func checkLoadConfigInvalidYAML(t *testing.T) {
+	path := writeTempConfig(t, "listen_port: : :\n")
+	if _, err := loadConfig(path); err == nil {
+		t.Fatal("非法 YAML 应返回错误，但未返回")
+	}
+}
+
+func checkLoadConfigMissingFile(t *testing.T) {
+	if _, err := loadConfig(filepath.Join(t.TempDir(), "nope.yaml")); err == nil {
+		t.Fatal("文件不存在应返回错误，但未返回")
+	}
+}
+
+func checkMergeConfigFileOverridesDefaults(t *testing.T) {
+	opt := options{listenPort: 22, target: "127.0.0.1:2222", dialTimeout: 10 * time.Second}
+	cfg := &fileConfig{
+		ListenPort:  intp(9000),
+		Target:      strp("10.0.0.1:3333"),
+		DialTimeout: strp("30s"),
+	}
+	if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
+		t.Fatalf("mergeConfig 返回错误: %v", err)
+	}
+	if opt.listenPort != 9000 {
+		t.Errorf("listenPort 期望 9000，实际 %d", opt.listenPort)
+	}
+	if opt.target != "10.0.0.1:3333" {
+		t.Errorf("target 期望 10.0.0.1:3333，实际 %s", opt.target)
+	}
+	if opt.dialTimeout != 30*time.Second {
+		t.Errorf("dialTimeout 期望 30s，实际 %s", opt.dialTimeout)
+	}
+}
+
+func checkMergeConfigCLIOverridesFile(t *testing.T) {
+	opt := options{listenPort: 8080}
+	cfg := &fileConfig{ListenPort: intp(9000)}
+	setFlags := map[string]bool{"listen-port": true}
+	if err := mergeConfig(&opt, cfg, setFlags); err != nil {
+		t.Fatalf("mergeConfig 返回错误: %v", err)
+	}
+	if opt.listenPort != 8080 {
+		t.Errorf("命令行应优先，listenPort 期望 8080，实际 %d", opt.listenPort)
+	}
+}
+
+func checkMergeConfigInvalidDialTimeout(t *testing.T) {
+	opt := options{}
+	cfg := &fileConfig{DialTimeout: strp("abc")}
+	if err := mergeConfig(&opt, cfg, map[string]bool{}); err == nil {
+		t.Fatal("非法 dial_timeout 应返回错误，但未返回")
+	}
+}
+
+func checkMergeConfigExplicitFalse(t *testing.T) {
+	opt := options{reuseAddr: true}
+	cfg := &fileConfig{ReuseAddr: boolp(false)}
+	if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
+		t.Fatalf("mergeConfig 返回错误: %v", err)
+	}
+	if opt.reuseAddr != false {
+		t.Error("reuseAddr 应被配置文件覆盖为 false")
+	}
+}
+
+func checkMergeConfigFileLanguage(t *testing.T) {
+	opt := options{}
+	cfg := &fileConfig{Lang: strp("zh")}
+	if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
+		t.Fatalf("mergeConfig 返回错误: %v", err)
+	}
+	if opt.lang != "zh" {
+		t.Errorf("lang 期望 zh，实际 %s", opt.lang)
+	}
+}
+
+func checkMergeConfigCLILanguage(t *testing.T) {
+	opt := options{lang: "en"}
+	cfg := &fileConfig{Lang: strp("zh")}
+	setFlags := map[string]bool{"lang": true}
+	if err := mergeConfig(&opt, cfg, setFlags); err != nil {
+		t.Fatalf("mergeConfig 返回错误: %v", err)
+	}
+	if opt.lang != "en" {
+		t.Errorf("命令行应优先，lang 期望 en，实际 %s", opt.lang)
+	}
+}
+
+func checkMergeConfigFileStatsAddress(t *testing.T) {
+	opt := options{}
+	cfg := &fileConfig{StatsAddr: strp("127.0.0.1:9090")}
+	if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
+		t.Fatalf("mergeConfig 返回错误: %v", err)
+	}
+	if opt.statsAddr != "127.0.0.1:9090" {
+		t.Errorf("statsAddr 期望 127.0.0.1:9090，实际 %q", opt.statsAddr)
+	}
+}
+
+func checkMergeConfigCLIStatsAddress(t *testing.T) {
+	opt := options{statsAddr: "127.0.0.1:1111"}
+	cfg := &fileConfig{StatsAddr: strp("127.0.0.1:9090")}
+	setFlags := map[string]bool{"stats-addr": true}
+	if err := mergeConfig(&opt, cfg, setFlags); err != nil {
+		t.Fatalf("mergeConfig 返回错误: %v", err)
+	}
+	if opt.statsAddr != "127.0.0.1:1111" {
+		t.Errorf("命令行应优先，statsAddr 期望 127.0.0.1:1111，实际 %q", opt.statsAddr)
+	}
+}
+
+func checkMergeConfigAllFields(t *testing.T) {
+	opt := options{}
+	cfg := &fileConfig{
+		ListenPort:  intp(2200),
+		ListenHost:  strp("0.0.0.0"),
+		Target:      strp("10.1.1.1:22"),
+		Mode:        strp("socat"),
+		Proto:       strp("udp"),
+		ReuseAddr:   boolp(true),
+		Sudo:        boolp(true),
+		DialTimeout: strp("15s"),
+		MaxConns:    intp(128),
+		IdleTimeout: strp("90s"),
+		LogLevel:    strp("debug"),
+		Quiet:       boolp(true),
+		StatsAddr:   strp("127.0.0.1:9090"),
+		Lang:        strp("de"),
+	}
+	if err := mergeConfig(&opt, cfg, map[string]bool{}); err != nil {
+		t.Fatalf("mergeConfig 返回错误: %v", err)
+	}
+	want := options{
+		listenPort:  2200,
+		listenHost:  "0.0.0.0",
+		target:      "10.1.1.1:22",
+		mode:        "socat",
+		proto:       "udp",
+		reuseAddr:   true,
+		useSudo:     true,
+		dialTimeout: 15 * time.Second,
+		maxConns:    128,
+		idleTimeout: 90 * time.Second,
+		logLevel:    "debug",
+		quiet:       true,
+		statsAddr:   "127.0.0.1:9090",
+		lang:        "de",
+	}
+	if opt != want {
+		t.Fatalf("合并结果=%+v，期望 %+v", opt, want)
+	}
+}
+
+func checkMergeConfigInvalidIdleTimeout(t *testing.T) {
+	opt := options{}
+	cfg := &fileConfig{IdleTimeout: strp("nope")}
+	if err := mergeConfig(&opt, cfg, map[string]bool{}); err == nil {
+		t.Fatal("非法 idle_timeout 应返回错误")
+	}
+}
+
+func checkMergeConfigNilConfig(t *testing.T) {
+	opt := options{listenPort: 22}
+	if err := mergeConfig(&opt, nil, map[string]bool{}); err != nil {
+		t.Fatalf("nil 配置不应报错: %v", err)
+	}
+	if opt.listenPort != 22 {
+		t.Error("nil 配置不应修改字段")
+	}
+}
+
+func checkMergeProxyConfigAllFieldsUpstreamFields(t *testing.T) {
+	// upstreamAgent 以 flag 默认值（true）为起点，才能验证配置文件确实覆盖了它。
+	opt := proxyOptions{upstreamAgent: true}
+	cfg := &Config{
+		Lang: strp("de"),
+		Proxy: ProxyConfigList{{
+			Addr:                         strp("0.0.0.0:1080"),
+			DialTimeout:                  strp("20s"),
+			Upstream:                     strp("ssh://root@host:22"),
+			UpstreamIdentity:             strp("/tmp/id_rsa"),
+			UpstreamIdentityPassphrase:   strp("s3cret"),
+			UpstreamKnownHosts:           strp("/tmp/known_hosts"),
+			UpstreamInsecure:             boolp(true),
+			UpstreamAgent:                boolp(false),
+			UpstreamAgentSocket:          strp("/tmp/agent.sock"),
+			UpstreamKeepalive:            strp("45s"),
+			UpstreamKeepaliveMaxFailures: intp(5),
+		}},
+	}
+	if err := mergeProxyConfig(&opt, cfg, map[string]bool{}); err != nil {
+		t.Fatalf("mergeProxyConfig: %v", err)
+	}
+	if opt.lang != "de" || opt.addr != "0.0.0.0:1080" || opt.dialTimeout != 20*time.Second {
+		t.Fatalf("基础字段合并错误: %+v", opt)
+	}
+	if opt.upstream != "ssh://root@host:22" || opt.upstreamIdentity != "/tmp/id_rsa" ||
+		opt.upstreamKnownHosts != "/tmp/known_hosts" || !opt.upstreamInsecure {
+		t.Fatalf("上游字段合并错误: %+v", opt)
+	}
+	if opt.upstreamIdentityPassphrase != "s3cret" {
+		t.Fatalf("upstream_identity_passphrase 未合并: %+v", opt)
+	}
+	if opt.upstreamAgent || opt.upstreamAgentSocket != "/tmp/agent.sock" {
+		t.Fatalf("agent 字段合并错误: %+v", opt)
+	}
+	if opt.upstreamKeepalive != 45*time.Second || opt.upstreamKeepaliveMaxFailures != 5 {
+		t.Fatalf("keepalive 字段合并错误: %+v", opt)
+	}
+}
+
+func checkMergeProxyConfigAllFieldsCLIAgent(t *testing.T) {
+	opt := proxyOptions{}
+	cfg := &Config{Proxy: ProxyConfigList{{
+		UpstreamAgent:       boolp(true),
+		UpstreamAgentSocket: strp("/tmp/agent.sock"),
+	}}}
+	setFlags := map[string]bool{"upstream-agent": true, "upstream-agent-socket": true}
+	if err := mergeProxyConfig(&opt, cfg, setFlags); err != nil {
+		t.Fatalf("mergeProxyConfig: %v", err)
+	}
+	if opt.upstreamAgent || opt.upstreamAgentSocket != "" {
+		t.Fatalf("显式 agent flag 应优先: %+v", opt)
+	}
+}
+
+func checkMergeProxyConfigAllFieldsCLIAddress(t *testing.T) {
+	opt := proxyOptions{addr: "127.0.0.1:9999"}
+	cfg := &Config{Proxy: ProxyConfigList{{Addr: strp("0.0.0.0:1080")}}}
+	setFlags := map[string]bool{"addr": true}
+	if err := mergeProxyConfig(&opt, cfg, setFlags); err != nil {
+		t.Fatalf("mergeProxyConfig: %v", err)
+	}
+	if opt.addr != "127.0.0.1:9999" {
+		t.Fatalf("命令行应优先，addr=%q", opt.addr)
+	}
+}
+
+func checkMergeProxyConfigAllFieldsInvalidDialTimeout(t *testing.T) {
+	cfg := &Config{Proxy: ProxyConfigList{{DialTimeout: strp("bad")}}}
+	if err := mergeProxyConfig(&proxyOptions{}, cfg, map[string]bool{}); err == nil {
+		t.Fatal("非法 dial_timeout 应返回错误")
+	}
+}
+
+func checkMergeProxyConfigAllFieldsInvalidIdleTimeout(t *testing.T) {
+	cfg := &Config{Proxy: ProxyConfigList{{IdleTimeout: strp("bad")}}}
+	if err := mergeProxyConfig(&proxyOptions{}, cfg, map[string]bool{}); err == nil {
+		t.Fatal("非法 idle_timeout 应返回错误")
+	}
+}
+
+func checkMergeProxyConfigAllFieldsInvalidKeepalive(t *testing.T) {
+	cfg := &Config{Proxy: ProxyConfigList{{UpstreamKeepalive: strp("bad")}}}
+	if err := mergeProxyConfig(&proxyOptions{}, cfg, map[string]bool{}); err == nil {
+		t.Fatal("非法 upstream_keepalive 应返回错误")
+	}
+}
+
+func checkMergeProxyConfigAllFieldsStatsPrecedence(t *testing.T) {
+	opt := proxyOptions{}
+	cfg := &Config{Proxy: ProxyConfigList{{StatsAddr: strp("127.0.0.1:9090")}}}
+	if err := mergeProxyConfig(&opt, cfg, map[string]bool{}); err != nil {
+		t.Fatalf("mergeProxyConfig: %v", err)
+	}
+	if opt.statsAddr != "127.0.0.1:9090" {
+		t.Fatalf("statsAddr 期望 127.0.0.1:9090，实际 %q", opt.statsAddr)
+	}
+
+	opt2 := proxyOptions{statsAddr: "127.0.0.1:1111"}
+	if err := mergeProxyConfig(&opt2, cfg, map[string]bool{"stats-addr": true}); err != nil {
+		t.Fatalf("mergeProxyConfig: %v", err)
+	}
+	if opt2.statsAddr != "127.0.0.1:1111" {
+		t.Fatalf("命令行应优先，statsAddr=%q", opt2.statsAddr)
+	}
+}
+
+func checkMergeProxyConfigAllFieldsNilConfig(t *testing.T) {
+	if err := mergeProxyConfig(&proxyOptions{}, nil, map[string]bool{}); err != nil {
+		t.Fatalf("nil Config 不应报错: %v", err)
+	}
+	if err := mergeProxyConfig(&proxyOptions{}, &Config{}, map[string]bool{}); err != nil {
+		t.Fatalf("nil Proxy 段不应报错: %v", err)
 	}
 }

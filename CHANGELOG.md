@@ -5,6 +5,23 @@ All notable changes to portmap are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.5] - 2026-11-01
+
+### Fixed
+
+- Synchronize proxy dialer initialization with shutdown and close resources
+  constructed after shutdown instead of publishing them to a closed server.
+
+### Changed
+
+- Raise overall statement coverage above 95% with lifecycle, timeout, protocol
+  failure and concurrent shutdown regression tests; enforce the 95% floor in
+  PR and release report workflows.
+- Split high-complexity configuration, protocol and test functions, and clear
+  Go Report Card findings while preserving forwarding and timeout behavior.
+- Use equivalent French and German wording to avoid English spelling-check
+  false positives without disabling the check.
+
 ## [1.3.4] - 2026-10-31
 
 ### Changed

@@ -1,7 +1,7 @@
 # Go report workflow
 
 The PR job runs both owned Actions with `commit: false` and released CLIs
-(`go-test-report-action v1.1.2`, `goreportcard-action v1.1.3`, pinned wrapper SHAs).
+(`go-test-report-action v1.1.3`, `goreportcard-action v1.1.4`, pinned wrapper SHAs).
 It replaces the primary Linux Go test/coverage invocation and reuses its profile
 for existing coverage artifacts/gates. Other OS matrices, release verification,
 integration, benchmarks and fuzz workflows retain their distinct checks.
@@ -15,9 +15,9 @@ branches can reject writeback; no PAT, bypass, or force-push is used.
 
 Test directory: `.`. Packages: `./...`.
 Race detector: `true`. Additional args: `-count=1`.
-Coverage floor: `0%` (zero records a baseline).
+Coverage floor: `95%` across all packages (statement-weighted).
 Per-package floor: `0%`.
-Quality-score floor: `0%`.
+Quality-score floor: `100%`.
 Raw profiles/test logs are artifacts, never committed.
 
 Published releases query actual tag-push report runs for the tested commit. A successful tag run with an available, unexpired stable artifact prevents duplicate tests; missing, active, failed, cancelled, or skipped runs allow the release event to generate reports. This covers skipped commits and releases whose tag push produced no workflow event. API lookup errors fail the gate rather than silently assume a report exists. Stable report-only artifacts explicitly restore `.github` on download; mixed report/document artifacts retain repository hierarchy.

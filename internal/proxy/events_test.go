@@ -121,24 +121,7 @@ func TestProxyRecordsOpenCloseEvents(t *testing.T) {
 	_, _ = io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 
-	var openEv, closeEv *stats.Event
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		openEv, closeEv = nil, nil
-		for _, ev := range events.Snapshot() {
-			e := ev
-			switch e.Kind {
-			case "open":
-				openEv = &e
-			case "close":
-				closeEv = &e
-			}
-		}
-		if openEv != nil && closeEv != nil {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	openEv, closeEv := awaitConnectionEvents(events)
 
 	if openEv == nil {
 		t.Fatalf("未记录 open 事件: %+v", events.Snapshot())
@@ -167,4 +150,27 @@ func TestProxyRecordsOpenCloseEvents(t *testing.T) {
 	if closeEv.ConnID != openEv.ConnID {
 		t.Errorf("open/close ConnID 不一致: %d vs %d", openEv.ConnID, closeEv.ConnID)
 	}
+}
+
+func awaitConnectionEvents(events *stats.EventLog) (*stats.Event, *stats.Event) {
+	var openEv, closeEv *stats.Event
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		openEv, closeEv = nil, nil
+		for _, ev := range events.Snapshot() {
+			e := ev
+			switch e.Kind {
+			case "open":
+				openEv = &e
+			case "close":
+				closeEv = &e
+			}
+		}
+		if openEv != nil && closeEv != nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	return openEv, closeEv
 }

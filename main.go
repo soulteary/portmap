@@ -25,6 +25,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -204,29 +205,12 @@ func runForward(argv []string) error {
 	// 多实例（多端口映射）：仅当 -config 指向的配置文件中 forward: 段声明了
 	// 多个实例时触发；此时逐个实例转换为运行参数并发启动，per-instance 忽略
 	// CLI 显式 flag（多实例场景下 -listen-port 等 flag 无法一一对应）。
-	var topCfg *Config
-	if opt.configPath != "" {
-		var err error
-		topCfg, err = loadTopConfig(opt.configPath)
-		if err != nil {
-			return err
-		}
-		if !setFlags["lang"] && topCfg.Lang != nil {
-			if l, ok := i18n.ParseLang(*topCfg.Lang); ok {
-				i18n.SetLang(l)
-			}
-		}
-		if len(topCfg.Forward) == 0 {
-			return errors.New(i18n.T(i18n.KeyErrConfigSectionEmpty, "forward"))
-		}
-		for _, instance := range topCfg.Forward {
-			if instance == nil || *instance == (ForwardConfig{}) {
-				return errors.New(i18n.T(i18n.KeyErrConfigSectionEmpty, "forward"))
-			}
-		}
-		if len(topCfg.Forward) > 1 {
-			return runForwardMulti(opt, topCfg, setFlags)
-		}
+	topCfg, err := loadCommandConfig(opt.configPath, setFlags["lang"], "forward")
+	if err != nil {
+		return err
+	}
+	if topCfg != nil && len(topCfg.Forward) > 1 {
+		return runForwardMulti(opt, topCfg, setFlags)
 	}
 
 	// 合并上面已经校验过的同一份配置快照，避免配置文件在两次读取之间
@@ -240,32 +224,9 @@ func runForward(argv []string) error {
 		}
 	}
 
-	if opt.listenPort <= 0 || opt.listenPort > 65535 {
-		return errors.New(i18n.T(i18n.KeyErrListenPort, opt.listenPort))
+	if err := validateForwardOptions(&opt); err != nil {
+		return err
 	}
-	if strings.TrimSpace(opt.target) == "" {
-		return errors.New(i18n.T(i18n.KeyErrTargetEmpty))
-	}
-	proto := strings.ToLower(strings.TrimSpace(opt.proto))
-	if proto != "tcp" && proto != "udp" {
-		return errors.New(i18n.T(i18n.KeyErrProto, opt.proto))
-	}
-	opt.proto = proto
-
-	if opt.idleTimeout < 0 {
-		return errors.New(i18n.T(i18n.KeyErrIdleNeg, opt.idleTimeout))
-	}
-	if opt.maxConns < 0 {
-		return errors.New(i18n.T(i18n.KeyErrMaxConnsNeg, opt.maxConns))
-	}
-	if opt.dialTimeout < 0 {
-		return errors.New(i18n.T(i18n.KeyErrDialNeg, opt.dialTimeout))
-	}
-	logLevel := strings.ToLower(strings.TrimSpace(opt.logLevel))
-	if logLevel != "info" && logLevel != "debug" {
-		return errors.New(i18n.T(i18n.KeyErrLogLevel, opt.logLevel))
-	}
-	opt.logLevel = logLevel
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -731,29 +692,12 @@ func runProxy(argv []string) error {
 
 	// 多实例（多端口映射）：仅当 -config 指向的配置文件中 proxy: 段声明了多个
 	// 实例时触发；逐个实例转换为运行参数并发启动，per-instance 忽略 CLI 显式 flag。
-	var topCfg *Config
-	if opt.configPath != "" {
-		var err error
-		topCfg, err = loadTopConfig(opt.configPath)
-		if err != nil {
-			return err
-		}
-		if !setFlags["lang"] && topCfg.Lang != nil {
-			if l, ok := i18n.ParseLang(*topCfg.Lang); ok {
-				i18n.SetLang(l)
-			}
-		}
-		if len(topCfg.Proxy) == 0 {
-			return errors.New(i18n.T(i18n.KeyErrConfigSectionEmpty, "proxy"))
-		}
-		for _, instance := range topCfg.Proxy {
-			if instance == nil || *instance == (ProxyConfig{}) {
-				return errors.New(i18n.T(i18n.KeyErrConfigSectionEmpty, "proxy"))
-			}
-		}
-		if len(topCfg.Proxy) > 1 {
-			return runProxyMulti(opt, topCfg, setFlags)
-		}
+	topCfg, err := loadCommandConfig(opt.configPath, setFlags["lang"], "proxy")
+	if err != nil {
+		return err
+	}
+	if topCfg != nil && len(topCfg.Proxy) > 1 {
+		return runProxyMulti(opt, topCfg, setFlags)
 	}
 
 	// 合并已经校验过的同一份 proxy 配置快照。
@@ -837,13 +781,11 @@ func resolveIdentityPassphrase(opt *proxyOptions) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return
 	}
-	fmt.Fprint(os.Stderr, i18n.T(i18n.KeyPromptUpstreamIdentityPassphrase, opt.addr))
-	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Fprintln(os.Stderr)
+	pw, err := readPasswordPrompt(i18n.T(i18n.KeyPromptUpstreamIdentityPassphrase, opt.addr), int(os.Stdin.Fd()), os.Stderr, term.ReadPassword)
 	if err != nil {
 		return
 	}
-	opt.upstreamIdentityPassphrase = string(pw)
+	opt.upstreamIdentityPassphrase = pw
 }
 
 // expandTilde 将开头的 ~ 展开为当前用户的 home 目录。配置文件中的路径不经过
@@ -917,13 +859,11 @@ func promptUpstreamPassword(u *proxy.UpstreamConfig) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return
 	}
-	fmt.Fprint(os.Stderr, i18n.T(i18n.KeyPromptUpstreamPassword, u.Addr))
-	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Fprintln(os.Stderr)
+	pw, err := readPasswordPrompt(i18n.T(i18n.KeyPromptUpstreamPassword, u.Addr), int(os.Stdin.Fd()), os.Stderr, term.ReadPassword)
 	if err != nil {
 		return
 	}
-	u.Password = string(pw)
+	u.Password = pw
 }
 
 // buildProxyUpstream 依据 proxyOptions 解析上游代理链配置；upstream 为空表示
@@ -1108,27 +1048,11 @@ func collectProxyAdminOptions(instances []proxyOptions) (proxyAdminOptions, erro
 	webLogMaxConflict := false
 	conflictingWebLogMax := 0
 	for _, opt := range instances {
-		if addr := strings.TrimSpace(opt.statsAddr); addr != "" {
-			if statsSet && out.statsAddr != addr {
-				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "stats_addr", out.statsAddr, addr))
-			}
-			if statsSet && out.statsAllowPublic != opt.statsAllowPublic {
-				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "stats_allow_public", out.statsAllowPublic, opt.statsAllowPublic))
-			}
-			out.statsAddr = addr
-			out.statsAllowPublic = opt.statsAllowPublic
-			statsSet = true
+		if err := mergeProxyAdminEndpoint(&out.statsAddr, &out.statsAllowPublic, &statsSet, opt.statsAddr, opt.statsAllowPublic, "stats"); err != nil {
+			return out, err
 		}
-		if addr := strings.TrimSpace(opt.webAddr); addr != "" {
-			if webSet && out.webAddr != addr {
-				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_addr", out.webAddr, addr))
-			}
-			if webSet && out.webAllowPublic != opt.webAllowPublic {
-				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "web_allow_public", out.webAllowPublic, opt.webAllowPublic))
-			}
-			out.webAddr = addr
-			out.webAllowPublic = opt.webAllowPublic
-			webSet = true
+		if err := mergeProxyAdminEndpoint(&out.webAddr, &out.webAllowPublic, &webSet, opt.webAddr, opt.webAllowPublic, "web"); err != nil {
+			return out, err
 		}
 		if opt.webLogMaxSet {
 			if webLogMaxSet && out.webLogMax != opt.webLogMax {
@@ -1155,57 +1079,11 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 		}
 	}
 
-	var ignored []string
-	for _, name := range proxyPerInstanceFlags {
-		if setFlags[name] {
-			ignored = append(ignored, "-"+name)
-		}
-	}
-	if len(ignored) > 0 {
-		log.Print(i18n.T(i18n.KeyLogMultiIgnoreFlags, strings.Join(ignored, " ")))
-	}
+	logIgnoredProxyFlags(setFlags)
 
-	type proxyInstance struct {
-		opt      proxyOptions
-		upstream *proxy.UpstreamConfig
-	}
-	instances := make([]proxyInstance, 0, len(cfg.Proxy))
-	seen := make(map[string]struct{}, len(cfg.Proxy))
-	for _, pc := range cfg.Proxy {
-		opt := defaultProxyOptions()
-		opt.lang = base.lang
-		if err := applyProxyConfig(&opt, pc, map[string]bool{}); err != nil {
-			return err
-		}
-		if setFlags["stats-addr"] {
-			opt.statsAddr = base.statsAddr
-		}
-		if setFlags["stats-allow-public"] {
-			opt.statsAllowPublic = base.statsAllowPublic
-		}
-		if setFlags["web-addr"] {
-			opt.webAddr = base.webAddr
-		}
-		if setFlags["web-allow-public"] {
-			opt.webAllowPublic = base.webAllowPublic
-		}
-		if setFlags["web-log-max"] {
-			opt.webLogMax = base.webLogMax
-			opt.webLogMaxSet = true
-		}
-		if err := validateProxyOptions(&opt); err != nil {
-			return err
-		}
-		if _, dup := seen[opt.addr]; dup {
-			return errors.New(i18n.T(i18n.KeyErrDuplicateListen, opt.addr))
-		}
-		seen[opt.addr] = struct{}{}
-		resolveIdentityPassphrase(&opt)
-		upstream, err := buildProxyUpstream(&opt)
-		if err != nil {
-			return err
-		}
-		instances = append(instances, proxyInstance{opt: opt, upstream: upstream})
+	instances, err := buildProxyInstances(base, cfg, setFlags)
+	if err != nil {
+		return err
 	}
 
 	instanceOptions := make([]proxyOptions, 0, len(instances))
@@ -1268,4 +1146,168 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 		return webErr
 	}
 	return nil
+}
+
+func validateForwardOptions(opt *options) error {
+	if opt.listenPort <= 0 || opt.listenPort > 65535 {
+		return errors.New(i18n.T(i18n.KeyErrListenPort, opt.listenPort))
+	}
+	if strings.TrimSpace(opt.target) == "" {
+		return errors.New(i18n.T(i18n.KeyErrTargetEmpty))
+	}
+	proto := strings.ToLower(strings.TrimSpace(opt.proto))
+	if proto != "tcp" && proto != "udp" {
+		return errors.New(i18n.T(i18n.KeyErrProto, opt.proto))
+	}
+	opt.proto = proto
+
+	if opt.idleTimeout < 0 {
+		return errors.New(i18n.T(i18n.KeyErrIdleNeg, opt.idleTimeout))
+	}
+	if opt.maxConns < 0 {
+		return errors.New(i18n.T(i18n.KeyErrMaxConnsNeg, opt.maxConns))
+	}
+	if opt.dialTimeout < 0 {
+		return errors.New(i18n.T(i18n.KeyErrDialNeg, opt.dialTimeout))
+	}
+	logLevel := strings.ToLower(strings.TrimSpace(opt.logLevel))
+	if logLevel != "info" && logLevel != "debug" {
+		return errors.New(i18n.T(i18n.KeyErrLogLevel, opt.logLevel))
+	}
+	opt.logLevel = logLevel
+
+	return nil
+}
+
+func loadCommandConfig(path string, langSet bool, section string) (*Config, error) {
+	if path == "" {
+		return nil, nil
+	}
+	cfg, err := loadTopConfig(path)
+	if err != nil {
+		return nil, err
+	}
+	if !langSet && cfg.Lang != nil {
+		if lang, ok := i18n.ParseLang(*cfg.Lang); ok {
+			i18n.SetLang(lang)
+		}
+	}
+	if !hasCommandInstances(cfg, section) {
+		return nil, errors.New(i18n.T(i18n.KeyErrConfigSectionEmpty, section))
+	}
+	return cfg, nil
+}
+func hasCommandInstances(cfg *Config, section string) bool {
+	if section == "forward" {
+		if len(cfg.Forward) == 0 {
+			return false
+		}
+		for _, instance := range cfg.Forward {
+			if instance == nil || *instance == (ForwardConfig{}) {
+				return false
+			}
+		}
+		return true
+	}
+	if len(cfg.Proxy) == 0 {
+		return false
+	}
+	for _, instance := range cfg.Proxy {
+		if instance == nil || *instance == (ProxyConfig{}) {
+			return false
+		}
+	}
+	return true
+}
+
+type proxyInstance struct {
+	opt      proxyOptions
+	upstream *proxy.UpstreamConfig
+}
+
+func buildProxyInstances(base proxyOptions, cfg *Config, setFlags map[string]bool) ([]proxyInstance, error) {
+
+	instances := make([]proxyInstance, 0, len(cfg.Proxy))
+	seen := make(map[string]struct{}, len(cfg.Proxy))
+	for _, pc := range cfg.Proxy {
+		opt := defaultProxyOptions()
+		opt.lang = base.lang
+		if err := applyProxyConfig(&opt, pc, map[string]bool{}); err != nil {
+			return nil, err
+		}
+		applyProxyAdminFlags(&opt, base, setFlags)
+		if err := validateProxyOptions(&opt); err != nil {
+			return nil, err
+		}
+		if _, dup := seen[opt.addr]; dup {
+			return nil, errors.New(i18n.T(i18n.KeyErrDuplicateListen, opt.addr))
+		}
+		seen[opt.addr] = struct{}{}
+		resolveIdentityPassphrase(&opt)
+		upstream, err := buildProxyUpstream(&opt)
+		if err != nil {
+			return nil, err
+		}
+		instances = append(instances, proxyInstance{opt: opt, upstream: upstream})
+	}
+
+	return instances, nil
+}
+
+func applyProxyAdminFlags(opt *proxyOptions, base proxyOptions, setFlags map[string]bool) {
+	if setFlags["stats-addr"] {
+		opt.statsAddr = base.statsAddr
+	}
+	if setFlags["stats-allow-public"] {
+		opt.statsAllowPublic = base.statsAllowPublic
+	}
+	if setFlags["web-addr"] {
+		opt.webAddr = base.webAddr
+	}
+	if setFlags["web-allow-public"] {
+		opt.webAllowPublic = base.webAllowPublic
+	}
+	if setFlags["web-log-max"] {
+		opt.webLogMax = base.webLogMax
+		opt.webLogMaxSet = true
+	}
+}
+
+func mergeProxyAdminEndpoint(addr *string, public *bool, configured *bool, value string, allow bool, name string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if *configured && *addr != value {
+		return errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, name+"_addr", *addr, value))
+	}
+	if *configured && *public != allow {
+		return errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, name+"_allow_public", *public, allow))
+	}
+	*addr, *public, *configured = value, allow, true
+	return nil
+}
+
+func logIgnoredProxyFlags(setFlags map[string]bool) {
+	var ignored []string
+	for _, name := range proxyPerInstanceFlags {
+		if setFlags[name] {
+			ignored = append(ignored, "-"+name)
+		}
+	}
+	if len(ignored) > 0 {
+		log.Print(i18n.T(i18n.KeyLogMultiIgnoreFlags, strings.Join(ignored, " ")))
+	}
+
+}
+
+// readPasswordPrompt keeps secrets out of the output and preserves read errors.
+func readPasswordPrompt(prompt string, fd int, output io.Writer, read func(int) ([]byte, error)) (string, error) {
+	_, _ = fmt.Fprint(output, prompt)
+	password, err := read(fd)
+	_, _ = fmt.Fprintln(output)
+	if err != nil {
+		return "", err
+	}
+	return string(password), nil
 }

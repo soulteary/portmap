@@ -55,27 +55,7 @@ func TestForwardRecordsOpenCloseEvents(t *testing.T) {
 	// 等待与本连接（按 client 地址匹配）对应的 open 与 close 事件出现。
 	// 注意：waitPortReady 的探测连接也会产生一对 open/close 事件，因此必须
 	// 按 client 地址过滤，不能简单取最后一条。
-	var openEv, closeEv *stats.Event
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		openEv, closeEv = nil, nil
-		for _, ev := range events.Snapshot() {
-			if ev.Client != localAddr {
-				continue
-			}
-			e := ev
-			switch e.Kind {
-			case "open":
-				openEv = &e
-			case "close":
-				closeEv = &e
-			}
-		}
-		if openEv != nil && closeEv != nil {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	openEv, closeEv := awaitConnectionEvents(events, localAddr)
 
 	if openEv == nil {
 		t.Fatalf("未记录 open 事件: %+v", events.Snapshot())
@@ -144,4 +124,30 @@ func TestForwardRecordsDialError(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("未记录 dial-error 事件: %+v", events.Snapshot())
+}
+
+func awaitConnectionEvents(events *stats.EventLog, localAddr string) (*stats.Event, *stats.Event) {
+	var openEv, closeEv *stats.Event
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		openEv, closeEv = nil, nil
+		for _, ev := range events.Snapshot() {
+			if ev.Client != localAddr {
+				continue
+			}
+			e := ev
+			switch e.Kind {
+			case "open":
+				openEv = &e
+			case "close":
+				closeEv = &e
+			}
+		}
+		if openEv != nil && closeEv != nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	return openEv, closeEv
 }

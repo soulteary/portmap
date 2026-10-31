@@ -151,7 +151,7 @@ jobs:
           directory: "."
           packages: "./..."
           race: "true"
-          coverage_threshold: "0"
+          coverage_threshold: "95"
           test_args: "-count=1"
           version: "v1.1.3"
           cover_mode: "atomic"
@@ -162,7 +162,7 @@ jobs:
         with:
           directory: "."
           version: "v1.1.4"
-          threshold: "0"
+          threshold: "100"
           report: "true"
           commit: "false"
       - name: Restore project Go toolchain

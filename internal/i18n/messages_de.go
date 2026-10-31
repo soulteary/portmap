@@ -48,7 +48,7 @@ var messagesDE = map[string]string{
 	KeyErrServeExit:   "Weiterleitungsdienst beendet: %w",
 	KeyErrSocatFailed: "socat-Ausführung fehlgeschlagen: %w",
 
-	KeyLogEffectiveConfig: "wirksame Konfiguration: %s",
+	KeyLogEffectiveConfig: "wirksame Einstellungen: %s",
 	KeyLogSocatIgnore:     "Hinweis: der socat-Modus ignoriert die folgenden nur im go-Modus unterstützten Parameter: %s",
 	KeyLogSocatExec:       "Ausführung: %s",
 	KeyLogStatus:          "status: active=%d total=%d",
@@ -99,14 +99,14 @@ var messagesDE = map[string]string{
 
 	KeyErrConfigSectionEmpty: "die Konfigurationsdatei definiert keine %s-Instanz",
 
-	KeyLogForwardStartingInstances: "starte %d Forward-Instanz(en) aus der Konfiguration",
-	KeyLogProxyStartingInstances:   "starte %d Proxy-Instanz(en) aus der Konfiguration",
+	KeyLogForwardStartingInstances: "starte %d Forward-Instanz(en) aus den Einstellungen",
+	KeyLogProxyStartingInstances:   "starte %d Proxy-Instanz(en) aus den Einstellungen",
 	KeyLogInstanceStarting:         "Instanz #%d startet: %s",
 	KeyErrInstanceFailed:           "Instanz %s fehlgeschlagen: %w",
-	KeyErrDuplicateListen:          "doppelte Listen-Adresse in der Konfiguration: %s",
+	KeyErrDuplicateListen:          "doppelte Listen-Adresse in den Einstellungen: %s",
 	KeyErrConflictingMultiOption:   "widersprüchliche Mehrinstanz-Option %s: %v und %v",
 	KeyErrMultiForwardMode:         "Forward mit mehreren Instanzen unterstützt nur den go-Modus, erhalten: %q",
-	KeyLogMultiIgnoreFlags:         "Hinweis: Multi-Instanz-Konfiguration ignoriert instanzspezifische CLI-Flags: %s",
+	KeyLogMultiIgnoreFlags:         "Hinweis: Multi-Instanz-Einstellungen ignorieren instanzspezifische CLI-Flags: %s",
 
 	KeyErrUnsupportedNet:  "nicht unterstütztes Netzwerk: %q",
 	KeyErrFwdSelfTarget:   "Weiterleitungsziel %s abgelehnt: es verweist auf diesen Listener",
@@ -213,7 +213,7 @@ var messagesDE = map[string]string{
 	KeyErrProxyUpstreamSSHIdentity:          "Lesen der SSH-Identitätsdatei %s fehlgeschlagen: %w",
 	KeyErrProxyUpstreamSSHParseKey:          "Analyse des privaten SSH-Schlüssels fehlgeschlagen: %w",
 	KeyErrProxyUpstreamSSHAgent:             "Verbindung zu ssh-agent %s fehlgeschlagen: %w",
-	KeyErrProxyUpstreamSSHPassphraseMissing: "der private SSH-Schlüssel ist verschlüsselt und erfordert eine Passphrase (geben Sie sie über die Umgebungsvariable PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE, das Konfigurationsfeld upstream_identity_passphrase oder eine interaktive Terminaleingabe an)",
+	KeyErrProxyUpstreamSSHPassphraseMissing: "der private SSH-Schlüssel ist verschlüsselt und erfordert eine Passphrase (geben Sie sie über die Umgebungsvariable PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE, das Konfigurationsfeld upstream_identity_passphrase oder eine Eingabe im Terminal an)",
 	KeyPromptUpstreamIdentityPassphrase:     "Passphrase für den privaten SSH-Schlüssel eingeben (%s): ",
 	KeyPromptUpstreamPassword:               "Passwort für den SSH-Upstream eingeben (%s): ",
 	KeyErrProxyUpstreamSSHKnownHosts:        "Laden von SSH-known_hosts %s fehlgeschlagen: %w",

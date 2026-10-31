@@ -83,7 +83,8 @@ type Server struct {
 	// 为 nil 时所有事件写入均为零成本的空操作（EventLog.Append 对 nil 安全）。
 	Events *stats.EventLog
 
-	dialer Dialer
+	dialer       Dialer
+	dialerInitMu sync.Mutex
 
 	mu              sync.Mutex
 	listener        net.Listener
@@ -129,20 +130,8 @@ func (s *Server) Snapshot() stats.Snapshot { return s.Stats().Snapshot() }
 
 // ListenAndServe 开始监听并处理连接，阻塞直到出错或被关闭。
 func (s *Server) ListenAndServe() error {
-	if s.DialTimeout <= 0 {
-		s.DialTimeout = defaultDialTimeout
-	}
-	if s.dialer == nil {
-		if s.Upstream != nil {
-			dialer, err := NewUpstreamDialer(s.Upstream, s.DialTimeout, defaultKeepAlive, s.Logger)
-			if err != nil {
-				return err
-			}
-			s.dialer = dialer
-			s.logf(i18n.T(i18n.KeyLogProxyUpstreamEnabled), s.Upstream.Scheme, s.Upstream.describe())
-		} else {
-			s.dialer = NewDirectDialer(s.DialTimeout, defaultKeepAlive)
-		}
+	if err := s.initializeDialer(); err != nil {
+		return err
 	}
 
 	ln, err := net.Listen("tcp", s.Addr)
@@ -186,27 +175,7 @@ func (s *Server) ListenAndServe() error {
 	}()
 	s.logf(i18n.T(i18n.KeyLogProxyStarted), ln.Addr())
 
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				return nil
-			}
-			s.logf(i18n.T(i18n.KeyLogProxyAcceptFailed), err)
-			continue
-		}
-		if !s.trackConn(conn) {
-			s.Stats().Reject()
-			s.logEvent("reject", "", conn.RemoteAddr().String(), "", 0, 0, 0, 0)
-			s.logf(i18n.T(i18n.KeyLogProxyConnLimit), conn.RemoteAddr(), s.MaxConns)
-			_ = conn.Close()
-			continue
-		}
-		go func() {
-			defer s.untrackConn(conn)
-			s.serveConn(conn)
-		}()
-	}
+	return s.acceptConnections(ln)
 }
 
 // Close 立即关闭监听器和所有活动连接。
@@ -579,4 +548,82 @@ func (s *Server) logEvent(kind, proto, client, target string, up, down, durMs, c
 		DurationMs: durMs,
 		ConnID:     connID,
 	})
+}
+
+// initializeDialer serializes constructors without holding the lifecycle lock
+// across agent/identity setup, so Shutdown can still mark the server closed.
+func (s *Server) initializeDialer() error {
+	s.dialerInitMu.Lock()
+	defer s.dialerInitMu.Unlock()
+	s.mu.Lock()
+	if s.closing {
+		s.mu.Unlock()
+		return net.ErrClosed
+	}
+	if s.DialTimeout <= 0 {
+		s.DialTimeout = defaultDialTimeout
+	}
+	if s.dialer != nil {
+		s.mu.Unlock()
+		return nil
+	}
+	timeout := s.DialTimeout
+	s.mu.Unlock()
+	var dialer Dialer
+	if s.Upstream != nil {
+		var err error
+		dialer, err = NewUpstreamDialer(s.Upstream, timeout, defaultKeepAlive, s.Logger)
+		if err != nil {
+			return err
+		}
+	} else {
+		dialer = NewDirectDialer(timeout, defaultKeepAlive)
+	}
+	if err := s.installDialer(dialer); err != nil {
+		return err
+	}
+	if s.Upstream != nil {
+		s.logf(i18n.T(i18n.KeyLogProxyUpstreamEnabled), s.Upstream.Scheme, s.Upstream.describe())
+	}
+	return nil
+}
+
+// installDialer publishes under the same lock used by closeDialer. A constructor
+// finishing after Shutdown owns cleanup of its unpublished resources.
+func (s *Server) installDialer(dialer Dialer) error {
+	s.mu.Lock()
+	if s.closing {
+		s.mu.Unlock()
+		if closer, ok := dialer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+		return net.ErrClosed
+	}
+	s.dialer = dialer
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Server) acceptConnections(ln net.Listener) error {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+			s.logf(i18n.T(i18n.KeyLogProxyAcceptFailed), err)
+			continue
+		}
+		if !s.trackConn(conn) {
+			s.Stats().Reject()
+			s.logEvent("reject", "", conn.RemoteAddr().String(), "", 0, 0, 0, 0)
+			s.logf(i18n.T(i18n.KeyLogProxyConnLimit), conn.RemoteAddr(), s.MaxConns)
+			_ = conn.Close()
+			continue
+		}
+		go func() {
+			defer s.untrackConn(conn)
+			s.serveConn(conn)
+		}()
+	}
 }
