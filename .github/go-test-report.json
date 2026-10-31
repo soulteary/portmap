@@ -7,9 +7,9 @@
     "skipped": 0
   },
   "coverage": {
-    "covered_statements": 3086,
+    "covered_statements": 3088,
     "total_statements": 3236,
-    "percentage": 95.36,
+    "percentage": 95.43,
     "threshold": 95
   },
   "packages": [
@@ -32,7 +32,7 @@
       "status": "pass",
       "tests": 36,
       "failed": 0,
-      "coverage": 92.88
+      "coverage": 93.14
     },
     {
       "name": "internal/i18n",
@@ -53,7 +53,7 @@
       "status": "pass",
       "tests": 104,
       "failed": 0,
-      "coverage": 94.8
+      "coverage": 94.89
     },
     {
       "name": "internal/socat",
