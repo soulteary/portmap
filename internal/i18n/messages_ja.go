@@ -15,12 +15,17 @@
 package i18n
 
 var messagesJA = map[string]string{
+	KeyFlagForwardUpstream:   "TCP 転送用 SSH 上流 URL（例: ssh://user@server.example:22、空欄は直接接続）",
+	KeyErrForwardSSHMode:     "SSH 上流には -mode go と -proto tcp が必要です",
+	KeyErrForwardSSHOnly:     "forward は TCP の ssh:// 上流のみ対応しています",
+	KeyErrForwardSSHFailures: "SSH キープアライブ失敗回数は負にできません",
+
 	KeyUsageTitle:  "portmap - TCP/UDP ポートフォワーディング (socat 相当)",
 	KeyUsageLine:   "使い方: %s [flags]\n\n次と同等: sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222\n\nflags:",
 	KeyVersionLine: "portmap %s (commit %s, built %s)",
 
 	KeyFlagListenPort:       "ローカル待ち受けポート",
-	KeyFlagListenHost:       "ローカル待ち受けアドレス（既定: すべてのインターフェース）",
+	KeyFlagListenHost:       "ローカル待受アドレス（既定: SSH 上流はループバック、それ以外は全インターフェース）",
 	KeyFlagTarget:           "転送先アドレス host:port",
 	KeyFlagMode:             "転送モード: go（純 Go 実装）または socat（システムの socat を呼び出す）",
 	KeyFlagProto:            "転送プロトコル: tcp または udp",

@@ -32,10 +32,13 @@ import (
 	"github.com/soulteary/portmap/internal/i18n"
 	"github.com/soulteary/portmap/internal/netutil"
 	"github.com/soulteary/portmap/internal/stats"
+	"github.com/soulteary/portmap/internal/upstream"
 )
 
 // Config 描述一次转发服务的配置。
 type Config struct {
+	// Upstream optionally routes TCP connections through SSH.
+	Upstream *upstream.UpstreamConfig
 	// Listen 是本地监听地址，例如 ":22" 或 "0.0.0.0:22"。
 	Listen string
 	// Target 是转发目标地址，例如 "127.0.0.1:2222"。
@@ -65,6 +68,7 @@ type Config struct {
 
 // Server 是一个端口转发服务。
 type Server struct {
+	dialer upstream.Dialer
 	cfg    Config
 	logger *log.Logger
 
@@ -148,6 +152,11 @@ func (s *Server) listenConfig() net.ListenConfig {
 
 // ListenAndServe 开始监听并接受连接，直到 ctx 被取消或发生致命错误。
 func (s *Server) ListenAndServe(ctx context.Context) error {
+	if err := s.initDialer(); err != nil {
+		return err
+	}
+	defer s.closeDialer()
+
 	switch s.cfg.Network {
 	case "tcp":
 		return s.serveTCP(ctx)
@@ -172,8 +181,10 @@ func (s *Server) serveTCP(ctx context.Context) error {
 
 func (s *Server) serveTCPListener(ctx, serveCtx context.Context, cancel context.CancelFunc, ln net.Listener) error {
 	defer func() { _ = ln.Close() }()
+	// Cancel and close transport before waiting for blocked channel opens.
+	defer func() { cancel(); s.closeDialer(); s.wg.Wait() }()
 	dualStack := listenerDualStack(ln)
-	if targetMatchesListener(ctx, s.cfg.Target, ln.Addr(), dualStack) {
+	if s.cfg.Upstream == nil && targetMatchesListener(ctx, s.cfg.Target, ln.Addr(), dualStack) {
 		return fmt.Errorf(i18n.T(i18n.KeyErrFwdSelfTarget), s.cfg.Target)
 	}
 	s.infof(i18n.T(i18n.KeyLogTCPListening),
@@ -192,6 +203,7 @@ func (s *Server) serveTCPListener(ctx, serveCtx context.Context, cancel context.
 	go func() {
 		<-serveCtx.Done()
 		_ = ln.Close()
+		s.closeDialer()
 	}()
 
 	for {
@@ -199,13 +211,11 @@ func (s *Server) serveTCPListener(ctx, serveCtx context.Context, cancel context.
 		if err != nil {
 			select {
 			case fatal := <-fatalErr:
-				s.wg.Wait()
 				return fatal
 			default:
 			}
 			if ctx.Err() != nil {
 				// 正常退出：等待所有在途连接处理完毕。
-				s.wg.Wait()
 				return nil
 			}
 			// 临时性错误退避后重试。
@@ -223,7 +233,6 @@ func (s *Server) serveTCPListener(ctx, serveCtx context.Context, cancel context.
 			case s.sem <- struct{}{}:
 			case <-serveCtx.Done():
 				_ = conn.Close()
-				s.wg.Wait()
 				select {
 				case fatal := <-fatalErr:
 					return fatal
@@ -249,8 +258,13 @@ func (s *Server) serveTCPListener(ctx, serveCtx context.Context, cancel context.
 func (s *Server) handle(ctx context.Context, src net.Conn, listenAddr net.Addr, dualStack bool, stopWithError func(error)) {
 	defer func() { _ = src.Close() }()
 
-	dialer := net.Dialer{Timeout: s.cfg.DialTimeout}
-	dst, err := dialer.DialContext(ctx, "tcp", s.cfg.Target)
+	dialer := s.dialer
+	if dialer == nil {
+		dialer = upstream.NewDirectDialer(s.cfg.DialTimeout, 30*time.Second)
+	}
+	dialCtx, cancelDial := context.WithTimeout(ctx, s.cfg.DialTimeout)
+	dst, err := dialer.DialContext(dialCtx, "tcp", s.cfg.Target)
+	cancelDial()
 	if err != nil {
 		s.stats.DialError()
 		s.cfg.Events.Append(stats.Event{
@@ -266,7 +280,7 @@ func (s *Server) handle(ctx context.Context, src net.Conn, listenAddr net.Addr, 
 	defer func() { _ = dst.Close() }()
 	// DNS may change between the preflight check and the actual dial. Verify the
 	// connected peer as well so a rebinding cannot turn a forwarder into itself.
-	if connMatchesListener(dst, listenAddr, dualStack) {
+	if s.cfg.Upstream == nil && connMatchesListener(dst, listenAddr, dualStack) {
 		s.stats.DialError()
 		s.warnf(i18n.T(i18n.KeyErrFwdSelfTarget), s.cfg.Target)
 		stopWithError(fmt.Errorf(i18n.T(i18n.KeyErrFwdSelfTarget), s.cfg.Target))
@@ -277,14 +291,18 @@ func (s *Server) handle(ctx context.Context, src net.Conn, listenAddr net.Addr, 
 	defer s.stats.ConnClosed()
 	active := s.stats.ActiveConns()
 
+	target := dst.RemoteAddr().String()
+	if s.cfg.Upstream != nil {
+		target = s.cfg.Target
+	}
 	start := time.Now()
-	s.infof(i18n.T(i18n.KeyLogConnOpen), connID, src.RemoteAddr(), dst.RemoteAddr(), active)
+	s.infof(i18n.T(i18n.KeyLogConnOpen), connID, src.RemoteAddr(), target, active)
 	s.cfg.Events.Append(stats.Event{
 		Time:   eventTime(),
 		Kind:   "open",
 		Proto:  s.cfg.Network,
 		Client: src.RemoteAddr().String(),
-		Target: dst.RemoteAddr().String(),
+		Target: target,
 		ConnID: connID,
 	})
 
@@ -314,14 +332,14 @@ func (s *Server) handle(ctx context.Context, src net.Conn, listenAddr net.Addr, 
 	s.stats.AddDown(downBytes)
 
 	s.infof(i18n.T(i18n.KeyLogConnClose),
-		connID, src.RemoteAddr(), dst.RemoteAddr(),
+		connID, src.RemoteAddr(), target,
 		upBytes, downBytes, time.Since(start).Round(time.Millisecond))
 	s.cfg.Events.Append(stats.Event{
 		Time:       eventTime(),
 		Kind:       "close",
 		Proto:      s.cfg.Network,
 		Client:     src.RemoteAddr().String(),
-		Target:     dst.RemoteAddr().String(),
+		Target:     target,
 		UpBytes:    upBytes,
 		DownBytes:  downBytes,
 		DurationMs: time.Since(start).Milliseconds(),
@@ -376,4 +394,27 @@ func isNormalClose(err error) bool {
 		return true
 	}
 	return false
+}
+
+// initDialer constructs a transport owned by this server instance.
+func (s *Server) initDialer() error {
+	if s.cfg.Upstream == nil {
+		s.dialer = upstream.NewDirectDialer(s.cfg.DialTimeout, 30*time.Second)
+		return nil
+	}
+	if s.cfg.Network != "tcp" || s.cfg.Upstream.Scheme != upstream.UpstreamSchemeSSH {
+		return errors.New(i18n.T(i18n.KeyErrForwardSSHOnly))
+	}
+	d, err := upstream.NewUpstreamDialer(s.cfg.Upstream, s.cfg.DialTimeout, 30*time.Second, s.logger)
+	if err != nil {
+		return err
+	}
+	s.dialer = d
+	return nil
+}
+
+func (s *Server) closeDialer() {
+	if closer, ok := s.dialer.(io.Closer); ok {
+		_ = closer.Close()
+	}
 }

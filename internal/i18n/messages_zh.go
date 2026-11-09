@@ -15,12 +15,17 @@
 package i18n
 
 var messagesZH = map[string]string{
+	KeyFlagForwardUpstream:   "TCP 转发使用的 SSH 上游 URL，例如 ssh://user@server.example:22（留空表示直连）",
+	KeyErrForwardSSHMode:     "SSH 上游要求 -mode go 和 -proto tcp",
+	KeyErrForwardSSHOnly:     "forward 仅支持 TCP 的 ssh:// 上游",
+	KeyErrForwardSSHFailures: "SSH 保活失败次数不能为负数",
+
 	KeyUsageTitle:  "portmap - TCP/UDP 端口转发 (socat 等价实现)",
 	KeyUsageLine:   "用法: %s [flags]\n\n等价于: sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222\n\nflags:",
 	KeyVersionLine: "portmap %s (commit %s, built %s)",
 
 	KeyFlagListenPort:       "本地监听端口",
-	KeyFlagListenHost:       "本地监听地址（默认所有网卡）",
+	KeyFlagListenHost:       "本地监听地址（默认：SSH 上游使用回环地址，其他情况使用所有网卡）",
 	KeyFlagTarget:           "转发目标地址 host:port",
 	KeyFlagMode:             "转发模式：go（纯 Go 实现）或 socat（调用系统 socat）",
 	KeyFlagProto:            "转发协议：tcp 或 udp",

@@ -542,20 +542,21 @@ func checkMergeConfigAllFields(t *testing.T) {
 		t.Fatalf("mergeConfig 返回错误: %v", err)
 	}
 	want := options{
-		listenPort:  2200,
-		listenHost:  "0.0.0.0",
-		target:      "10.1.1.1:22",
-		mode:        "socat",
-		proto:       "udp",
-		reuseAddr:   true,
-		useSudo:     true,
-		dialTimeout: 15 * time.Second,
-		maxConns:    128,
-		idleTimeout: 90 * time.Second,
-		logLevel:    "debug",
-		quiet:       true,
-		statsAddr:   "127.0.0.1:9090",
-		lang:        "de",
+		listenHostSet: true,
+		listenPort:    2200,
+		listenHost:    "0.0.0.0",
+		target:        "10.1.1.1:22",
+		mode:          "socat",
+		proto:         "udp",
+		reuseAddr:     true,
+		useSudo:       true,
+		dialTimeout:   15 * time.Second,
+		maxConns:      128,
+		idleTimeout:   90 * time.Second,
+		logLevel:      "debug",
+		quiet:         true,
+		statsAddr:     "127.0.0.1:9090",
+		lang:          "de",
 	}
 	if opt != want {
 		t.Fatalf("合并结果=%+v，期望 %+v", opt, want)

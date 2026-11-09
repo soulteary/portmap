@@ -174,6 +174,55 @@ flags:
 
 为避免异常客户端无界占用文件描述符和 goroutine，forward 默认最多接受 256 个并发 TCP 连接或 UDP 会话，并回收双向空闲超过 5 分钟的会话。需要保留旧版无界行为时，可显式设置 `-max-conns 0 -idle-timeout 0`。
 
+### 通过 SSH 转发本地 TCP 端口
+
+`forward` 可以通过 SSH 上游连接固定的远端目标。客户端直接访问本地端口，无需设置浏览器代理。
+
+```bash
+portmap forward \
+  -listen-port 10024 \
+  -target 127.0.0.1:10024 \
+  -upstream ssh://user@server.example:22
+```
+
+打开 `http://localhost:10024/`，或忽略环境代理进行测试：
+
+```bash
+curl --noproxy '*' http://127.0.0.1:10024/
+```
+
+目标地址从 SSH 服务器访问：`127.0.0.1` 指服务器自身，目标域名也由服务器解析。
+SSH 服务器需要允许 TCP 转发，应用需要监听对应的目标地址。
+
+未指定 `-listen-host` 时，SSH 转发默认监听 `127.0.0.1`。显式设置的地址会被保留，
+包括空地址或 `0.0.0.0`。不使用上游的直连转发仍默认监听所有网卡。
+
+SSH 上游仅支持 `-mode go -proto tcp`。UDP、`socat` 和其他上游协议会报错退出，
+SSH 连接失败时不会退回直连。
+
+认证、主机密钥校验和保活选项与 `proxy` 相同：`-upstream-identity`、
+`-upstream-known-hosts`、`-upstream-agent`、`-upstream-agent-socket`、
+`-upstream-insecure`、`-upstream-keepalive`、`-upstream-keepalive-max-failures`。
+默认启用 ssh-agent 和主机密钥校验。私钥口令与登录密码沿用 `proxy` 的环境变量和终端输入流程，
+不提供私钥口令命令行参数。
+
+对应的 YAML 配置：
+
+```yaml
+forward:
+  listen_port: 10024
+  target: 127.0.0.1:10024
+  upstream: ssh://user@server.example:22
+  upstream_agent: true
+```
+
+嵌套配置和旧版平铺配置均支持对应的 `upstream_*` 字段，包括 `upstream_identity_passphrase`。
+单实例下显式 CLI 参数优先于 YAML；多实例下各实例分别配置上游，实例级 CLI 参数按现有规则忽略并提示。
+
+SSH 连接在首次本地连接时建立，因此“开始监听”不代表远端认证和应用连接已通过。
+多个连接复用 SSH 传输，每条连接使用独立通道。断线重连用于后续连接，不会重放已中断的应用数据流。
+本地和远端端口可以相同。如果 SSH 服务器就是本机，应确认远端目标不会再次指向转发器自身。
+
 ### proxy 子命令（SOCKS5 + HTTP 代理）
 
 在**同一个监听端口**上通过窥探连接首字节自动区分 SOCKS5 与 HTTP/HTTPS 客户端；

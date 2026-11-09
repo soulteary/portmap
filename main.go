@@ -59,26 +59,41 @@ const (
 	defaultForwardIdleTimeout = 5 * time.Minute
 )
 
+type upstreamOptions struct {
+	upstream                     string
+	upstreamIdentity             string
+	upstreamIdentityPassphrase   string
+	upstreamKnownHosts           string
+	upstreamInsecure             bool
+	upstreamAgent                bool
+	upstreamAgentSocket          string
+	upstreamKeepalive            time.Duration
+	upstreamKeepaliveMaxFailures int
+}
+
 type options struct {
-	listenPort   int
-	listenHost   string
-	target       string
-	mode         string
-	proto        string
-	reuseAddr    bool
-	useSudo      bool
-	dialTimeout  time.Duration
-	maxConns     int
-	idleTimeout  time.Duration
-	logLevel     string
-	quiet        bool
-	showVersion  bool
-	configPath   string
-	lang         string
-	statsAddr    string
-	webAddr      string
-	webLogMax    int
-	webLogMaxSet bool
+	upstreamOptions
+	listenHostSet    bool
+	preparedUpstream *proxy.UpstreamConfig
+	listenPort       int
+	listenHost       string
+	target           string
+	mode             string
+	proto            string
+	reuseAddr        bool
+	useSudo          bool
+	dialTimeout      time.Duration
+	maxConns         int
+	idleTimeout      time.Duration
+	logLevel         string
+	quiet            bool
+	showVersion      bool
+	configPath       string
+	lang             string
+	statsAddr        string
+	webAddr          string
+	webLogMax        int
+	webLogMaxSet     bool
 }
 
 // String 返回最终生效配置的可读摘要，用于启动时打印，便于确认合并后的实际参数。
@@ -172,6 +187,14 @@ func runForward(argv []string) error {
 	fs.StringVar(&opt.webAddr, "web-addr", "", i18n.T(i18n.KeyFlagWebAddr))
 	fs.IntVar(&opt.webLogMax, "web-log-max", 1000, i18n.T(i18n.KeyFlagWebLogMax))
 
+	fs.StringVar(&opt.upstream, "upstream", "", i18n.T(i18n.KeyFlagForwardUpstream))
+	fs.StringVar(&opt.upstreamIdentity, "upstream-identity", "", i18n.T(i18n.KeyFlagProxyUpstreamIdentity))
+	fs.StringVar(&opt.upstreamKnownHosts, "upstream-known-hosts", "", i18n.T(i18n.KeyFlagProxyUpstreamKnownHosts))
+	fs.BoolVar(&opt.upstreamInsecure, "upstream-insecure", false, i18n.T(i18n.KeyFlagProxyUpstreamInsecure))
+	fs.BoolVar(&opt.upstreamAgent, "upstream-agent", true, i18n.T(i18n.KeyFlagProxyUpstreamAgent))
+	fs.StringVar(&opt.upstreamAgentSocket, "upstream-agent-socket", "", i18n.T(i18n.KeyFlagProxyUpstreamAgentSocket))
+	fs.DurationVar(&opt.upstreamKeepalive, "upstream-keepalive", 0, i18n.T(i18n.KeyFlagProxyUpstreamKeepalive))
+	fs.IntVar(&opt.upstreamKeepaliveMaxFailures, "upstream-keepalive-max-failures", 0, i18n.T(i18n.KeyFlagProxyUpstreamKeepaliveMaxFailures))
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "%s\n\n", i18n.T(i18n.KeyUsageTitle))
 		fmt.Fprintln(os.Stderr, i18n.T(i18n.KeyUsageLine, "portmap"))
@@ -201,6 +224,7 @@ func runForward(argv []string) error {
 	// 也用于 socat 模式判断是否使用了仅 go 模式支持的选项。
 	setFlags := make(map[string]bool)
 	fs.Visit(func(f *flag.Flag) { setFlags[f.Name] = true })
+	opt.listenHostSet = setFlags["listen-host"]
 
 	// 多实例（多端口映射）：仅当 -config 指向的配置文件中 forward: 段声明了
 	// 多个实例时触发；此时逐个实例转换为运行参数并发启动，per-instance 忽略
@@ -225,6 +249,10 @@ func runForward(argv []string) error {
 	}
 
 	if err := validateForwardOptions(&opt); err != nil {
+		return err
+	}
+
+	if err := prepareForwardUpstream(&opt); err != nil {
 		return err
 	}
 
@@ -269,26 +297,17 @@ func preScanLang(argv []string) string {
 }
 
 func runGo(ctx context.Context, opt options) error {
+	if err := prepareForwardUpstream(&opt); err != nil {
+		return err
+	}
 	log.Print(i18n.T(i18n.KeyLogEffectiveConfig, opt))
-	listen := net.JoinHostPort(opt.listenHost, strconv.Itoa(opt.listenPort))
 	// 仅当启用 Web 面板（-web-addr 非空）时创建事件日志并注入 forward，
 	// 未启用时保持 nil，避免无谓的内存与插桩开销。
 	var events *stats.EventLog
 	if strings.TrimSpace(opt.webAddr) != "" {
 		events = stats.NewEventLog(opt.webLogMax)
 	}
-	srv := forward.New(forward.Config{
-		Listen:      listen,
-		Target:      opt.target,
-		Network:     opt.proto,
-		ReuseAddr:   opt.reuseAddr,
-		DialTimeout: opt.dialTimeout,
-		MaxConns:    opt.maxConns,
-		IdleTimeout: opt.idleTimeout,
-		Debug:       strings.EqualFold(opt.logLevel, "debug"),
-		Quiet:       opt.quiet,
-		Events:      events,
-	})
+	srv := newForwardServer(opt, events)
 	watchStatusSignal(ctx, srv)
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -368,6 +387,8 @@ var forwardPerInstanceFlags = []string{
 	"listen-port", "listen-host", "target", "mode", "proto",
 	"reuseaddr", "sudo", "dial-timeout", "max-conns", "idle-timeout",
 	"log-level", "quiet",
+	"upstream", "upstream-identity", "upstream-known-hosts", "upstream-insecure",
+	"upstream-agent", "upstream-agent-socket", "upstream-keepalive", "upstream-keepalive-max-failures",
 }
 
 // normalizeForwardOptions 归一化并校验单个 forward 实例的运行参数。
@@ -404,7 +425,7 @@ func normalizeForwardOptions(opt *options) error {
 		return errors.New(i18n.T(i18n.KeyErrLogLevel, opt.logLevel))
 	}
 	opt.logLevel = logLevel
-	return nil
+	return validateForwardUpstream(opt)
 }
 
 // forwardListenAddr 返回 forward 实例的规范化监听地址，用于日志。
@@ -437,16 +458,17 @@ func applyForwardGlobalFlags(opt *options, base options, setFlags map[string]boo
 // 逐个转换时作为起点（每个实例从默认值出发，再叠加配置文件字段）。
 func defaultForwardOptions() options {
 	return options{
-		listenPort:  22,
-		target:      "127.0.0.1:2222",
-		mode:        "go",
-		proto:       "tcp",
-		reuseAddr:   true,
-		dialTimeout: 10 * time.Second,
-		maxConns:    defaultForwardMaxConns,
-		idleTimeout: defaultForwardIdleTimeout,
-		logLevel:    "info",
-		webLogMax:   1000,
+		upstreamOptions: upstreamOptions{upstreamAgent: true},
+		listenPort:      22,
+		target:          "127.0.0.1:2222",
+		mode:            "go",
+		proto:           "tcp",
+		reuseAddr:       true,
+		dialTimeout:     10 * time.Second,
+		maxConns:        defaultForwardMaxConns,
+		idleTimeout:     defaultForwardIdleTimeout,
+		logLevel:        "info",
+		webLogMax:       1000,
 	}
 }
 
@@ -522,22 +544,16 @@ func startForwardInstances(ctx context.Context, instances []options) error {
 	if admin.webAddr != "" {
 		events = stats.NewEventLog(admin.webLogMax)
 	}
+	for i := range instances {
+		if err := prepareForwardUpstream(&instances[i]); err != nil {
+			return err
+		}
+	}
 	for i, opt := range instances {
 		i, opt := i, opt
 		listen := forwardListenAddr(opt)
 		log.Print(i18n.T(i18n.KeyLogInstanceStarting, i+1, opt.String()))
-		srv := forward.New(forward.Config{
-			Listen:      listen,
-			Target:      opt.target,
-			Network:     opt.proto,
-			ReuseAddr:   opt.reuseAddr,
-			DialTimeout: opt.dialTimeout,
-			MaxConns:    opt.maxConns,
-			IdleTimeout: opt.idleTimeout,
-			Debug:       strings.EqualFold(opt.logLevel, "debug"),
-			Quiet:       opt.quiet,
-			Events:      events,
-		})
+		srv := newForwardServer(opt, events)
 		providers = append(providers, srv)
 		watchStatusSignal(ctx, srv)
 		wg.Add(1)
@@ -762,6 +778,12 @@ func validateProxyOptions(opt *proxyOptions) error {
 // term.ReadPassword，不回显。passphrase 不会写入日志。出于安全考虑不提供命令行
 // flag，避免明文出现在进程列表或 shell 历史中。
 func resolveIdentityPassphrase(opt *proxyOptions) {
+	settings := opt.upstreamSettings()
+	resolveUpstreamIdentityPassphrase(&settings, opt.addr)
+	opt.upstreamIdentityPassphrase = settings.upstreamIdentityPassphrase
+}
+
+func resolveUpstreamIdentityPassphrase(opt *upstreamOptions, promptTarget string) {
 	if env := os.Getenv("PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE"); env != "" {
 		opt.upstreamIdentityPassphrase = env
 		return
@@ -781,7 +803,7 @@ func resolveIdentityPassphrase(opt *proxyOptions) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return
 	}
-	pw, err := readPasswordPrompt(i18n.T(i18n.KeyPromptUpstreamIdentityPassphrase, opt.addr), int(os.Stdin.Fd()), os.Stderr, term.ReadPassword)
+	pw, err := readPasswordPrompt(i18n.T(i18n.KeyPromptUpstreamIdentityPassphrase, promptTarget), int(os.Stdin.Fd()), os.Stderr, term.ReadPassword)
 	if err != nil {
 		return
 	}
@@ -869,6 +891,11 @@ func promptUpstreamPassword(u *proxy.UpstreamConfig) {
 // buildProxyUpstream 依据 proxyOptions 解析上游代理链配置；upstream 为空表示
 // 直连（返回 nil, nil），保持向后兼容。
 func buildProxyUpstream(opt *proxyOptions) (*proxy.UpstreamConfig, error) {
+	settings := opt.upstreamSettings()
+	return buildUpstream(&settings)
+}
+
+func buildUpstream(opt *upstreamOptions) (*proxy.UpstreamConfig, error) {
 	if strings.TrimSpace(opt.upstream) == "" {
 		return nil, nil
 	}
@@ -1149,34 +1176,7 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 }
 
 func validateForwardOptions(opt *options) error {
-	if opt.listenPort <= 0 || opt.listenPort > 65535 {
-		return errors.New(i18n.T(i18n.KeyErrListenPort, opt.listenPort))
-	}
-	if strings.TrimSpace(opt.target) == "" {
-		return errors.New(i18n.T(i18n.KeyErrTargetEmpty))
-	}
-	proto := strings.ToLower(strings.TrimSpace(opt.proto))
-	if proto != "tcp" && proto != "udp" {
-		return errors.New(i18n.T(i18n.KeyErrProto, opt.proto))
-	}
-	opt.proto = proto
-
-	if opt.idleTimeout < 0 {
-		return errors.New(i18n.T(i18n.KeyErrIdleNeg, opt.idleTimeout))
-	}
-	if opt.maxConns < 0 {
-		return errors.New(i18n.T(i18n.KeyErrMaxConnsNeg, opt.maxConns))
-	}
-	if opt.dialTimeout < 0 {
-		return errors.New(i18n.T(i18n.KeyErrDialNeg, opt.dialTimeout))
-	}
-	logLevel := strings.ToLower(strings.TrimSpace(opt.logLevel))
-	if logLevel != "info" && logLevel != "debug" {
-		return errors.New(i18n.T(i18n.KeyErrLogLevel, opt.logLevel))
-	}
-	opt.logLevel = logLevel
-
-	return nil
+	return normalizeForwardOptions(opt)
 }
 
 func loadCommandConfig(path string, langSet bool, section string) (*Config, error) {
@@ -1310,4 +1310,70 @@ func readPasswordPrompt(prompt string, fd int, output io.Writer, read func(int) 
 		return "", err
 	}
 	return string(password), nil
+}
+
+func newForwardServer(opt options, events *stats.EventLog) *forward.Server {
+	return forward.New(forward.Config{
+		Listen:      forwardListenAddr(opt),
+		Target:      opt.target,
+		Network:     opt.proto,
+		ReuseAddr:   opt.reuseAddr,
+		DialTimeout: opt.dialTimeout,
+		MaxConns:    opt.maxConns,
+		IdleTimeout: opt.idleTimeout,
+		Debug:       strings.EqualFold(opt.logLevel, "debug"),
+		Quiet:       opt.quiet,
+		Events:      events,
+		Upstream:    opt.preparedUpstream,
+	})
+}
+
+func (opt proxyOptions) upstreamSettings() upstreamOptions {
+	return upstreamOptions{
+		upstream:                     opt.upstream,
+		upstreamIdentity:             opt.upstreamIdentity,
+		upstreamIdentityPassphrase:   opt.upstreamIdentityPassphrase,
+		upstreamKnownHosts:           opt.upstreamKnownHosts,
+		upstreamInsecure:             opt.upstreamInsecure,
+		upstreamAgent:                opt.upstreamAgent,
+		upstreamAgentSocket:          opt.upstreamAgentSocket,
+		upstreamKeepalive:            opt.upstreamKeepalive,
+		upstreamKeepaliveMaxFailures: opt.upstreamKeepaliveMaxFailures,
+	}
+}
+
+func validateForwardUpstream(opt *options) error {
+	if strings.TrimSpace(opt.upstream) == "" {
+		return nil
+	}
+	if opt.mode != "go" || opt.proto != "tcp" {
+		return errors.New(i18n.T(i18n.KeyErrForwardSSHMode))
+	}
+	u, err := proxy.ParseUpstreamURL(opt.upstream)
+	if err != nil {
+		return err
+	}
+	if u.Scheme != proxy.UpstreamSchemeSSH {
+		return errors.New(i18n.T(i18n.KeyErrForwardSSHOnly))
+	}
+	if opt.upstreamKeepaliveMaxFailures < 0 {
+		return errors.New(i18n.T(i18n.KeyErrForwardSSHFailures))
+	}
+	if !opt.listenHostSet {
+		opt.listenHost = "127.0.0.1"
+	}
+	return nil
+}
+
+func prepareForwardUpstream(opt *options) error {
+	if strings.TrimSpace(opt.upstream) == "" || opt.preparedUpstream != nil {
+		return nil
+	}
+	resolveUpstreamIdentityPassphrase(&opt.upstreamOptions, forwardListenAddr(*opt))
+	u, err := buildUpstream(&opt.upstreamOptions)
+	if err != nil {
+		return err
+	}
+	opt.preparedUpstream = u
+	return nil
 }

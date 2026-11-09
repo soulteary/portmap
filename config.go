@@ -130,6 +130,17 @@ func errUnexpectedNodeKind(node *yaml.Node) error {
 // ForwardConfig 是 forward 子命令的配置段，字段与 forward flag 一一对应。
 // 字段均为指针：nil 表示配置文件中未出现该字段，非 nil 才参与合并（覆盖默认值）。
 type ForwardConfig struct {
+	Upstream                   *string `yaml:"upstream"`
+	UpstreamIdentity           *string `yaml:"upstream_identity"`
+	UpstreamIdentityPassphrase *string `yaml:"upstream_identity_passphrase"`
+	UpstreamKnownHosts         *string `yaml:"upstream_known_hosts"`
+	UpstreamInsecure           *bool   `yaml:"upstream_insecure"`
+	UpstreamAgent              *bool   `yaml:"upstream_agent"`
+	UpstreamAgentSocket        *string `yaml:"upstream_agent_socket"`
+
+	UpstreamKeepalive            *string `yaml:"upstream_keepalive"`
+	UpstreamKeepaliveMaxFailures *int    `yaml:"upstream_keepalive_max_failures"`
+
 	ListenPort  *int    `yaml:"listen_port"`
 	ListenHost  *string `yaml:"listen_host"`
 	Target      *string `yaml:"target"`
@@ -180,6 +191,17 @@ type ProxyConfig struct {
 // 为向后兼容保留：loadConfig 仍按此布局解析，loadForwardConfig 会在检测到
 // 新版嵌套布局时改用 Config.Forward。
 type fileConfig struct {
+	Upstream                   *string `yaml:"upstream"`
+	UpstreamIdentity           *string `yaml:"upstream_identity"`
+	UpstreamIdentityPassphrase *string `yaml:"upstream_identity_passphrase"`
+	UpstreamKnownHosts         *string `yaml:"upstream_known_hosts"`
+	UpstreamInsecure           *bool   `yaml:"upstream_insecure"`
+	UpstreamAgent              *bool   `yaml:"upstream_agent"`
+	UpstreamAgentSocket        *string `yaml:"upstream_agent_socket"`
+
+	UpstreamKeepalive            *string `yaml:"upstream_keepalive"`
+	UpstreamKeepaliveMaxFailures *int    `yaml:"upstream_keepalive_max_failures"`
+
 	ListenPort  *int    `yaml:"listen_port"`
 	ListenHost  *string `yaml:"listen_host"`
 	Target      *string `yaml:"target"`
@@ -269,7 +291,17 @@ func loadTopConfig(path string) (*Config, error) {
 		return cfg, nil
 	}
 	cfg.Forward = ForwardConfigList{{
-		ListenPort:  flat.ListenPort,
+		ListenPort:                   flat.ListenPort,
+		Upstream:                     flat.Upstream,
+		UpstreamIdentity:             flat.UpstreamIdentity,
+		UpstreamIdentityPassphrase:   flat.UpstreamIdentityPassphrase,
+		UpstreamKnownHosts:           flat.UpstreamKnownHosts,
+		UpstreamInsecure:             flat.UpstreamInsecure,
+		UpstreamAgent:                flat.UpstreamAgent,
+		UpstreamAgentSocket:          flat.UpstreamAgentSocket,
+		UpstreamKeepalive:            flat.UpstreamKeepalive,
+		UpstreamKeepaliveMaxFailures: flat.UpstreamKeepaliveMaxFailures,
+
 		ListenHost:  flat.ListenHost,
 		Target:      flat.Target,
 		Mode:        flat.Mode,
@@ -303,6 +335,16 @@ func loadForwardConfig(path string) (*fileConfig, error) {
 	if len(cfg.Forward) > 0 && cfg.Forward[0] != nil {
 		fw := cfg.Forward[0]
 		out.ListenPort = fw.ListenPort
+		out.Upstream = fw.Upstream
+		out.UpstreamIdentity = fw.UpstreamIdentity
+		out.UpstreamIdentityPassphrase = fw.UpstreamIdentityPassphrase
+		out.UpstreamKnownHosts = fw.UpstreamKnownHosts
+		out.UpstreamInsecure = fw.UpstreamInsecure
+		out.UpstreamAgent = fw.UpstreamAgent
+		out.UpstreamAgentSocket = fw.UpstreamAgentSocket
+		out.UpstreamKeepalive = fw.UpstreamKeepalive
+		out.UpstreamKeepaliveMaxFailures = fw.UpstreamKeepaliveMaxFailures
+
 		out.ListenHost = fw.ListenHost
 		out.Target = fw.Target
 		out.Mode = fw.Mode
@@ -416,6 +458,9 @@ func mergeConfig(opt *options, cfg *fileConfig, setFlags map[string]bool) error 
 	}
 
 	applyConfigValue(&opt.listenPort, cfg.ListenPort, setFlags, "listen-port")
+	if cfg.ListenHost != nil && !setFlags["listen-host"] {
+		opt.listenHostSet = true
+	}
 	applyConfigValue(&opt.listenHost, cfg.ListenHost, setFlags, "listen-host")
 	applyConfigValue(&opt.target, cfg.Target, setFlags, "target")
 	applyConfigValue(&opt.mode, cfg.Mode, setFlags, "mode")
@@ -435,6 +480,21 @@ func mergeConfig(opt *options, cfg *fileConfig, setFlags map[string]bool) error 
 	if err := applyConfigDuration(&opt.idleTimeout, cfg.IdleTimeout, setFlags, "idle-timeout", i18n.KeyErrConfigIdle); err != nil {
 		return err
 	}
+	applyConfigValue(&opt.upstream, cfg.Upstream, setFlags, "upstream")
+	applyConfigValue(&opt.upstreamIdentity, cfg.UpstreamIdentity, setFlags, "upstream-identity")
+	// upstream_identity_passphrase 无对应命令行 flag（安全考虑），故不参与
+	// setFlags 门控；环境变量优先级更高，在 resolveIdentityPassphrase 中处理。
+	if cfg.UpstreamIdentityPassphrase != nil {
+		opt.upstreamIdentityPassphrase = *cfg.UpstreamIdentityPassphrase
+	}
+	applyConfigValue(&opt.upstreamKnownHosts, cfg.UpstreamKnownHosts, setFlags, "upstream-known-hosts")
+	applyConfigValue(&opt.upstreamInsecure, cfg.UpstreamInsecure, setFlags, "upstream-insecure")
+	applyConfigValue(&opt.upstreamAgent, cfg.UpstreamAgent, setFlags, "upstream-agent")
+	applyConfigValue(&opt.upstreamAgentSocket, cfg.UpstreamAgentSocket, setFlags, "upstream-agent-socket")
+	if err := applyConfigDuration(&opt.upstreamKeepalive, cfg.UpstreamKeepalive, setFlags, "upstream-keepalive", i18n.KeyErrConfigKeepalive); err != nil {
+		return err
+	}
+	applyConfigValue(&opt.upstreamKeepaliveMaxFailures, cfg.UpstreamKeepaliveMaxFailures, setFlags, "upstream-keepalive-max-failures")
 	return nil
 }
 
@@ -447,6 +507,9 @@ func applyForwardConfig(opt *options, fc *ForwardConfig, setFlags map[string]boo
 		return nil
 	}
 	applyConfigValue(&opt.listenPort, fc.ListenPort, setFlags, "listen-port")
+	if fc.ListenHost != nil && !setFlags["listen-host"] {
+		opt.listenHostSet = true
+	}
 	applyConfigValue(&opt.listenHost, fc.ListenHost, setFlags, "listen-host")
 	applyConfigValue(&opt.target, fc.Target, setFlags, "target")
 	applyConfigValue(&opt.mode, fc.Mode, setFlags, "mode")
@@ -465,6 +528,21 @@ func applyForwardConfig(opt *options, fc *ForwardConfig, setFlags map[string]boo
 	if err := applyConfigDuration(&opt.idleTimeout, fc.IdleTimeout, setFlags, "idle-timeout", i18n.KeyErrConfigIdle); err != nil {
 		return err
 	}
+	applyConfigValue(&opt.upstream, fc.Upstream, setFlags, "upstream")
+	applyConfigValue(&opt.upstreamIdentity, fc.UpstreamIdentity, setFlags, "upstream-identity")
+	// upstream_identity_passphrase 无对应命令行 flag（安全考虑），故不参与
+	// setFlags 门控；环境变量优先级更高，在 resolveIdentityPassphrase 中处理。
+	if fc.UpstreamIdentityPassphrase != nil {
+		opt.upstreamIdentityPassphrase = *fc.UpstreamIdentityPassphrase
+	}
+	applyConfigValue(&opt.upstreamKnownHosts, fc.UpstreamKnownHosts, setFlags, "upstream-known-hosts")
+	applyConfigValue(&opt.upstreamInsecure, fc.UpstreamInsecure, setFlags, "upstream-insecure")
+	applyConfigValue(&opt.upstreamAgent, fc.UpstreamAgent, setFlags, "upstream-agent")
+	applyConfigValue(&opt.upstreamAgentSocket, fc.UpstreamAgentSocket, setFlags, "upstream-agent-socket")
+	if err := applyConfigDuration(&opt.upstreamKeepalive, fc.UpstreamKeepalive, setFlags, "upstream-keepalive", i18n.KeyErrConfigKeepalive); err != nil {
+		return err
+	}
+	applyConfigValue(&opt.upstreamKeepaliveMaxFailures, fc.UpstreamKeepaliveMaxFailures, setFlags, "upstream-keepalive-max-failures")
 	return nil
 }
 

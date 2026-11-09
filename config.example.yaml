@@ -152,3 +152,15 @@ lang: en
 #       upstream_keepalive_max_failures: 3
 #     - addr: 127.0.0.1:1080
 #       upstream: socks5://user:pass@host:1080
+
+# TCP forwarding through SSH (alternative configuration):
+# forward:
+#   listen_port: 10024
+#   target: 127.0.0.1:10024  # reached from the SSH server
+#   upstream: ssh://user@server.example:22
+#   upstream_agent: true
+# An omitted listen_host defaults to 127.0.0.1 for SSH forwarding.
+# SSH options use the same upstream_* fields as proxy, including
+# upstream_identity, upstream_identity_passphrase, upstream_known_hosts,
+# upstream_agent_socket, upstream_insecure, upstream_keepalive, and
+# upstream_keepalive_max_failures. Do not store real credentials in examples.

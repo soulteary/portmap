@@ -64,18 +64,19 @@ func TestApplyForwardConfig(t *testing.T) {
 			t.Fatalf("applyForwardConfig: %v", err)
 		}
 		want := options{
-			listenPort:  2200,
-			listenHost:  "0.0.0.0",
-			target:      "10.1.1.1:22",
-			mode:        "socat",
-			proto:       "udp",
-			reuseAddr:   true,
-			useSudo:     true,
-			maxConns:    128,
-			logLevel:    "debug",
-			quiet:       true,
-			dialTimeout: 15 * time.Second,
-			idleTimeout: 90 * time.Second,
+			listenHostSet: true,
+			listenPort:    2200,
+			listenHost:    "0.0.0.0",
+			target:        "10.1.1.1:22",
+			mode:          "socat",
+			proto:         "udp",
+			reuseAddr:     true,
+			useSudo:       true,
+			maxConns:      128,
+			logLevel:      "debug",
+			quiet:         true,
+			dialTimeout:   15 * time.Second,
+			idleTimeout:   90 * time.Second,
 		}
 		if opt != want {
 			t.Fatalf("合并结果=%+v，期望 %+v", opt, want)
