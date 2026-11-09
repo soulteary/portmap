@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-10
+
 ### Added
 
 - Support SSH upstreams for Go-mode TCP forwarding, with CLI/YAML settings,
@@ -152,6 +154,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 [1.3.1]: https://github.com/soulteary/portmap/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/soulteary/portmap/compare/v1.2.0...v1.3.0
 
-[Unreleased]: https://github.com/soulteary/portmap/compare/v1.3.5...HEAD
+[Unreleased]: https://github.com/soulteary/portmap/compare/v1.4.0...HEAD
 [1.3.5]: https://github.com/soulteary/portmap/compare/v1.3.4...v1.3.5
 [1.3.4]: https://github.com/soulteary/portmap/compare/v1.3.3...v1.3.4
+
+[1.4.0]: https://github.com/soulteary/portmap/compare/v1.3.5...v1.4.0
