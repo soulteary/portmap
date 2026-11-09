@@ -5,6 +5,29 @@ All notable changes to portmap are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Support SSH upstreams for Go-mode TCP forwarding, with CLI/YAML settings,
+  YAML multi-instance configuration, and loopback defaults for omitted SSH
+  listener addresses.
+
+### Fixed
+
+- Apply default upstream ports to IPv6 authorities without duplicating brackets;
+  preserve explicit ports and zone identifiers.
+- Check proxy upstream endpoints in the local namespace rather than comparing
+  remote application targets with the local listener.
+
+### Changed
+
+- Organize bilingual usage guides around common operations and troubleshooting;
+  keep release history in this changelog and move the load-test reference to
+  separate guides.
+- Correct configuration, authentication, timeout and shutdown documentation,
+  contributor tool versions, and stale source comments.
+
 ## [1.3.5] - 2026-11-01
 
 ### Fixed
@@ -128,3 +151,7 @@ and this project follows [Semantic Versioning](https://semver.org/).
 [1.3.2]: https://github.com/soulteary/portmap/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/soulteary/portmap/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/soulteary/portmap/compare/v1.2.0...v1.3.0
+
+[Unreleased]: https://github.com/soulteary/portmap/compare/v1.3.5...HEAD
+[1.3.5]: https://github.com/soulteary/portmap/compare/v1.3.4...v1.3.5
+[1.3.4]: https://github.com/soulteary/portmap/compare/v1.3.3...v1.3.4
