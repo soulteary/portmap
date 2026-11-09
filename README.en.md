@@ -308,9 +308,11 @@ Important proxy flags:
 
 The proxy has no authentication, so it rejects non-loopback listen addresses by
 default. Only use `-allow-public` behind an appropriate firewall or equivalent
-access boundary. Requests that resolve back to the proxy's own listener are also
-rejected to prevent recursive connection storms. On shutdown, existing connections
-have up to 10 seconds to finish before they are closed.
+access boundary. Direct targets that resolve back to this proxy's listener are
+rejected. With an upstream, this check applies to the upstream endpoint instead;
+application targets belong to the upstream's namespace and may use the same address
+as the local listener. On shutdown, existing connections have up to 10 seconds to
+finish before they are closed.
 HTTP request lines and headers are limited to 1 MiB in total; larger requests receive
 `431 Request Header Fields Too Large`.
 Plain HTTP Upgrade requests (including `ws://`) are rejected with `501 Not Implemented`
@@ -547,7 +549,7 @@ UDP is connectionless. In `go` mode, sessions are maintained as "client address 
 
 - **`-max-conns`**: under UDP this limits the **number of concurrent sessions** (rather than connections). When exceeded, new clients are rejected directly and their first packet is dropped (UDP has no queuing semantics), which is logged under `-log-level debug`.
 - **`-idle-timeout`**: under UDP a value of `0` **falls back to the default 60s**, i.e. sessions idle for more than 60s are reclaimed (under TCP, `0` means disabled).
-- TCP/UDP targets that resolve to the active forward listener are rejected during startup. TCP checks the connected peer again after dialing so DNS changes cannot create a recursive connection or packet storm.
+- Direct TCP/UDP targets that resolve to the active forward listener are rejected during startup. Direct TCP checks the connected peer again after dialing so DNS changes cannot create a recursive connection or packet storm. SSH forwarding targets belong to the remote namespace and are not compared with the local listener.
 
 ## Observability
 
