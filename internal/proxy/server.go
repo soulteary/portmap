@@ -436,8 +436,13 @@ func isLoopbackListener(addr net.Addr) bool {
 	return ok && tcpAddr.IP.IsLoopback()
 }
 
-// isSelfTarget 判断目标是否会回连当前监听器，避免 HTTP/SOCKS 请求触发递归连接风暴。
+// isSelfTarget checks the locally dialed endpoint against our listener. With
+// an upstream, the application target belongs to the upstream's namespace.
 func (s *Server) isSelfTarget(ctx context.Context, target string) bool {
+	if s.Upstream != nil {
+		target = s.Upstream.Addr
+	}
+
 	host, port, err := net.SplitHostPort(target)
 	if err != nil {
 		return false
@@ -484,6 +489,11 @@ func (s *Server) isSelfTarget(ctx context.Context, target string) bool {
 
 // isSelfConn 在拨号完成后再次检查实际对端，防止 DNS 在检查与拨号之间变化。
 func (s *Server) isSelfConn(conn net.Conn) bool {
+	// SSH connections here are channels, not the local transport socket.
+	if s.Upstream != nil && s.Upstream.Scheme == UpstreamSchemeSSH {
+		return false
+	}
+
 	remoteAddr, ok := conn.RemoteAddr().(*net.TCPAddr)
 	if !ok {
 		return false

@@ -230,6 +230,9 @@ Open `http://localhost:10024/`, or test without using an environment proxy:
 curl --noproxy '*' http://127.0.0.1:10024/
 ```
 
+IPv6 upstream URLs accept an omitted port or an empty port; the scheme default
+is applied without changing explicit ports or IPv6 zone identifiers.
+
 The target is reached from the SSH server. Its loopback address refers to that
 server, and target hostnames are resolved there. SSH must allow TCP forwarding,
 and the remote service must be listening on the target address.
@@ -740,9 +743,11 @@ Prerequisites:
     │   ├── server.go                # lifecycle, protocol detection, and dispatch
     │   ├── socks5.go                # SOCKS5 handshake and CONNECT
     │   ├── http.go                  # HTTP forwarding and CONNECT tunneling
-    │   ├── dialer.go                # direct dialer that ignores environment proxies
-    │   ├── upstream.go              # SOCKS5/HTTP/SSH upstream dialing
+    │   ├── upstream.go              # compatibility wrappers for shared transports
     │   └── proxy_test.go            # proxy integration tests
+    ├── upstream                     # shared outbound transports for forward/proxy
+    │   ├── dialer.go                # direct dialing; ignores environment proxies
+    │   └── upstream.go              # SOCKS5/HTTP/SSH upstream dialing
     ├── netutil                      # shared relay and idle-timeout primitives
     │   └── netutil.go               # Relay / RelayReader / IdleConn
     ├── stats                        # counters, events, JSON, and Prometheus output

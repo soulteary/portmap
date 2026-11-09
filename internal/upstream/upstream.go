@@ -133,9 +133,14 @@ func ParseUpstreamURL(raw string) (*UpstreamConfig, error) {
 
 // defaultUpstreamPort 在 host 缺省端口时补齐各协议的默认端口。
 func defaultUpstreamPort(scheme, host string) string {
-	if _, _, err := net.SplitHostPort(host); err == nil {
-		return host
+	if name, port, err := net.SplitHostPort(host); err == nil {
+		if port != "" {
+			return host
+		}
+		host = name
 	}
+	// URL authorities retain IPv6 brackets; JoinHostPort adds its own pair.
+	host = strings.TrimPrefix(strings.TrimSuffix(host, "]"), "[")
 	switch scheme {
 	case UpstreamSchemeSOCKS5:
 		return net.JoinHostPort(host, "1080")

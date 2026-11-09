@@ -191,6 +191,8 @@ portmap forward \
 curl --noproxy '*' http://127.0.0.1:10024/
 ```
 
+IPv6 上游 URL 可以省略端口或使用空端口，此时使用协议默认端口；显式端口及 IPv6 zone 标识保持不变。
+
 目标地址从 SSH 服务器访问：`127.0.0.1` 指服务器自身，目标域名也由服务器解析。
 SSH 服务器需要允许 TCP 转发，应用需要监听对应的目标地址。
 
@@ -740,9 +742,11 @@ CI 见 `.github/workflows/ci.yml`：在 Linux/macOS 上运行 `go vet` 与
     │   ├── server.go                # 监听、首字节协议探测、连接分发
     │   ├── socks5.go                # SOCKS5 握手与 CONNECT
     │   ├── http.go                  # HTTP 代理与 CONNECT 转发
-    │   ├── dialer.go                # 忽略环境代理的直连拨号器
-    │   ├── upstream.go              # SOCKS5/HTTP/SSH 上游拨号
+    │   ├── upstream.go              # 共用传输层的兼容入口
     │   └── proxy_test.go            # proxy 单元测试
+    ├── upstream                     # forward/proxy 共用的出站传输
+    │   ├── dialer.go                # 忽略环境代理的直连拨号器
+    │   └── upstream.go              # SOCKS5/HTTP/SSH 上游拨号
     ├── netutil                      # forward/proxy 共用的双向转发与空闲超时
     │   └── netutil.go               # Relay / RelayReader / IdleConn
     ├── stats                        # 统计、事件、JSON 与 Prometheus 输出
