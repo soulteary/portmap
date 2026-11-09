@@ -4,8 +4,6 @@
   <a href="#contributing-english">ENGLISH</a> | <a href="#贡献指南中文">中文</a>
 </p>
 
-Thanks for taking the time to contribute! 感谢你抽出时间参与贡献！
-
 Before you start, please read our [Code of Conduct](CODE_OF_CONDUCT.md).
 在开始之前，请先阅读我们的[行为准则](CODE_OF_CONDUCT.md)。
 
@@ -26,7 +24,7 @@ Before you start, please read our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 - **Go 1.27.3+** (the exact version is pinned in [`go.mod`](go.mod)).
 - **make** — used to drive common build/test/lint tasks.
-- **golangci-lint** `v2.13.2` — matches the version used in CI
+- **golangci-lint** `v2.14.0` — matches the version used in CI
   (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 - **socat** *(optional)* — only needed to exercise the `socat` mode locally.
 - **goreleaser** *(optional)* — only needed to dry-run the release flow.
@@ -60,7 +58,7 @@ git switch -c fix/short-description
 
 ### Local Checks
 
-Run these before opening a PR — they mirror what CI enforces:
+Run these before opening a PR; the CI-specific report gates are described below:
 
 ```bash
 make vet    # go vet ./...
@@ -68,11 +66,15 @@ make test   # go test ./... -race -count=1
 make lint   # golangci-lint run ./...
 make build  # build with version info injected
 make security # govulncheck
+make tidy-check # go mod tidy -diff
 ```
 
 CI runs `go vet` and `go test -race` on Linux and macOS, plus separate lint,
 module-hygiene, and vulnerability jobs. It cross-compiles every supported release
-target, so please keep the code portable across those platforms.
+target, so please keep the code portable across those platforms. The Linux PR job
+also requires at least 95% statement coverage and a 100% Go Report Card score,
+including a cyclomatic complexity limit of 15 per function. Container CI verifies
+the image's configured user. Check the workflow for the current tool versions.
 
 ### Coding Guidelines
 
@@ -110,21 +112,25 @@ message:
 
 ### Release Checklist
 
-1. Update `CHANGELOG.md` and both README files for the target version.
+1. Update `CHANGELOG.md` for the release. Update both READMEs when usage changes; keep release history in the changelog.
 2. Run `make check`, `make lint`, and `goreleaser check`.
 3. Confirm `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are configured.
 4. Merge the release-preparation PR and create the version tag from the resulting
-   `main` commit (for example, `v1.2.0`).
+   `main` commit, using the version tag selected for the release.
 5. Verify the GitHub archives, checksums, attestations, and both container
    registries, then update the Homebrew tap.
 
 ### Project Layout
 
-See the "项目结构 / Project structure" section of the
-[README](README.md#项目结构) for a detailed file-by-file map. In short:
+See [Project Structure](README.en.md#project-structure) for the package map:
 
 - top-level `*.go` — CLI entry, config loading, signal handling.
 - `internal/forward` — the pure-Go TCP/UDP forwarder.
+- `internal/proxy` — SOCKS5/HTTP request handling and lifecycle.
+- `internal/upstream` — shared direct and upstream transports.
+- `internal/netutil` — relay, half-close, and idle timeouts.
+- `internal/stats`, `internal/web` — counters and read-only monitoring.
+- `cmd/loadtest` — TCP/UDP echo workloads.
 - `internal/socat` — the system-`socat` fallback.
 - `internal/i18n` — localization.
 
@@ -150,7 +156,7 @@ project's [Apache License 2.0](LICENSE).
 
 - **Go 1.27.3+**（准确版本以 [`go.mod`](go.mod) 为准）。
 - **make** —— 用于驱动常用的构建/测试/检查任务。
-- **golangci-lint** `v2.13.2` —— 与 CI 使用的版本一致
+- **golangci-lint** `v2.14.0` —— 与 CI 使用的版本一致
   （见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)）。
 - **socat**（可选）—— 仅在本地验证 `socat` 模式时需要。
 - **goreleaser**（可选）—— 仅在本地试跑发布流程时需要。
@@ -179,12 +185,12 @@ git switch -c fix/short-description
 ```
 
 2. 进行改动，保持提交聚焦、自成一体。
-3. 运行下方的本地检查（与 CI 保持一致）。
+3. 运行下方的本地检查（检查项目见下文）。
 4. 推送分支并向 `main` 发起 Pull Request。
 
 ### 本地检查
 
-在发起 PR 前请先运行以下命令，它们与 CI 的检查一致：
+在发起 PR 前运行以下命令；CI 特有的报告门槛见下文：
 
 ```bash
 make vet    # go vet ./...
@@ -192,11 +198,14 @@ make test   # go test ./... -race -count=1
 make lint   # golangci-lint run ./...
 make build  # 注入版本信息编译
 make security # govulncheck
+make tidy-check # go mod tidy -diff
 ```
 
 CI 会在 Linux、macOS 上运行 `go vet` 与 `go test -race`，并单独运行 lint、
 模块整洁与漏洞检查；同时会交叉编译全部受支持的发布目标。请确保代码在这些平台间
-保持可移植。
+保持可移植。Linux PR 作业还检查语句覆盖率不低于 95%、Go Report Card
+评分为 100%，其中每个函数的圈复杂度不超过 15。容器作业会核对镜像默认用户。
+工具版本以工作流为准。
 
 ### 代码规范
 
@@ -231,19 +240,23 @@ CI 会在 Linux、macOS 上运行 `go vet` 与 `go test -race`，并单独运行
 
 ### 发布检查清单
 
-1. 为目标版本更新 `CHANGELOG.md` 和两份 README。
+1. 在 `CHANGELOG.md` 记录发布变更；用法发生变化时同步更新两份 README，版本历史只保留在 changelog。
 2. 运行 `make check`、`make lint` 与 `goreleaser check`。
 3. 确认已配置 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN`。
-4. 合并发布准备 PR，并从合并后的 `main` 提交创建版本标签
-   （例如 `v1.2.0`）。
+4. 合并发布准备 PR，并从合并后的 `main` 提交创建本次发布的版本标签。
 5. 验证 GitHub 归档、校验和、构建证明及两个容器仓库，随后更新 Homebrew Tap。
 
 ### 项目结构
 
-详细的逐文件说明见 [README 的「项目结构」章节](README.md#项目结构)。简要来说：
+包结构见 [README 的「项目结构」章节](README.md#项目结构)：
 
 - 顶层 `*.go` —— 命令行入口、配置加载、信号处理。
 - `internal/forward` —— 纯 Go 的 TCP/UDP 转发器。
+- `internal/proxy` —— SOCKS5/HTTP 请求处理和生命周期。
+- `internal/upstream` —— 共用的直连与上游传输。
+- `internal/netutil` —— 转发、半关闭和空闲超时。
+- `internal/stats`、`internal/web` —— 统计和只读监控。
+- `cmd/loadtest` —— TCP/UDP 回显压测。
 - `internal/socat` —— 调用系统 `socat` 的 fallback。
 - `internal/i18n` —— 多语言支持。
 

@@ -13,8 +13,8 @@
 // limitations under the License.
 
 // Package forward 实现等价于 socat TCP-LISTEN:<port>,fork,reuseaddr TCP:<host:port>
-// 的纯 Go 端口转发逻辑：监听本地端口，对每个新连接并发处理（fork），
-// 并将字节流双向转发到目标地址。支持 TCP 与 UDP。
+// 的纯 Go 端口转发逻辑。直连支持 TCP/UDP；配置 SSH 上游时仅支持 TCP，
+// Target 从 SSH 服务器访问，本地监听器仍由当前进程提供。
 package forward
 
 import (
@@ -39,9 +39,9 @@ import (
 type Config struct {
 	// Upstream optionally routes TCP connections through SSH.
 	Upstream *upstream.UpstreamConfig
-	// Listen 是本地监听地址，例如 ":22" 或 "0.0.0.0:22"。
+	// Listen 是完整的本地监听地址；CLI 根据是否使用 SSH 选择缺省主机地址。
 	Listen string
-	// Target 是转发目标地址，例如 "127.0.0.1:2222"。
+	// Target 是 host:port。直连时从本机访问，SSH 上游从远端访问。
 	Target string
 	// Network 是使用的网络类型，"tcp"（默认）或 "udp"。
 	Network string
@@ -150,7 +150,7 @@ func (s *Server) listenConfig() net.ListenConfig {
 	}
 }
 
-// ListenAndServe 开始监听并接受连接，直到 ctx 被取消或发生致命错误。
+// ListenAndServe 开始监听。ctx 取消或发生致命错误时关闭连接和持有的上游传输。
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	if err := s.initDialer(); err != nil {
 		return err

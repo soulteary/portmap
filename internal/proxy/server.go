@@ -72,7 +72,7 @@ type Server struct {
 	// AllowPublic 允许监听非回环地址。代理不提供身份认证，因此必须显式开启。
 	AllowPublic bool
 
-	// Upstream 配置上游代理链。为 nil 时出站连接直连目标；非 nil 时所有出站
+	// Upstream 配置一个出站上游。为 nil 时出站连接直连目标；非 nil 时所有出站
 	// 连接经该上游（SOCKS5 / HTTP CONNECT / SSH）转发。
 	Upstream *UpstreamConfig
 
@@ -99,7 +99,7 @@ type Server struct {
 	stats *stats.Counters
 }
 
-// New 创建一个代理服务。所有出站连接均直连，忽略环境代理。
+// New 创建一个默认直连的代理服务。设置 Upstream 可选择出站传输，环境代理始终被忽略。
 func New(addr string) *Server {
 	return &Server{
 		Addr:             addr,

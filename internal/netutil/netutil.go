@@ -14,7 +14,6 @@
 
 // Package netutil 汇聚 forward 与 proxy 共用的底层网络工具：
 // 双向数据转发（relay）、单向拷贝 + 半关闭、以及带空闲超时的连接包装。
-// 抽取到独立包避免 forward.pipe/idleConn 与 proxy.relay 的重复实现。
 package netutil
 
 import (
@@ -35,7 +34,7 @@ type halfCloser interface {
 }
 
 // closeWrite 尝试半关闭 c 的写方向，使对端感知 EOF；
-// 若连接不支持 CloseWrite，则以设置立即读截止时间的方式促使对端读取解除阻塞。
+// 若不支持 CloseWrite，则设置立即读截止时间，中断该连接上的本地读取。
 func closeWrite(c net.Conn) {
 	if hc, ok := c.(halfCloser); ok {
 		_ = hc.CloseWrite()
@@ -65,14 +64,14 @@ func CopyAndCloseWrite(dst net.Conn, src io.Reader) (int64, error) {
 	return n, err
 }
 
-// RelayReader 在 client 与 remote 之间双向拷贝数据，直到任意一方关闭。
+// RelayReader 在 client 与 remote 之间双向拷贝数据，等待两个方向均结束。
 //
 // client 方向的读取来自 clientReader（通常是包裹了 client 的 bufio.Reader，
 // 内部可能已缓冲了协议探测阶段读取的数据），写回客户端仍使用 client 连接本身。
 // 若无需自定义读取源，clientReader 传入 client 即可。
 //
 // 每个方向拷贝完成后会尝试半关闭对端的写方向，以正确传播 EOF，
-// 避免一端读到 EOF 后另一端仍然阻塞。
+// 允许一个方向结束后，另一方向继续接收剩余响应。
 func RelayReader(client net.Conn, clientReader io.Reader, remote net.Conn) {
 	done := make(chan struct{}, 2)
 
@@ -92,11 +91,11 @@ func RelayReader(client net.Conn, clientReader io.Reader, remote net.Conn) {
 }
 
 // RelayReaderCount 与 RelayReader 行为一致（在 client 与 remote 之间双向拷贝
-// 数据直到任一方关闭），但额外返回两个方向的字节数：
+// 数据并等待两个方向均结束），但额外返回两个方向的字节数：
 //   - up：client -> remote（上行）方向拷贝的字节数；
 //   - down：remote -> client（下行）方向拷贝的字节数。
 //
-// 与 RelayReader 分开实现，以免改变后者签名破坏既有调用方（如 forward.pipe）。
+// 调用方负责取消操作和关闭连接；半关闭不等于立即终止另一方向。
 func RelayReaderCount(client net.Conn, clientReader io.Reader, remote net.Conn) (up, down int64) {
 	done := make(chan struct{}, 2)
 

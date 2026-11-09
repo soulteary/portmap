@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Command portmap 实现等价于
-//
-//	sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222
-//
-// 的端口转发。默认使用纯 Go 实现，也可通过 -mode socat 直接调用系统 socat。
-// 支持 TCP/UDP、并发限流、空闲超时与连接级日志。
+// Command portmap 提供 TCP/UDP 端口转发与 SOCKS5/HTTP 代理。
+// forward 默认使用 Go 实现，也可调用系统 socat；SSH 上游仅用于 Go 模式的 TCP 转发。
+// proxy 在同一监听端口接受 SOCKS5 和 HTTP 请求，可显式配置出站上游。
 package main
 
 import (
@@ -148,7 +145,7 @@ var subcommands = map[string]bool{
 // splitSubcommand 从 argv 中解析子命令：
 //   - 无参数，或第一个参数以 - 开头（即直接是 flag）时，默认 "forward" 并保留全部参数；
 //   - 第一个参数为已知子命令时，返回该子命令与其余参数；
-//   - 否则默认 "forward" 并保留全部参数（把未知位置参数交给 forward 解析报错）。
+//   - 否则默认 "forward" 并保留全部参数（不把未知位置参数作为子命令分发）。
 func splitSubcommand(argv []string) (string, []string) {
 	if len(argv) == 0 {
 		return "forward", argv
@@ -163,7 +160,7 @@ func splitSubcommand(argv []string) (string, []string) {
 	return "forward", argv
 }
 
-// runForward 实现 forward 子命令：等价于既有的端口转发逻辑，flag 保持不变。
+// runForward 解析 forward 参数，并按配置启动单实例或多实例服务。
 func runForward(argv []string) error {
 	var opt options
 
@@ -521,7 +518,7 @@ func runForwardMulti(base options, cfg *Config, setFlags map[string]bool) error 
 
 // startForwardInstances 并发启动多个 forward 实例（均为 go 模式），聚合信号与
 // 错误：任一实例致命错误即返回；ctx 取消（收到退出信号）时各实例经其自身的
-// ListenAndServe(ctx) 优雅关闭。单实例场景亦可复用（列表长度 1）。
+// ListenAndServe(ctx) 关闭监听器和活动连接。单实例场景亦可复用（列表长度 1）。
 func startForwardInstances(ctx context.Context, instances []options) error {
 	log.Print(i18n.T(i18n.KeyLogForwardStartingInstances, len(instances)))
 
@@ -792,7 +789,7 @@ func resolveUpstreamIdentityPassphrase(opt *upstreamOptions, promptTarget string
 		return
 	}
 	// agent 可用时不索要口令：把加密私钥的口令交给 agent 管理正是它的用途，
-	// 私钥因此被跳过（internal/proxy 会记录告警）。
+	// 加密私钥因此被跳过（internal/upstream 会记录告警）。
 	if upstreamAgentAvailable(opt.upstreamAgent, opt.upstreamAgentSocket) {
 		return
 	}
@@ -824,18 +821,9 @@ func expandTilde(path string) string {
 // 又足以容纳本机 unix socket 的正常建连。
 const agentProbeTimeout = 500 * time.Millisecond
 
-// upstreamAgentAvailable 判断 ssh-agent 是否可用：未被 -upstream-agent=false
-// 关闭，且显式 socket 或 SSH_AUTH_SOCK 指向的 socket 能够连通。
-//
-// 这里只用于决定「是否还需要向用户索要口令」，因此判定必须与 internal/proxy 构造
-// 上游时一致——后者同样 dial 一次 socket，不可达即静默跳过 agent 认证。若此处只看
-// 路径非空，SSH_AUTH_SOCK 残留指向一个已退出的 agent 时，交互式提示被压制而 agent
-// 又用不上，加密私钥只能报缺少 passphrase 直接退出；探测后这种情形会回退到提示。
-//
-// 探测止于「socket 能否建连」，不做 agent 协议握手（agent.NewClient().Signers()）：
-// 决定提示与否无需知道 agent 装了哪些密钥，也不必为此让主包依赖 internal/proxy。
-// Windows 的 agent 走 named pipe，net.Dial("unix", ...) 必然失败从而判为不可用并
-// 回退到交互式提示，与该平台不支持 agent 的现状一致。
+// upstreamAgentAvailable 判断配置的 Unix socket 是否可达，用于决定是否显示口令提示。
+// 与 internal/upstream 的探测方式一致：不进行 agent 协议握手，也不检查已加载的密钥。
+// socket 可达不代表认证一定成功；签名与服务端认证由上游拨号器处理。
 func upstreamAgentAvailable(enabled bool, socket string) bool {
 	if !enabled {
 		return false
@@ -847,8 +835,7 @@ func upstreamAgentAvailable(enabled bool, socket string) bool {
 	if path == "" {
 		return false
 	}
-	// 展开 ~：resolveIdentityPassphrase 早于 buildProxyUpstream 调用，此时
-	// opt.upstreamAgentSocket 仍是配置文件里的原始路径。
+	// 口令提示早于上游配置构造，因此此处也需要展开 YAML 中的 ~ 路径。
 	conn, err := net.DialTimeout("unix", expandTilde(path), agentProbeTimeout)
 	if err != nil {
 		return false

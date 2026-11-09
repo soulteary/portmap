@@ -127,7 +127,7 @@ func errUnexpectedNodeKind(node *yaml.Node) error {
 	return fmt.Errorf("unexpected YAML node kind %d at line %d", node.Kind, node.Line)
 }
 
-// ForwardConfig 是 forward 子命令的配置段，字段与 forward flag 一一对应。
+// ForwardConfig 是 forward 子命令的配置段；私钥口令没有对应的命令行 flag。
 // 字段均为指针：nil 表示配置文件中未出现该字段，非 nil 才参与合并（覆盖默认值）。
 type ForwardConfig struct {
 	Upstream                   *string `yaml:"upstream"`
