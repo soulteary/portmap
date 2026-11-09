@@ -72,7 +72,7 @@ func parseFlags(args []string) (*options, error) {
 	fs.StringVar(&o.mode, "mode", "throughput", "压测模式：throughput（长连接持续收发）或 connrate（短连接建立/关闭循环）")
 	fs.StringVar(&o.external, "external", "", "外部 portmap 地址；为空则自建链路")
 	fs.IntVar(&o.maxConns, "max-conns", 0, "内建转发服务的最大并发连接数，0 表示不限制")
-	fs.DurationVar(&o.idleTimeout, "idle-timeout", 0, "内建转发服务的空闲超时，0 表示不启用")
+	fs.DurationVar(&o.idleTimeout, "idle-timeout", 0, "内建转发服务空闲超时；TCP 的 0 表示禁用，UDP 的 0 使用 60s")
 	fs.DurationVar(&o.warmup, "warmup", time.Second, "预热时间，预热期数据不计入统计")
 	fs.StringVar(&o.format, "format", "text", "输出格式：text 或 json")
 	fs.IntVar(&o.maxSamples, "max-samples", defaultMaxLatencySamples, "最多保留的 RTT 样本数（使用蓄水池采样）")

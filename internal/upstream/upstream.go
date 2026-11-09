@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package upstream provides outbound dialers shared by forward and proxy.
 package upstream
 
 import (
@@ -48,7 +49,7 @@ const (
 // UpstreamConfig 描述一个上游代理。出站连接经此上游转发，而非直连目标。
 //
 // 零值（尤其是空的 Scheme）没有意义；应通过解析 -upstream URL 得到，
-// 未配置上游时 Server.Upstream 应为 nil，从而保持直连行为。
+// 未配置上游时，由调用方选择直连拨号器。
 type UpstreamConfig struct {
 	// Scheme 是上游协议：socks5 / http / ssh。
 	Scheme string
@@ -67,7 +68,7 @@ type UpstreamConfig struct {
 
 	// IdentityPassphrase 是解密加密私钥所用的口令（可选，仅对加密私钥有意义）。
 	// 为空时用 ssh.ParsePrivateKey 解析未加密私钥；非空时改用
-	// ssh.ParsePrivateKeyWithPassphrase。不会进入日志或 describe()。
+	// ssh.ParsePrivateKeyWithPassphrase。不会进入日志或 Describe()。
 	IdentityPassphrase string
 
 	// AgentSocket 是 ssh-agent 的 unix socket 路径（可选）；
@@ -296,8 +297,8 @@ func basicAuth(user, pass string) string {
 
 // ---- SSH 上游 ----
 
-// SSH 上游主动保活与后台重连的默认参数，与 superviseSSH 对齐
-// （等价于 ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3）。
+// SSH 上游保活与后台重连的默认参数。探测超时会立即回收传输，
+// 其他探测失败按配置累计；重连不会恢复已中断的应用通道。
 const (
 	// defaultKeepaliveInterval 是保活探测的默认间隔。
 	defaultKeepaliveInterval = 30 * time.Second
@@ -396,8 +397,7 @@ type agentKeyring struct {
 }
 
 // newAgentKeyring 在 agent 启用且 socket 可达时返回 keyring，否则返回 nil。
-// 探测失败一律静默跳过（socket 未配置、agent 未运行、Windows 上 agent 走 named
-// pipe），使未使用 agent 的既有部署行为不变。
+// socket 未配置或不可达时返回 nil；认证阶段再通过 agent 协议读取签名者。
 func newAgentKeyring(cfg *UpstreamConfig) *agentKeyring {
 	return newAgentKeyringWithTimeout(cfg, 30*time.Second)
 }

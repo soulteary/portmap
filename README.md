@@ -10,173 +10,110 @@
   <img src=".github/workflows/assets/portmap-logo.png" alt="portmap Logo" width="160"/>
 </p>
 
-> 一个轻量的 **TCP/UDP 端口转发小工具** —— 用 Go 实现，无需依赖系统 `socat`。
+`portmap` 提供 TCP/UDP 端口转发和单端口 SOCKS5/HTTP 代理。支持 Linux、macOS 的 amd64 与 arm64；默认使用 Go 实现，只有 `-mode socat` 需要系统安装 `socat`。
 
 <p align="center">
   <img src=".github/workflows/assets/portmap-banner.jpg" alt="portmap Banner" width="720"/>
 </p>
 
-## 概览
+本文说明当前源码的用法。已安装版本的参数以 `portmap forward -help` 和 `portmap proxy -help` 为准；发行包可能尚未包含 `main` 分支的新功能。
 
-`portmap` 是一个用 Go 实现的通用 TCP/UDP 端口转发小工具，等价于：
+- [安装](#安装)
+- [本地转发](#本地转发)
+- [通过 SSH 访问远端服务](#通过-ssh-访问远端服务)
+- [使用 SOCKS5 或 HTTP 代理](#使用-socks5-或-http-代理)
+- [SSH 认证](#ssh-认证)
+- [配置文件](#配置文件)
+- [可观测性](#可观测性)
+- [排查问题](#排查问题)
+- [性能压测](docs/performance.md)
+- [开发与维护](#开发与维护)
 
-```bash
-sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222
-```
+## 安装
 
-它采用「子命令」结构，除默认的端口转发（`forward`）外，还内置了一个单端口双协议的
-**SOCKS5 + HTTP 本地代理**（`proxy` 子命令，应用层代理能力）。整个工具仍保持
-**单仓库、单静态二进制、零第三方运行时依赖**的定位。
-
-端口转发支持两种模式：
-
-- **`go`（默认）**：纯 Go 实现，不依赖系统 `socat`，支持 Linux 与 macOS，对应 `TCP-LISTEN`/`fork`/`reuseaddr`，并扩展了 UDP、并发限流、空闲超时与连接级日志（见下）。
-- **`socat`**：直接调用本机的 `socat` 命令（可选 `-sudo`），生成等价命令行（支持 TCP/UDP）。
-
-## 1.3.5 版本更新
-
-- 修复代理拨号器初始化与关闭并发时的竞态，并回收关闭后完成初始化的资源。
-- 整体语句覆盖率超过 95%，PR 与发布报告流程持续检查这一门槛。
-- 清理 Go Report Card 问题，保留原有转发和超时行为。详见 [CHANGELOG.md](CHANGELOG.md)。
-
-## 1.3.4 版本更新
-
-- 减少原生 TCP 空闲 deadline 更新、复制缓冲分配和 goroutine 开销。
-- 保留双向共享的空闲超时与半关闭行为，修复极大超时值的 deadline 溢出。
-- 支持平台仍为 Linux/macOS 的 amd64 与 arm64。完整记录见 [CHANGELOG.md](CHANGELOG.md)。
-
-## 1.2.0 版本亮点
-
-- 新增单端口 SOCKS5 + HTTP/HTTPS 代理，并支持 SOCKS5、HTTP CONNECT 与 SSH 上游。
-- 新增 forward/proxy YAML 多实例配置。
-- 新增 JSON/Prometheus 统计端点、只读 Web 监控面板和结构化连接事件。
-- 新增自包含的 TCP/UDP 压测工具，支持有界延迟采样、JSON 输出和 CI 阈值。
-- 强化自引用目标、超时、HTTP 请求头、SSH 生命周期和发布流水线安全边界。
-
-1.2.0 支持 Linux/macOS 的 amd64 与 arm64；Windows 支持及 Windows 发布归档
-已经移除。完整变更和升级影响见 [CHANGELOG.md](CHANGELOG.md)。
-
-## 为什么写这个工具
-
-Podman（尤其是 rootless 模式）默认不允许非特权用户监听 1024 以下的低位端口，这与 Docker 的端口映射行为存在明显差异：在 Docker 里可以直接把容器映射到宿主机的 22/53/80 等低位端口，而在 Podman rootless 下同样的映射会因为权限限制而失败。
-
-常见的绕过办法是调整系统设置，例如降低 `sysctl net.ipv4.ip_unprivileged_port_start`，但这会修改全局内核参数、影响整机安全边界，并不总是可取。
-
-`portmap` 提供了一条更轻量的路径：让容器以 rootless 方式监听一个高位端口（如 2222），再用本工具在宿主机上把低位端口（如 22/53/80）转发到该高位端口。这样既保留了类 Docker 的端口映射体验，又无需调整 `net.ipv4.ip_unprivileged_port_start` 等系统级设置。
-
-Podman 示例：rootless 容器监听 `2222`，用 `portmap` 把宿主机 22 端口暴露出去（监听 22 需要特权，故用 `sudo`）：
-
-```bash
-# rootless 容器（示例）：将服务映射到高位端口 2222
-podman run -d -p 2222:22 your-image
-
-# 用 portmap 把低位端口 22 转发到容器监听的 2222
-sudo portmap -listen-port 22 -target 127.0.0.1:2222
-```
-
-## 构建
-
-需要 Go 1.27.3+（准确版本以 `go.mod` 为准）。
-
-```bash
-go build -o portmap .
-# 或使用 Makefile（自动注入版本信息）
-make build
-```
-
-## Homebrew 安装
-
-macOS / Linux 可通过 [Homebrew Tap](https://github.com/soulteary/homebrew-tap) 安装：
+### Homebrew
 
 ```bash
 brew tap soulteary/tap
 brew install soulteary/tap/portmap
+portmap version
 ```
 
-验证：
+已安装时可运行 `brew update` 和 `brew upgrade soulteary/tap/portmap`。也可以从 [Releases](https://github.com/soulteary/portmap/releases) 下载与系统、架构对应的归档，解压后运行其中的 `./portmap version`，或将二进制放入 PATH 中的目录。
+
+### 从源码构建
+
+需要 Go 1.27.3 或更新版本，具体要求见 [go.mod](go.mod)。
 
 ```bash
-portmap --version
-# portmap 1.3.5 (commit <short-sha>, built <timestamp>)
+git clone https://github.com/soulteary/portmap.git
+cd portmap
+make build
+./portmap version
 ```
 
-## 容器镜像
+不使用 `make` 时运行 `go build -o portmap .`。下文统一使用 PATH 中的 `portmap`；从源码运行时替换为 `./portmap`。
 
-预构建的多架构镜像（`linux/amd64` + `linux/arm64`）发布在 ghcr.io 与 Docker Hub：
+### 容器
 
-```bash
-# 从 ghcr.io 拉取
-docker pull ghcr.io/soulteary/portmap:latest
-# 或从 Docker Hub 拉取
-docker pull soulteary/portmap:latest
-# 生产环境固定使用 1.3.5
-docker pull ghcr.io/soulteary/portmap:1.3.5
-```
+Linux 容器镜像发布在 `ghcr.io/soulteary/portmap` 和 `soulteary/portmap`，支持 amd64、arm64。镜像基于 `scratch`，默认以用户 `65532:65532` 运行。
 
-容器基于 `scratch`，仅包含单个静态二进制，并默认以非 root 的 `65532:65532` 运行。运行时需使用 host 网络才能完成端口转发：
+以下示例在原生 Linux 主机使用 host 网络，将宿主机的本地端口转发到同一主机的服务：
 
 ```bash
-# 非 root 默认配置：把宿主机高位端口 8022 转发到 2222
 docker run --rm --network host ghcr.io/soulteary/portmap:latest \
-  -listen-port 8022 -target 127.0.0.1:2222
+  forward -listen-host 127.0.0.1 -listen-port 10024 -target 127.0.0.1:8080
 ```
 
-需要直接监听 1024 以下的端口时，仅授予绑定低位端口所需的 capability：
+这里的 `127.0.0.1` 属于容器使用的网络空间。Docker Desktop 下需核对 host 网络支持及配置，不能直接假定它指向 macOS 主机。普通 bridge 网络也可以运行，但需配置端口发布，并使用容器能访问的目标地址。
+
+需要固定版本时，在 Releases 中选择对应的镜像标签替换 `latest`。绑定低位端口是否需要权限取决于主机配置；需要时可添加 `--cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true`。
+
+## 本地转发
+
+假设本机已有 HTTP 服务监听 `127.0.0.1:8080`。如果只是验证用法，且已安装 Python 3，可在单独终端启动测试服务：
 
 ```bash
-docker run --rm --network host --cap-drop ALL --cap-add NET_BIND_SERVICE \
-  --security-opt no-new-privileges:true ghcr.io/soulteary/portmap:latest \
-  -listen-port 22 -target 127.0.0.1:2222
+python3 -m http.server 8080 --bind 127.0.0.1
 ```
 
-## 用法
+在另一个终端启动转发，保持进程运行：
 
-`portmap` 采用「子命令」结构，共享同一套 `-config` / `-lang` / `-version` 通用参数：
-
-```text
-portmap <subcommand> [flags]
-
-subcommands:
-  forward   TCP/UDP 端口转发（默认子命令）
-  proxy     单端口 SOCKS5 + HTTP 代理
-  version   打印版本信息
+```bash
+portmap forward -listen-host 127.0.0.1 -listen-port 10024 -target 127.0.0.1:8080
 ```
 
-- **向后兼容**：无子命令时（例如第一个参数以 `-` 开头，或无任何参数）默认走 `forward`，
-  因此 `portmap -listen-port 22 -target 127.0.0.1:2222` 等历史用法完全不变。
-- `-lang` 会在分发前统一处理一次，供所有子命令与 `--help` 共享。
+然后打开 `http://localhost:10024/`，或再开一个终端运行：
 
-### forward 子命令（端口转发）
-
-```text
-portmap [forward] [flags]
-
-flags:
-  -listen-port int        本地监听端口 (默认 22)
-  -listen-host string     本地监听地址（默认所有网卡）
-  -target string          转发目标地址 host:port (默认 "127.0.0.1:2222")
-  -mode string            转发模式：go 或 socat (默认 "go")
-  -proto string           转发协议：tcp 或 udp (默认 "tcp")
-  -reuseaddr              启用 SO_REUSEADDR (默认 true)
-  -sudo                   socat 模式下以 sudo 运行
-  -dial-timeout duration  拨号目标超时 (默认 10s)
-  -max-conns int          最大并发连接数，0 表示不限制（仅 go 模式，默认 256）
-  -idle-timeout duration  空闲超时，双向均无数据超过阈值才断开，0 表示不启用（仅 go 模式，默认 5m）
-  -log-level string       日志级别：info 或 debug（仅 go 模式，默认 "info"）
-  -quiet                  安静模式，抑制每连接的常规日志（仅 go 模式）
-  -stats-addr string      可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭；仅允许回环地址
-  -web-addr string        可选的 Web 面板监听地址（如 127.0.0.1:8080），留空表示关闭；仅允许回环地址
-  -web-log-max int        Web 面板连接事件环形缓冲保留的最大条数 (默认 1000)
-  -config string          YAML 配置文件路径（读取 forward: 段）
-  -lang string            界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
-  -version                打印版本信息后退出
+```bash
+curl --noproxy '*' http://127.0.0.1:10024/
 ```
 
-为避免异常客户端无界占用文件描述符和 goroutine，forward 默认最多接受 256 个并发 TCP 连接或 UDP 会话，并回收双向空闲超过 5 分钟的会话。需要保留旧版无界行为时，可显式设置 `-max-conns 0 -idle-timeout 0`。
+`-listen-port` 是本地入口，`-target` 是 portmap 要连接的服务地址。转发不会启动目标服务。
 
-### 通过 SSH 转发本地 TCP 端口
+直接转发默认监听所有网卡；只供本机访问时显式设置 `-listen-host 127.0.0.1`。TCP 是默认协议；UDP 使用 `-proto udp`，并要求目标提供 UDP 服务。
 
-`forward` 可以通过 SSH 上游连接固定的远端目标。客户端直接访问本地端口，无需设置浏览器代理。
+```bash
+portmap forward -proto udp -listen-host 127.0.0.1 -listen-port 10024 -target 127.0.0.1:5353
+```
+
+`forward` 默认最多处理 256 个并发 TCP 连接或 UDP 会话，空闲超时为 5 分钟。`-max-conns 0` 取消数量限制；`-idle-timeout 0` 对 TCP 表示禁用空闲超时，对 UDP 则使用 60 秒会话回收时间。
+
+不写子命令时，带参数的调用按 `forward` 处理。无参数调用只显示帮助。
+
+```bash
+portmap forward -help
+portmap proxy -help
+portmap version
+```
+
+在 Go 模式下，`Ctrl+C` 或 `SIGTERM` 会停止 forward 并关闭活动连接；proxy 停止接受新连接，最多等待 10 秒，再关闭未结束的连接。
+
+## 通过 SSH 访问远端服务
+
+此功能要求 `forward -help` 包含 `-upstream`；旧发行版没有该参数时，请从当前源码构建。
+
+将示例中的 `user@server.example:22` 换成自己的 SSH 登录端点。在本地执行：
 
 ```bash
 portmap forward \
@@ -185,244 +122,85 @@ portmap forward \
   -upstream ssh://user@server.example:22
 ```
 
-打开 `http://localhost:10024/`，或忽略环境代理进行测试：
+保持运行，然后打开 `http://localhost:10024/`。浏览器不需要代理设置，也可用下面的命令验证：
 
 ```bash
 curl --noproxy '*' http://127.0.0.1:10024/
 ```
 
-IPv6 上游 URL 可以省略端口或使用空端口，此时使用协议默认端口；显式端口及 IPv6 zone 标识保持不变。
+此时 `-target` 从 SSH 服务器访问，`127.0.0.1` 指服务器自身，目标域名也由服务器解析。服务器必须允许 SSH TCP 转发，应用必须监听目标地址。本地和远端端口可以相同。
 
-目标地址从 SSH 服务器访问：`127.0.0.1` 指服务器自身，目标域名也由服务器解析。
-SSH 服务器需要允许 TCP 转发，应用需要监听对应的目标地址。
+SSH 转发未指定 `-listen-host` 时默认监听本地回环地址。显式设置的地址会被保留，包括空地址和 `0.0.0.0`。此功能仅支持 `-mode go -proto tcp`；不支持 UDP、socat 或其他上游协议。SSH 失败时不会回退为直连。
 
-未指定 `-listen-host` 时，SSH 转发默认监听 `127.0.0.1`。显式设置的地址会被保留，
-包括空地址或 `0.0.0.0`。不使用上游的直连转发仍默认监听所有网卡。
+SSH 连接在首次本地访问时建立。“开始监听”不代表远端认证或应用连接已经通过。多个连接复用 SSH 传输，各用独立通道；断线重连供后续连接使用，不会重放已经中断的数据流。如果 SSH 服务器就是本机，应避免让远端目标再次指向转发器。
 
-SSH 上游仅支持 `-mode go -proto tcp`。UDP、`socat` 和其他上游协议会报错退出，
-SSH 连接失败时不会退回直连。
+如果 `forward -help` 没有 `-upstream`，请检查版本并从当前源码构建。认证方式见 [SSH 认证](#ssh-认证)。
 
-认证、主机密钥校验和保活选项与 `proxy` 相同：`-upstream-identity`、
-`-upstream-known-hosts`、`-upstream-agent`、`-upstream-agent-socket`、
-`-upstream-insecure`、`-upstream-keepalive`、`-upstream-keepalive-max-failures`。
-默认启用 ssh-agent 和主机密钥校验。私钥口令与登录密码沿用 `proxy` 的环境变量和终端输入流程，
-不提供私钥口令命令行参数。
+## 使用 SOCKS5 或 HTTP 代理
 
-对应的 YAML 配置：
-
-```yaml
-forward:
-  listen_port: 10024
-  target: 127.0.0.1:10024
-  upstream: ssh://user@server.example:22
-  upstream_agent: true
-```
-
-嵌套配置和旧版平铺配置均支持对应的 `upstream_*` 字段，包括 `upstream_identity_passphrase`。
-单实例下显式 CLI 参数优先于 YAML；多实例下各实例分别配置上游，实例级 CLI 参数按现有规则忽略并提示。
-
-SSH 连接在首次本地连接时建立，因此“开始监听”不代表远端认证和应用连接已通过。
-多个连接复用 SSH 传输，每条连接使用独立通道。断线重连用于后续连接，不会重放已中断的应用数据流。
-本地和远端端口可以相同。如果 SSH 服务器就是本机，应确认远端目标不会再次指向转发器自身。
-
-### proxy 子命令（SOCKS5 + HTTP 代理）
-
-在**同一个监听端口**上通过窥探连接首字节自动区分 SOCKS5 与 HTTP/HTTPS 客户端；
-出站连接默认**直连**目标，也可显式配置 SOCKS5、HTTP CONNECT 或 SSH 上游；
-`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` 等环境变量始终被忽略。
-
-```text
-portmap proxy [flags]
-
-flags:
-  -addr string            监听地址，SOCKS5 与 HTTP 共用此端口 (默认 "127.0.0.1:1080")
-  -allow-public           允许监听非回环地址（代理不提供身份认证）
-  -dial-timeout duration  出站连接超时时间 (默认 30s)
-  -handshake-timeout duration
-                          协议握手超时，0 表示不限制 (默认 10s)
-  -idle-timeout duration  双向空闲超时，0 表示不限制 (默认 5m0s)
-  -max-conns int          代理最大并发连接数，0 表示不限制 (默认 256)
-  -upstream string        上游代理 URL，支持 socks5://、http://、ssh://；留空表示直连
-  -upstream-agent         启用 ssh-agent 认证（仅 ssh 上游，默认 true）
-  -upstream-agent-socket string
-                          ssh-agent 的 socket 路径（留空表示读环境变量 SSH_AUTH_SOCK）
-  -upstream-identity string
-                          SSH 上游认证使用的私钥文件
-  -upstream-insecure      跳过 SSH host key 校验（不安全，仅用于自建测试环境）
-  -upstream-keepalive duration
-                          SSH 主动保活间隔；0 使用默认 30s，负数禁用主动保活
-  -upstream-keepalive-max-failures int
-                          判定 SSH 上游断线前允许的连续保活失败次数 (默认 3)
-  -upstream-known-hosts string
-                          SSH host key 校验使用的 known_hosts 文件
-  -stats-addr string      可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭；除非 -stats-allow-public 否则仅允许回环地址
-  -stats-allow-public     允许统计端点监听非回环地址
-  -web-addr string        可选的 Web 面板监听地址（如 127.0.0.1:8080），留空表示关闭；除非 -web-allow-public 否则仅允许回环地址
-  -web-allow-public       允许 Web 面板监听非回环地址
-  -web-log-max int        Web 面板连接事件环形缓冲保留的最大条数 (默认 1000)
-  -config string          YAML 配置文件路径（读取 proxy: 段）
-  -lang string            界面语言：en/zh/ja/ko/fr/de（默认自动检测系统语言）
-  -version                打印版本信息后退出
-```
-
-启动一个本地代理（默认监听 `127.0.0.1:1080`）：
+当客户端需要选择不同目标时，使用 `proxy`。同一个端口接受 SOCKS5 和 HTTP 代理请求，HTTPS 通过 CONNECT 隧道传输。
 
 ```bash
-./portmap proxy -addr 127.0.0.1:1080
+portmap proxy -addr 127.0.0.1:1080
 ```
 
-将浏览器/工具的 SOCKS5 或 HTTP 代理指向该地址即可；两种协议共用同一端口。
-按 `Ctrl+C` 优雅退出；服务停止接收新连接，并最多等待 10 秒让已有连接结束。
-`-handshake-timeout` 仅限制客户端协议探测与请求解析；目标连接使用独立的
-`-dial-timeout`。HTTP 请求行与请求头合计最多 1 MiB，超限返回 `431`。
-明文 HTTP Upgrade 请求（包括 `ws://`）会明确返回 `501 Not Implemented`，避免逐跳头被
-静默移除后产生难以诊断的失败；需要透明升级隧道时请使用 CONNECT。
-
-> 安全提示：代理不提供身份认证，默认拒绝监听 `0.0.0.0`、`::` 等非回环地址。
-> 只有在网络访问已由防火墙或其它边界保护时，才应显式添加 `-allow-public`。
-> 直连模式下，指向代理自身监听地址的 HTTP/SOCKS5 请求会被拒绝。
-> 配置上游时，检查的是本地实际连接的上游端点；应用目标属于上游侧的地址空间，允许与本地监听地址相同。
-> `-allow-public` 只开放代理监听器；统计端点和 Web 面板必须分别通过
-> `-stats-allow-public` 与 `-web-allow-public` 显式开放。
-
-#### SSH 上游 ssh-agent 认证（推荐）
-
-`upstream` 为 `ssh://` 时，portmap 默认尝试通过 ssh-agent 完成认证：签名由 agent 代劳，
-加密私钥的口令交给 `ssh-add` / macOS 钥匙串保管，portmap 自身完全不接触口令。
-
-认证方式的尝试顺序为：**ssh-agent → `-upstream-identity` 指定的私钥 → 密码**。
-
-- `-upstream-agent`（默认 `true`）控制是否启用 agent 认证，用 `-upstream-agent=false` 关闭；
-- `-upstream-agent-socket` 指定 agent 的 unix socket 路径，留空表示读取环境变量 `SSH_AUTH_SOCK`；
-- 配置文件中对应 `proxy:` 段下的 `upstream_agent` 与 `upstream_agent_socket`。
-
-推荐用法是先把私钥加入 agent，之后启动 portmap 不必再输入任何口令：
+保持前面的测试 HTTP 服务运行，在另一终端验证两种协议：
 
 ```bash
-# macOS：把加密私钥的口令存入钥匙串，之后（含重启后）都不用再输入
-ssh-add --apple-use-keychain ~/.ssh/keys/litchi/litchi-2018
-
-# Linux：加入正在运行的 ssh-agent
-ssh-add ~/.ssh/id_rsa
-
-# 之后直接启动即可，不会再有 passphrase / 密码提示
-./portmap proxy -upstream ssh://root@host:22
+curl --noproxy '' --proxy socks5h://127.0.0.1:1080 http://127.0.0.1:8080/
+curl --noproxy '' --proxy http://127.0.0.1:1080 http://127.0.0.1:8080/
 ```
 
-> [!NOTE]
-> agent 认证虽然默认开启，但对现有配置**完全向后兼容**：`SSH_AUTH_SOCK` 为空或 socket
-> 不可达时会静默跳过 agent，不产生任何错误，私钥与密码认证照常工作。
->
-> agent 可用时只会**压制交互式终端提示**：环境变量 `PORTMAP_UPSTREAM_PASSWORD`、
-> `PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE` 以及配置项 `upstream_identity_passphrase`
-> 仍然照常生效，显式提供的凭据不会因为 agent 可用而被忽略。
->
-> 若同时配置了 `-upstream-identity`、该私钥是加密私钥且未提供 passphrase，只要 agent 可用，
-> portmap 不再像以前那样直接报错退出，而是记录一条告警日志、跳过该私钥并改用 agent 认证。
->
-> 判断「是否还需要向用户索要口令」时会真实连接一次 socket 做连通性探测（带 500ms 超时，
-> 探测后立即关闭）。因此 `SSH_AUTH_SOCK` 指向一个已失效的 agent（机器重启后 agent 尚未
-> 启动、socket 路径残留等）时，agent 会被判为不可用，交互式提示照常出现，无需再用环境变量
-> 或 `-upstream-agent=false` 绕开。
+`--noproxy ''` 防止 curl 绕过回环地址。浏览器使用代理时，也需检查其本地地址绕过规则；只想直接打开一个本地端口时，使用 `forward`。
 
-> [!WARNING]
-> Windows 上的 ssh-agent 通过 named pipe 而非 unix socket 通信，因此不受支持；
-> 该平台请继续使用 passphrase 或登录密码的方式（unix socket 探测必然失败，agent 判为
-> 不可用，交互式提示照常出现）。
-
-#### SSH 上游私钥 passphrase（证书密码）
-
-当 `upstream` 为 `ssh://` 且 `-upstream-identity` 指向的私钥是**加密私钥**时，
-需要提供 passphrase 才能解密。passphrase 按以下优先级解析（高 → 低）：
-
-1. 环境变量 `PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE`；
-2. 配置文件字段 `upstream_identity_passphrase`；
-3. 交互式终端输入（仅当上面两者都为空、且配置了 `-upstream-identity`、
-   且 stdin 是 TTY 时触发，读取时不回显）。
-
-出于安全考虑**不提供命令行 flag**（避免明文出现在进程列表 / shell 历史中）。
-**推荐使用环境变量**；若写入 YAML 明文，请自行控制配置文件权限。passphrase
-不会进入日志。加密私钥但未提供 passphrase 时会给出明确的错误提示。
-
-ssh-agent 可用时（见上一节）不会触发第 3 步的交互式提示：此时加密私钥缺少 passphrase
-只会记录一条告警并改用 agent 认证，而不再报错退出。
+配置 SSH 上游后，目标从 SSH 服务器访问：
 
 ```bash
-# 环境变量方式（推荐）
-export PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE='your-passphrase'
-./portmap proxy -upstream ssh://root@host:22 -upstream-identity ~/.ssh/id_rsa
+portmap proxy -addr 127.0.0.1:1080 -upstream ssh://user@server.example:22
 ```
 
-#### SSH 上游登录密码
+`proxy -upstream` 还支持 `socks5://` 和 `http://` 上游。portmap 不读取 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY`；上游必须显式配置。IPv6 上游 URL 使用方括号，省略端口或端口为空时使用协议默认值，显式端口和 zone 标识会被保留。
 
-不使用私钥、改用密码登录 SSH 上游时，密码按以下优先级解析（高 → 低）：
+代理默认监听回环地址，不提供客户端身份认证。需要监听其他地址时设置 `-allow-public`，并自行限制网络访问。`-stats-allow-public`、`-web-allow-public` 分别控制管理端点，不受 `-allow-public` 影响。
 
-1. 上游 URL 中的 userinfo，如 `ssh://root:pass@host:22`（特殊字符需
-   percent-encode，例如 `@` 写作 `%40`）；
-2. 环境变量 `PORTMAP_UPSTREAM_PASSWORD`；
-3. 交互式终端输入（仅当上面两者都为空、且**未**配置 `-upstream-identity`、
-   且 stdin 是 TTY 时触发，读取时不回显）。
+默认并发上限为 256，空闲超时为 5 分钟。`-handshake-timeout` 默认 10 秒，限制客户端协议探测和请求解析；出站连接使用独立的 `-dial-timeout`，默认 30 秒。HTTP 请求行与头合计最多 1 MiB，超限返回 `431`。普通 HTTP Upgrade 请求返回 `501`，透明升级隧道需使用 CONNECT。
 
-与 passphrase 一样**不提供命令行 flag**，密码也不会进入日志。私钥与密码两种
-认证方式互斥：配置了 `-upstream-identity` 就不会再提示输入密码。stdin 不是 TTY
-时（后台运行、systemd、管道等）会跳过提示，直接报缺少认证方式的错误。ssh-agent
-可用时（见上文「SSH 上游 ssh-agent 认证」）同样不会提示输入密码。
+直连目标不能指向代理自身监听器；配置上游时检查的是上游端点，应用目标属于上游侧地址空间。
+
+## SSH 认证
+
+本节同时适用于 `forward` 和 `proxy` 的 SSH 上游。默认校验主机密钥，读取 `~/.ssh/known_hosts`；可用 `-upstream-known-hosts` 指定其他文件。首次连接前，可先用普通 `ssh` 连接并核验主机指纹。`-upstream-insecure` 会跳过校验，仅用于明确需要跳过校验的测试。
+
+### ssh-agent
+
+portmap 默认尝试 ssh-agent。可先加入自己的私钥：
 
 ```bash
-# 交互式输入（终端前台运行）
-./portmap proxy -upstream ssh://root@host:22
-
-# 环境变量方式（适用于无终端环境）
-export PORTMAP_UPSTREAM_PASSWORD='your-password'
-./portmap proxy -upstream ssh://root@host:22
+ssh-add ~/.ssh/id_ed25519
 ```
 
-> [!NOTE]
-> 配置文件中的 `upstream_identity` 与 `upstream_known_hosts` 支持 `~` 开头的
-> 路径，会展开为当前用户的 home 目录（YAML 不经过 shell，无法依赖 shell 展开）。
+macOS 上可用 `ssh-add --apple-use-keychain ~/.ssh/id_ed25519` 保存口令。agent 是否能在后续登录或重启后使用，还取决于系统和 SSH 配置。
 
-## 示例
+`-upstream-agent=false` 禁用 agent；`-upstream-agent-socket` 指定 Unix socket，默认读取 `SSH_AUTH_SOCK`。socket 不可达时跳过 agent。能连接 socket 不代表 agent 中的密钥会被服务器接受。
 
-与原命令完全等价（需 root 监听 22 端口）：
+### 私钥与口令
 
 ```bash
-sudo ./portmap -listen-port 22 -target 127.0.0.1:2222
+portmap forward -listen-port 10024 -target 127.0.0.1:10024 \
+  -upstream ssh://user@server.example:22 -upstream-identity ~/.ssh/id_ed25519
 ```
 
-复用系统 socat（生成等价命令行）：
+`-upstream-identity` 使用私钥，不是 `.pub` 公钥。私钥口令按以下顺序取值：`PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE` 环境变量、YAML 的 `upstream_identity_passphrase`、终端输入。没有口令且 agent 可达时跳过交互提示；加密私钥会被跳过，随后尝试 agent。
 
-```bash
-./portmap -mode socat -sudo -listen-port 22 -target 127.0.0.1:2222
-```
+指定私钥、没有可用 agent 且未提供口令时，终端会提示输入。未加密私钥可以直接回车。非交互环境不会提示，需要提前配置认证方式。口令没有命令行参数；若保存到 YAML，应限制文件访问权限。
 
-UDP 转发（如 DNS）：
+### 登录密码与保活
 
-```bash
-./portmap -proto udp -listen-port 53 -target 127.0.0.1:5353
-```
+登录密码优先取自上游 URL。未配置私钥时，再读取 `PORTMAP_UPSTREAM_PASSWORD`；两者都没有、agent 不可达且终端可交互时，提示输入登录密码。配置私钥会跳过登录密码的环境变量读取和提示，但 URL 中显式提供的密码仍可与其他认证方式一起使用。
 
-高位端口本地测试 + 并发限流 + 空闲超时 + 调试日志：
+认证方法按 agent、指定私钥、密码的顺序尝试。可达的 agent 只抑制交互提示，不会使显式的私钥口令失效。
 
-```bash
-./portmap -listen-port 13000 -target 127.0.0.1:2222 \
-  -max-conns 100 -idle-timeout 5m -log-level debug
-```
-
-查看版本：
-
-```bash
-./portmap -version
-# 或
-./portmap version
-```
-
-启动本地 SOCKS5 + HTTP 代理（单端口双协议，出站直连）：
-
-```bash
-./portmap proxy -addr 127.0.0.1:1080
-```
-
-按 `Ctrl+C` 优雅退出，会等待在途连接处理完成。
+`-upstream-keepalive` 默认 30 秒，负数禁用主动保活；`-upstream-keepalive-max-failures` 默认 3。探测超时会提前回收传输。断线后重新建立 SSH 传输，已中断的应用连接需要客户端重试。
 
 ## 界面语言
 
@@ -431,8 +209,8 @@ UDP 转发（如 DNS）：
 默认从环境变量自动检测，检测优先级为：`PORTMAP_LANG` > `LC_ALL` > `LC_MESSAGES` > `LANG` > `LANGUAGE`。也可显式覆盖：
 
 ```bash
-./portmap -lang zh -version          # 命令行显式指定
-PORTMAP_LANG=ja ./portmap -version   # 环境变量指定
+portmap -lang zh -version          # 命令行显式指定
+PORTMAP_LANG=ja portmap -version   # 环境变量指定
 ```
 
 ## 配置文件
@@ -440,7 +218,7 @@ PORTMAP_LANG=ja ./portmap -version   # 环境变量指定
 除命令行 flag 外，还可通过 `-config <path>` 从 YAML 文件读取配置：
 
 ```bash
-./portmap -config config.yaml
+portmap forward -config config.yaml
 ```
 
 - **优先级**：命令行显式设置的 flag > 配置文件 > 内置默认值。
@@ -448,43 +226,29 @@ PORTMAP_LANG=ja ./portmap -version   # 环境变量指定
 - `dial_timeout` / `idle_timeout` 在 YAML 中用字符串（如 `"10s"`、`"5m"`），经 `time.ParseDuration` 解析。
 - 配置文件中出现未知字段会直接报错，便于及早发现拼写错误。
 - `lang` 字段仅影响运行期消息（日志/错误），**不影响** `--help` 与 flag 描述的语言：`--help` 在配置文件加载前就已定稿，如需改变其语言请用命令行 `-lang`。
-- 启动时会打印一行「生效配置」摘要，便于确认合并后的实际参数。
+- 配置文件必须包含所选子命令的非空配置；空文件或只有另一子命令的配置会报错。
+- `forward` 读取 `forward:`，`proxy` 读取 `proxy:`，一次运行不会同时启动两类服务。
+- 启动时会打印生效配置摘要。
 
-完整示例见 [config.example.yaml](config.example.yaml)：
+将以下配置保存为 `config.yaml`。完整参数见 [config.example.yaml](config.example.yaml)：
 
 ```yaml
 forward:
-  listen_port: 22
-  listen_host: ""
-  target: 127.0.0.1:2222
-  mode: go
-  proto: tcp
-  reuseaddr: true
-  sudo: false
-  dial_timeout: 10s
-  max_conns: 256
-  idle_timeout: 5m
-  log_level: info
-  quiet: false
-  stats_addr: ""
-  web_addr: ""
-  web_log_max: 1000
+  listen_host: 127.0.0.1
+  listen_port: 10024
+  target: 127.0.0.1:8080
 proxy:
   addr: 127.0.0.1:1080
-  dial_timeout: 30s
-  max_conns: 256
-  handshake_timeout: 10s
-  idle_timeout: 5m
-  allow_public: false
-  stats_addr: ""
-  stats_allow_public: false
-  web_addr: ""
-  web_allow_public: false
-  web_log_max: 1000
-lang: en
 ```
 
-- 配置按子命令**分段**：`forward` 子命令读取 `forward:` 段，`proxy` 子命令读取 `proxy:` 段，顶层 `lang` 为两者共享。
+按需运行其中一个子命令：
+
+```bash
+portmap forward -config config.yaml
+# or
+portmap proxy -config config.yaml
+```
+
 - **向后兼容**：旧版「平铺 forward」布局（顶层直接写 `listen_port` / `target` / … ）仍受支持，`portmap` 会自动识别并归一化到 `forward:` 段，无需迁移即可继续使用。
 
 ### 多端口映射（多实例）
@@ -493,32 +257,30 @@ lang: en
 
 ```yaml
 forward:
-  - listen_port: 22
-    target: 127.0.0.1:2222
-  - listen_port: 80
+  - listen_host: 127.0.0.1
+    listen_port: 10024
     target: 127.0.0.1:8080
+  - listen_host: 127.0.0.1
+    listen_port: 10025
+    target: 127.0.0.1:8081
 
 proxy:
-  - addr: 0.0.0.0:8118
-    allow_public: true
-    upstream: ssh://root@10.10.10.10
-    upstream_identity: ~/.ssh/id_rsa
-    upstream_keepalive: 30s
-    upstream_keepalive_max_failures: 3
   - addr: 127.0.0.1:1080
-    upstream: socks5://user:pass@host:1080
+    upstream: ssh://user@server.example:22
+  - addr: 127.0.0.1:1081
 ```
 
-- 各实例在各自的 goroutine 中并发启动；收到退出信号（`Ctrl-C` / `SIGTERM`）时统一优雅关闭，任一实例发生致命错误会触发整体退出。
+- 各实例并发运行；收到退出信号（`Ctrl+C` / `SIGTERM`）时按各自的关闭流程退出，任一实例发生致命错误会触发整体退出。
 - 多实例**只能在配置文件中表达**；CLI 仍是单实例语义（如 `portmap proxy -addr ... -upstream ...`）。多实例场景下命令行的 per-instance flag（`-listen-port`/`-addr`/`-upstream` 等）无法一一对应，会被忽略并在日志中提示；`-config`/`-lang` 仍生效。forward 的 `-stats-addr`、`-web-addr` 与 `-web-log-max` 属于聚合端点的全局参数，显式设置时会覆盖实例配置。
+- proxy 的 `-stats-addr`、`-stats-allow-public`、`-web-addr`、`-web-allow-public` 与 `-web-log-max` 同样是全局管理端点参数。
 - forward 多实例当前仅支持 `mode: go`；`mode: socat` 会在启动前返回明确错误。同一地址可分别由 TCP 与 UDP 实例监听，但相同协议与地址的重复实例会被拒绝。
-- 各实例的监听地址（forward 为 `listen_host:listen_port`，proxy 为 `addr`）**不得重复**，否则启动时报错。
+- proxy 实例不能使用重复的监听地址。不同实例启用的管理端点需使用一致的地址及访问设置；冲突会在启动时返回错误。
 - 单对象写法与旧版平铺布局完全兼容，视为 1 个实例，行为不变。
 
-命令行覆盖配置文件示例（配置文件里 `forward.listen_port` 为 22，此处显式指定 8022 生效）：
+命令行覆盖配置文件示例（配置文件里 `forward.listen_port` 为 10024，此处显式指定 10025 生效）：
 
 ```bash
-./portmap -config config.yaml -listen-port 8022
+portmap forward -config config.yaml -listen-port 10025
 ```
 
 ## 模式差异（go vs socat）
@@ -534,12 +296,13 @@ proxy:
 | `-idle-timeout` | 支持 | **不支持**（忽略并提示） |
 | `-log-level` | 支持 | **不支持**（忽略并提示） |
 | `-quiet` | 支持 | **不支持**（忽略并提示） |
+| SSH 上游 | 仅 TCP，使用 `-upstream ssh://…` | 不支持，配置时返回错误 |
 | `SIGUSR1` 状态打印 | 支持（见下） | 不适用（由 socat 进程接管） |
 
 - **`-listen-host` 在 socat 下的行为**：非空时会在监听地址上追加 `bind=<host>`，
   例如 `-mode socat -listen-host 127.0.0.1 -listen-port 22` 生成
   `socat TCP-LISTEN:22,bind=127.0.0.1,fork,reuseaddr TCP:127.0.0.1:2222`；
-  不设置时行为与之前完全一致（仅监听端口，等价 `0.0.0.0`）。
+  不设置时不添加 `bind` 参数，由 socat 的默认监听行为决定。
 - 在 socat 模式下显式设置了仅 `go` 模式支持的参数（`-idle-timeout`/`-max-conns`/
   `-log-level`/`-quiet`）时，程序会打印一行提示说明这些参数被忽略。
 
@@ -553,25 +316,32 @@ UDP 无连接，`go` 模式以「客户端地址 → 一条到目标的 UDP 连�
 
 ## 可观测性
 
+下面的命令用于替换前面的示例；先停止占用相同监听端口的示例进程。
+
 `go` 模式下：
 
 - 每条连接在建立与关闭时各打印一行日志，包含连接序号、双方地址、上/下行字节数与连接时长。
 - 维护活跃连接的原子计数。
-- 在类 Unix 平台可向进程发送 `SIGUSR1` 打印当前连接快照，例如：
+- 在类 Unix 平台，先把 `PORTMAP_PID` 设置为 portmap 的实际进程号，再发送 `SIGUSR1` 打印连接快照：
 
 ```bash
-kill -USR1 <pid>
+kill -USR1 "$PORTMAP_PID"
 # 日志输出：status: active=<当前活跃连接数> total=<累计处理连接数> rejected=<拒绝数> dial-errors=<拨号失败数> up=<上行字节> down=<下行字节> uptime=<运行时长>
 ```
 
 - 通过 `-stats-addr` 可另外开启一个只读 HTTP 统计端点（forward 与 proxy 均支持），例如：
 
 ```bash
-./portmap -stats-addr 127.0.0.1:9090
-# 或 ./portmap proxy -stats-addr 127.0.0.1:9090
+portmap forward -listen-host 127.0.0.1 -listen-port 10024 -target 127.0.0.1:8080 -stats-addr 127.0.0.1:9090
+# 或 portmap proxy -stats-addr 127.0.0.1:9090
 
-curl http://127.0.0.1:9090/stats     # JSON 快照
-curl http://127.0.0.1:9090/metrics   # Prometheus 文本
+```
+
+在另一终端验证：
+
+```bash
+curl --noproxy '*' http://127.0.0.1:9090/stats     # JSON 快照
+curl --noproxy '*' http://127.0.0.1:9090/metrics   # Prometheus 文本
 ```
 
   该端点默认关闭；出于安全考虑仅允许绑定回环地址，proxy 下需显式 `-stats-allow-public` 才能绑定非回环地址。多实例（多端口映射）场景下会启动单个聚合端点，汇总所有实例的快照。
@@ -579,201 +349,71 @@ curl http://127.0.0.1:9090/metrics   # Prometheus 文本
 - 通过 `-web-addr` 可开启一个可选的 **Web 面板**（forward 与 proxy 均支持），在浏览器中实时查看性能统计与访问/连接日志：
 
 ```bash
-./portmap -web-addr 127.0.0.1:8080
-# 或 ./portmap proxy -web-addr 127.0.0.1:8080
+portmap forward -listen-host 127.0.0.1 -listen-port 10024 -target 127.0.0.1:8080 -web-addr 127.0.0.1:9080
+# 或 portmap proxy -web-addr 127.0.0.1:9080
 ```
 
-  随后用浏览器打开 `http://127.0.0.1:8080/` 即可：页面顶部展示实时性能卡片（活跃/累计/拒绝连接、拨号失败、上下行字节、运行时长），下方为结构化的连接事件日志表格，并会自动轮询刷新。它是一个网页而非 `curl` 接口，但同时提供 `/api/stats` 与 `/api/logs` 两个 JSON 端点供程序化读取。
+  随后用浏览器打开 `http://127.0.0.1:9080/` 即可：页面顶部展示实时性能卡片（活跃/累计/拒绝连接、拨号失败、上下行字节、运行时长），下方为结构化的连接事件日志表格，并会自动轮询刷新。它是一个网页而非 `curl` 接口，但同时提供 `/api/stats` 与 `/api/logs` 两个 JSON 端点供程序化读取。
 
   面板默认关闭；出于安全考虑（连接日志含目标地址）仅允许绑定回环地址，proxy 下需显式 `-web-allow-public` 才能绑定非回环地址。可用 `-web-log-max` 调整连接事件环形缓冲保留的条数（默认 1000）。
 
 - `-quiet` 抑制常规日志；`-log-level debug` 输出更详细信息（如 `pipe` 层异常）。
 
-## 性能压测
 
-仓库自带一个独立、自包含的压测工具 [`cmd/loadtest`](cmd/loadtest/main.go)，用于评估 portmap 转发的**可靠性**与**吞吐量**，并输出当前**主机环境**信息。
+## 排查问题
 
-默认自包含模式下，工具会在进程内启动一个 echo 目标服务，再用 `forward.New(...)` 起一个转发服务，然后由压测客户端对转发端口发压，形成 `client -> portmap -> echo` 的完整链路，无需任何额外准备即可运行。也可用 `-external <addr>` 直接压测外部已运行的 portmap（此时需自备目标服务）。
-
-```bash
-# TCP 吞吐模式（长连接持续收发）
-go run ./cmd/loadtest -proto tcp -mode throughput -conns 100 -duration 10s
-
-# TCP 连接速率模式（短连接建立/关闭循环）
-go run ./cmd/loadtest -proto tcp -mode connrate -conns 100 -duration 10s
-
-# UDP 吞吐模式
-go run ./cmd/loadtest -proto udp -mode throughput -conns 50 -duration 10s -payload 512
-
-# 每连接最多完成 1000 个成功请求，并以 30s 为硬截止时间；同时测试限流/超时路径
-go run ./cmd/loadtest -proto tcp -conns 20 -requests 1000 -duration 30s -max-conns 200 -idle-timeout 5m
-
-# 压测外部已运行的 portmap（需自备目标服务）
-go run ./cmd/loadtest -external 127.0.0.1:13000 -proto tcp -duration 10s
-
-# CI：输出 JSON，并在错误率超过 0.1% 或 p95 超过 5ms 时退出 1
-go run ./cmd/loadtest -format json -max-error-rate 0.1 -max-p95 5ms
-```
-
-参数说明：
-
-```text
-loadtest [flags]
-
-flags:
-  -proto tcp|udp            转发协议 (默认 tcp)
-  -conns int                并发连接/会话数 (默认 50)
-  -duration duration        压测最长时长，所有模式的硬截止时间 (默认 10s)
-  -requests int             每连接成功请求数，0 表示仅按 duration 持续跑 (默认 0)
-  -payload int              单次请求负载字节数 (默认 1024)
-  -mode throughput|connrate 吞吐模式（长连接持续收发）或连接速率模式（短连接循环） (默认 throughput)
-  -external string          外部 portmap 地址；为空则自建链路
-  -max-conns int            内建转发服务最大并发连接数，0 表示不限制
-  -idle-timeout duration    内建转发服务空闲超时，0 表示不启用
-  -warmup duration          预热时间，预热期数据不计入统计 (默认 1s)
-  -format text|json         输出格式 (默认 text)
-  -max-samples int          最多保留的 RTT 样本数，使用蓄水池采样 (默认 100000)
-  -max-error-rate float     允许的最大错误率百分比，设置后超限退出 1
-  -max-p95 duration         允许的最大 p95 RTT，0 表示不设置阈值
-```
-
-`-requests` 是成功请求数的提前结束条件，并不会禁用 `-duration`。即使目标持续
-拨号失败、超时或返回错误，压测也会在 `-duration` 到期时结束；连续失败会短暂
-退避，避免不可达目标导致忙循环。
-
-报告包含三块：**主机环境**（GOOS/GOARCH、CPU 数、Go 版本、主机名、内存分配）、**配置**、**结果**（吞吐 MB/s 与 Gbps、req/s、connrate 模式下的 conns/s、延迟 min/p50/p95/p99/max、错误率与分类计数，以及压测后 `ActiveConns()` 是否归零的可靠性校验）。RTT 使用有界蓄水池采样，长时间压测不会随请求数持续增长内存；`-format json` 提供机器可读结果。所有输出走标准库，不引入新依赖。
-
-样例输出（节选）：
-
-```text
-==================== portmap loadtest report ====================
-[ Host / Runtime ]
-  hostname     : example
-  os/arch      : linux/amd64
-  num cpu      : 8
-  go version   : go1.27.x
-  ...
-[ Results ]
-  throughput   : 75.35 MB/s | 0.632 Gbps
-  req/s        : 77159.59
-[ Latency (RTT) ]
-  min          : 26µs
-  p50          : 240µs
-  p95          : 387µs
-  p99          : 553µs
-  max          : 19.973ms
-[ Reliability ]
-  errors       : 0 (rate 0.0000%)
-  active conns : 0 (returned to zero) OK
-=================================================================
-```
-
-## 工程化
+### 参数不存在，或 `proxy` 没有启动
 
 ```bash
-make build     # 注入版本信息编译
-make test      # go test ./... -race
-make vet       # go vet
-make lint      # golangci-lint（需已安装）
-make security  # govulncheck
-make check     # 模块整洁、vet、race test、漏洞检查与构建
-make release   # 交叉编译多平台产物到 dist/
-make snapshot  # 用 GoReleaser 本地试跑发布流程（不推送、不发布）
+type -a portmap
+portmap version
+portmap forward -help
+portmap proxy -help
 ```
 
-CI 见 `.github/workflows/ci.yml`：在 Linux/macOS 上运行 `go vet` 与
-`go test -race`，对全部发布平台做交叉编译，并独立运行 `golangci-lint`、
-`go mod tidy -diff` 与 `govulncheck`。
+确认执行的是预期路径中的二进制。旧版本可能不包含当前源码的参数或子命令；需要新功能时从当前源码构建。
 
-## 发布
+### `address already in use`
 
-发布见 `.github/workflows/release.yml`，由 GoReleaser 驱动：
+本地监听端口已被占用。停止占用端口的进程，或更改 `-listen-port` / `-addr`。SSH 转发修改的是本地入口，不必同步修改远端 `-target`。Linux 可用 `ss -lntp` 查看监听，macOS 可用 `lsof -nP -iTCP:10024 -sTCP:LISTEN`。
 
-- **触发**：推送 `v*` 形式的 tag（如 `v1.2.0`）自动发布；手动
-  `workflow_dispatch` 也必须从 `v*` tag 发起。
-- **发布门禁**：发布前重新运行模块整洁检查、`go vet`、race test 与
-  `govulncheck`。
-- **二进制产物**：`linux`/`darwin` × `amd64`/`arm64`
-  连同 `checksums.txt` 一并上传到 GitHub Release。
-- **容器镜像**：构建多架构（`linux/amd64` + `linux/arm64`）镜像并推送到
-  `ghcr.io/soulteary/portmap` 与 `docker.io/soulteary/portmap`，
-  同时打 `:latest` 与 `:<version>` 标签。
-- **来源证明**：GitHub 为发布归档与 `checksums.txt` 生成 Sigstore 构建证明，
-  可使用 `gh attestation verify` 验证。
+### SSH 已连接，但目标返回 `Connection refused`
 
-发布前置条件：
+这表示 SSH 传输已经建立，应用目标拒绝了连接。在 SSH 服务器上检查应用是否启动、监听地址和端口是否正确，以及容器端口是否发布。
 
-- ghcr.io 使用内置 `GITHUB_TOKEN`（工作流已授予 `packages: write`），无需额外配置。
-- Docker Hub 需在仓库 Settings → Secrets 中配置 `DOCKERHUB_USERNAME` 与
-  `DOCKERHUB_TOKEN` 两个 secret；当前发布配置同时生成 Docker Hub 镜像，缺少任一
-  secret 时会在发布前明确失败，避免只发布了一部分产物。
-- 本地可用 `make snapshot`（等价 `goreleaser release --snapshot --clean`）或
-  `goreleaser check` 校验配置，均不会推送。
+例如，登录远端后执行下面的命令。Linux 上还可以检查监听列表：
+
+```bash
+curl --noproxy '*' -v --connect-timeout 5 http://127.0.0.1:10024/
+ss -lntp 'sport = :10024'
+```
+
+### 认证或主机密钥错误
+
+确认 `-upstream-identity` 使用私钥。使用 agent 时用 `ssh-add -l` 检查已加载的密钥。非交互环境无法等待密码输入，应预先配置认证。主机密钥校验失败时核对目标主机指纹和 known_hosts 记录，不要把跳过校验作为常规解决办法。
+
+### 启动后看不到页面
+
+forward 需要有目标服务；proxy 需要客户端实际使用代理。用前面的 curl 命令区分两者，并检查浏览器的本地地址绕过规则。默认空闲超时可能关闭长期无流量的连接，需要时按协议调整 `-idle-timeout`。
+
+## 开发与维护
+
+- [贡献指南](CONTRIBUTING.md#贡献指南中文)：开发环境、本地检查、代码规范和发布流程。
+- [性能压测](docs/performance.md)：TCP/UDP 回显压测、采样和输出参数。
+- [CHANGELOG](CHANGELOG.md)：版本历史和升级影响。
+- [CI 工作流](.github/workflows/ci.yml)与[发布工作流](.github/workflows/release.yml)：检查项目和发布平台的实际配置。
 
 ## 项目结构
 
-```text
-.
-├── main.go                          # 命令行入口与参数解析
-├── main_test.go                     # 命令行入口测试
-├── config.go                        # YAML 配置文件加载与合并
-├── config_test.go                   # 配置文件加载/合并测试
-├── config.example.yaml              # 配置文件示例
-├── CHANGELOG.md                     # 版本历史与升级说明
-├── signals_unix.go                  # 类 Unix 平台 SIGUSR1 状态打印
-├── cmd
-│   └── loadtest                     # 独立压测工具（自包含链路 + TCP/UDP 压测）
-│       └── main.go
-├── Makefile                         # 构建/测试/发布
-├── LICENSE                          # Apache 2.0 许可证
-├── .golangci.yml                    # golangci-lint 配置
-├── .goreleaser.yaml                 # GoReleaser 发布配置（二进制 + 镜像）
-├── Dockerfile                       # scratch 基础镜像
-├── .dockerignore                    # 容器构建上下文忽略规则
-├── .github/workflows/ci.yml         # CI 工作流
-├── .github/workflows/release.yml    # 发布工作流（GoReleaser）
-└── internal
-    ├── forward                      # 纯 Go TCP/UDP 转发器
-    │   ├── forward.go               # TCP 转发、限流、空闲超时、日志
-    │   ├── forward_test.go          # forward 单元测试
-    │   ├── selftarget.go            # 递归自引用目标防护
-    │   ├── udp.go                   # UDP 会话转发
-    │   └── reuseaddr_unix.go        # 类 Unix 平台 SO_REUSEADDR
-    ├── proxy                        # 单端口 SOCKS5 + HTTP 代理
-    │   ├── server.go                # 监听、首字节协议探测、连接分发
-    │   ├── socks5.go                # SOCKS5 握手与 CONNECT
-    │   ├── http.go                  # HTTP 代理与 CONNECT 转发
-    │   ├── upstream.go              # 共用传输层的兼容入口
-    │   └── proxy_test.go            # proxy 单元测试
-    ├── upstream                     # forward/proxy 共用的出站传输
-    │   ├── dialer.go                # 忽略环境代理的直连拨号器
-    │   └── upstream.go              # SOCKS5/HTTP/SSH 上游拨号
-    ├── netutil                      # forward/proxy 共用的双向转发与空闲超时
-    │   └── netutil.go               # Relay / RelayReader / IdleConn
-    ├── stats                        # 统计、事件、JSON 与 Prometheus 输出
-    ├── web                          # 只读监控面板及 JSON API
-    ├── socat                        # 调用系统 socat 的 fallback
-    │   ├── socat.go                 # 构造并执行 socat 命令
-    │   ├── socat_test.go            # socat 单元测试
-    │   └── socat_cancel_unix.go     # 类 Unix 平台 SIGTERM 优雅取消
-    └── i18n                         # 多语言（i18n）支持
-        ├── i18n.go                  # 语言检测、解析与查表
-        ├── i18n_test.go             # i18n 单元测试
-        ├── keys_common.go           # 跨命令共享消息 key + 语言表装配
-        ├── keys_forward.go          # forward 子命令消息 key
-        ├── keys_proxy.go            # proxy 子命令消息 key
-        ├── locale_unix.go           # 类 Unix 平台区域探测（no-op）
-        └── messages_*.go            # 各语言消息（en/zh/ja/ko/fr/de）
-```
-
-## 测试
-
-```bash
-go test ./...
-# 或
-make test
-```
+- `main.go`、`config.go`：命令入口、参数合并和多实例启动。
+- `internal/forward`：TCP/UDP 固定目标转发。
+- `internal/proxy`：SOCKS5、HTTP 请求处理和连接生命周期。
+- `internal/upstream`：直连、SOCKS5、HTTP CONNECT、SSH 出站传输。
+- `internal/netutil`：数据复制、半关闭和空闲超时。
+- `internal/stats`、`internal/web`：统计与只读监控页面。
+- `internal/socat`、`internal/i18n`：socat 调用与多语言消息。
+- `cmd/loadtest`：回显压测工具。
 
 ## 许可证
 
-本项目基于 [Apache License 2.0](LICENSE) 开源，版权所有 (c) 2026 soulteary。
+[Apache License 2.0](LICENSE)，Copyright (c) 2026 soulteary。

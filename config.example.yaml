@@ -1,28 +1,33 @@
 # portmap 配置文件示例（顶层嵌套布局，推荐）
 #
-# 优先级：命令行显式设置的 flag > 配置文件 > 内置默认值。
+# 单实例优先级：命令行显式设置的 flag > 配置文件 > 内置默认值。
 # 仅在此文件中出现、且命令行未显式设置的字段才会覆盖默认值。
 # 用法：
-#   portmap -config config.yaml                 # forward 子命令读取 forward: 段
-#   portmap proxy -config config.yaml           # proxy 子命令读取 proxy: 段
+#   portmap forward -config config.example.yaml  # forward 子命令读取 forward: 段
+#   portmap proxy -config config.example.yaml  # proxy 子命令读取 proxy: 段
 #
 # 配置按子命令分段；开启严格校验（KnownFields），出现未知字段会直接报错。
-# 下列字段均为可选，未出现的字段将沿用内置默认值。
+# 下列字段均为可选，未出现的字段沿用内置默认值。每次运行只读取选定的子命令段。
 
 # forward 子命令（TCP/UDP 端口转发）
 forward:
   # 本地监听端口（默认 22）
-  listen_port: 22
-  # 本地监听地址，留空表示所有网卡（默认空）
-  listen_host: ""
-  # 转发目标地址 host:port（默认 127.0.0.1:2222）
-  target: 127.0.0.1:2222
+  listen_port: 10024
+  # 直连时缺省监听所有网卡；SSH 上游缺省为回环地址。显式空字符串仍表示所有网卡。
+  # 示例只供本机访问；listen_port 的内置默认值仍为 22。
+  listen_host: 127.0.0.1
+  # 目标服务需提前启动。示例使用 8080，内置默认目标为 127.0.0.1:2222。
+  target: 127.0.0.1:8080
   # 转发模式：go（纯 Go 实现）或 socat（调用系统 socat），默认 go
   mode: go
   # 转发协议：tcp 或 udp（默认 tcp）
   proto: tcp
   # 是否启用 SO_REUSEADDR（默认 true）
   reuseaddr: true
+  # SSH 上游仅支持 mode: go、proto: tcp。启用时替换下面的地址；目标由 SSH 服务器访问。
+  # upstream: ssh://user@server.example:22
+  # upstream_agent: true
+  # 其他 upstream_* 字段与 proxy 段相同，包括私钥、known_hosts、口令和保活设置。
   # socat 模式下是否以 sudo 运行（默认 false）
   sudo: false
   # 拨号到目标的超时时间，字符串写法（如 10s、1m），默认 10s
@@ -39,7 +44,7 @@ forward:
   # 可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭。
   # 暴露 /stats（JSON）与 /metrics（Prometheus 文本）；仅允许绑定回环地址。
   stats_addr: ""
-  # 可选的 Web 面板监听地址（如 127.0.0.1:8080），留空表示关闭。
+  # 可选的 Web 面板监听地址（如 127.0.0.1:9080），留空表示关闭。
   # 启用后可在浏览器查看实时性能统计与访问/连接日志；默认仅允许绑定回环地址。
   web_addr: ""
   # Web 面板连接事件环形缓冲保留的最大条数（默认 1000）
@@ -59,7 +64,7 @@ proxy:
   idle_timeout: 5m
   # 是否允许监听非回环地址。代理不提供认证，仅应在受保护网络中开启（默认 false）
   allow_public: false
-  # 上游代理链：出站连接经此上游转发，留空表示直连（默认空）。
+  # 上游端点：出站连接经此上游转发，留空表示直连（默认空）。
   # 形如 socks5://user:pass@host:1080、http://host:3128、ssh://user@host:22
   #
   # ssh 上游的登录密码可写在 URL 中（ssh://user:pass@host:22，特殊字符需
@@ -75,15 +80,14 @@ proxy:
   # 「可用」以真实连接一次 socket 为准：socket 路径残留但 agent 已退出时判为不可用，
   # 交互式口令提示会照常出现，而不会被压制。
   # 推荐把加密私钥的口令交给 agent 保管，例如 macOS 上执行：
-  #   ssh-add --apple-use-keychain ~/.ssh/keys/litchi/litchi-2018
-  # 注意：Windows 的 ssh-agent 走 named pipe 而非 unix socket，不受支持。
+  #   ssh-add --apple-use-keychain ~/.ssh/id_ed25519
   upstream_agent: true
   # ssh-agent 的 unix socket 路径（仅 ssh 上游，默认空）。
   # 留空表示读取环境变量 SSH_AUTH_SOCK。
   upstream_agent_socket: ""
   # SSH 上游认证使用的私钥文件路径（仅 ssh 上游，默认空）。
   # 支持 ~ 开头的路径，会展开为当前用户的 home 目录。
-  # 注意：配置了私钥后不会再提示输入登录密码（两种认证方式互斥）。
+  # 配置私钥后，不再读取登录密码环境变量或提示登录密码；URL 中的密码仍可参与认证。
   upstream_identity: ""
   # 加密私钥的 passphrase（仅 ssh 上游，默认空）。优先级：环境变量
   # PORTMAP_UPSTREAM_IDENTITY_PASSPHRASE > 此配置项 > 交互式终端输入。
@@ -98,14 +102,14 @@ proxy:
   # SSH 上游主动保活探测间隔（仅 ssh 上游）。字符串写法（如 30s、1m）。
   # 0 或留空表示默认 30s；负数（如 -1s）表示禁用主动保活，退回被动重连。
   upstream_keepalive: 30s
-  # 连续保活探测失败多少次后判定断线并触发后台重连（仅 ssh 上游，默认 3）
+  # 普通探测失败的连续阈值（默认 3）；探测超时会直接回收传输并重连。
   upstream_keepalive_max_failures: 3
   # 可选的 HTTP 统计端点地址（如 127.0.0.1:9090），留空表示关闭。
   # 暴露 /stats（JSON）与 /metrics（Prometheus 文本）；默认仅允许回环地址。
   stats_addr: ""
   # 是否允许统计端点监听非回环地址；与代理监听器的 allow_public 独立（默认 false）
   stats_allow_public: false
-  # 可选的 Web 面板监听地址（如 127.0.0.1:8080），留空表示关闭。
+  # 可选的 Web 面板监听地址（如 127.0.0.1:9080），留空表示关闭。
   # 启用后可在浏览器查看实时性能统计与访问/连接日志；默认仅允许回环地址。
   web_addr: ""
   # 是否允许 Web 面板监听非回环地址；与代理监听器的 allow_public 独立（默认 false）
@@ -130,8 +134,7 @@ lang: en
 # 注意：
 #   - 多实例场景下，命令行的 per-instance flag（如 -listen-port/-addr/-upstream 等）
 #     无法一一对应到某个实例，会被忽略并在日志中提示；-config/-lang 仍生效。
-#   - 各实例的监听地址（forward 为 listen_host:listen_port，proxy 为 addr）不得重复，
-#     否则启动时报错。
+#   - forward 按协议与监听地址去重，TCP 与 UDP 可以使用相同地址；proxy 按监听地址去重。
 #   - 单对象写法（如上面的 forward:/proxy:）与旧版平铺布局完全兼容，视为 1 个实例。
 #
 # 多实例示例：
@@ -144,14 +147,13 @@ lang: en
 #       proto: tcp
 #
 #   proxy:
-#     - addr: 0.0.0.0:8118
-#       allow_public: true
-#       upstream: ssh://root@10.10.10.10
+#     - addr: 127.0.0.1:1080
+#       upstream: ssh://user@server.example:22
 #       upstream_identity: ~/.ssh/id_rsa
 #       upstream_keepalive: 30s
 #       upstream_keepalive_max_failures: 3
-#     - addr: 127.0.0.1:1080
-#       upstream: socks5://user:pass@host:1080
+#     - addr: 127.0.0.1:1081
+#       upstream: socks5://proxy.example:1080
 
 # TCP forwarding through SSH (alternative configuration):
 # forward:
