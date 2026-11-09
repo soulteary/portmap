@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package proxy
+package upstream
 
 import (
 	"bufio"
@@ -25,7 +25,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -828,128 +827,10 @@ func TestSSHDialerSupervisorReplacesBlackholedClient(t *testing.T) {
 	t.Fatal("supervisor 未替换无响应的 SSH 客户端")
 }
 
-func TestSOCKS5UpstreamDialer(t *testing.T) {
-	backendAddr, stopBackend := startBackend(t)
-	defer stopBackend()
-	// 复用 portmap 自身的 SOCKS5 服务端作为上游节点。
-	upstreamAddr, stopUpstream := startTestProxy(t)
-	defer stopUpstream()
-
-	dialer, err := NewUpstreamDialer(&UpstreamConfig{
-		Scheme: UpstreamSchemeSOCKS5,
-		Addr:   upstreamAddr,
-	}, 5*time.Second, 30*time.Second, nil)
-	if err != nil {
-		t.Fatalf("构造 SOCKS5 上游拨号器失败: %v", err)
-	}
-	assertDialerReachesBackend(t, dialer, backendAddr)
-}
-
 func closeDialer(t *testing.T, dialer Dialer) {
 	t.Helper()
 	if closer, ok := dialer.(io.Closer); ok {
 		_ = closer.Close()
-	}
-}
-
-// startTestProxyWithUpstream 启动一个使用给定上游的完整代理服务，返回其地址。
-// 与 startTestProxy 一样预建监听器以避免地址发现竞态，但保留 New 的默认空闲
-// 超时，使中继阶段真正走共享截止时间刷新路径。
-func startTestProxyWithUpstream(t *testing.T, cfg *UpstreamConfig) (string, func()) {
-	t.Helper()
-	srv := New("127.0.0.1:0")
-	srv.Logger = log.New(io.Discard, "", 0)
-	srv.DialTimeout = 5 * time.Second
-	dialer, err := NewUpstreamDialer(cfg, srv.DialTimeout, defaultKeepAlive, srv.Logger)
-	if err != nil {
-		t.Fatalf("构造上游拨号器失败: %v", err)
-	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		closeDialer(t, dialer)
-		t.Fatalf("监听失败: %v", err)
-	}
-	srv.listener = ln
-	srv.Addr = ln.Addr().String()
-	srv.dialer = dialer
-
-	go func() {
-		for {
-			conn, acceptErr := ln.Accept()
-			if acceptErr != nil {
-				return
-			}
-			go srv.serveConn(conn)
-		}
-	}()
-
-	return ln.Addr().String(), func() {
-		_ = ln.Close()
-		closeDialer(t, dialer)
-	}
-}
-
-// TestSSHUpstreamServesSOCKS5AndConnect 覆盖「代理服务 + SSH 上游」的完整链路。
-// SSH 通道原生不支持 SetDeadline，若不为其补齐截止时间语义，共享空闲超时在
-// 每次读写前的刷新都会失败，SOCKS5 成功应答与 CONNECT 应答将完全无法写出。
-func TestSSHUpstreamServesSOCKS5AndConnect(t *testing.T) {
-	backendAddr, stopBackend := startBackend(t)
-	defer stopBackend()
-
-	clientPEM, clientPub := generateClientKey(t)
-	sshAddr, _, stopSSH := startSSHServer(t, clientPub)
-	defer stopSSH()
-
-	proxyAddr, stopProxy := startTestProxyWithUpstream(t, &UpstreamConfig{
-		Scheme:       UpstreamSchemeSSH,
-		Addr:         sshAddr,
-		Username:     "tester",
-		IdentityFile: writeIdentity(t, clientPEM),
-		Insecure:     true,
-	})
-	defer stopProxy()
-
-	t.Run("socks5", func(t *testing.T) {
-		conn, err := socks5Dial(proxyAddr, backendAddr)
-		if err != nil {
-			t.Fatalf("经 SSH 上游的 SOCKS5 CONNECT 失败: %v", err)
-		}
-		defer func() { _ = conn.Close() }()
-		assertHTTPGetOverConn(t, conn, backendAddr)
-	})
-
-	t.Run("http", func(t *testing.T) {
-		client := &http.Client{
-			Transport: &http.Transport{Proxy: func(*http.Request) (*url.URL, error) {
-				return url.Parse("http://" + proxyAddr)
-			}},
-			Timeout: 5 * time.Second,
-		}
-		resp, err := client.Get("http://" + backendAddr + "/")
-		if err != nil {
-			t.Fatalf("经 SSH 上游的 HTTP 代理请求失败: %v", err)
-		}
-		defer func() { _ = resp.Body.Close() }()
-		body, _ := io.ReadAll(resp.Body)
-		if !strings.Contains(string(body), "hello from backend") {
-			t.Fatalf("响应内容不符: %q", body)
-		}
-	})
-}
-
-// assertHTTPGetOverConn 在已建立的隧道上发起一次最小 HTTP 请求并校验正文。
-func assertHTTPGetOverConn(t *testing.T, conn net.Conn, host string) {
-	t.Helper()
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-	if _, err := io.WriteString(conn, "GET / HTTP/1.1\r\nHost: "+host+"\r\nConnection: close\r\n\r\n"); err != nil {
-		t.Fatalf("隧道内写请求失败: %v", err)
-	}
-	body, err := io.ReadAll(conn)
-	if err != nil {
-		t.Fatalf("隧道内读响应失败: %v", err)
-	}
-	if !strings.Contains(string(body), "hello from backend") {
-		t.Fatalf("响应内容不符: %q", body)
 	}
 }
 
