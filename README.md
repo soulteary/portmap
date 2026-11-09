@@ -191,6 +191,8 @@ portmap forward \
 curl --noproxy '*' http://127.0.0.1:10024/
 ```
 
+IPv6 上游 URL 可以省略端口或使用空端口，此时使用协议默认端口；显式端口及 IPv6 zone 标识保持不变。
+
 目标地址从 SSH 服务器访问：`127.0.0.1` 指服务器自身，目标域名也由服务器解析。
 SSH 服务器需要允许 TCP 转发，应用需要监听对应的目标地址。
 
@@ -278,7 +280,8 @@ flags:
 
 > 安全提示：代理不提供身份认证，默认拒绝监听 `0.0.0.0`、`::` 等非回环地址。
 > 只有在网络访问已由防火墙或其它边界保护时，才应显式添加 `-allow-public`。
-> 指向代理自身监听地址的 HTTP/SOCKS5 请求会被拒绝，以避免递归连接风暴。
+> 直连模式下，指向代理自身监听地址的 HTTP/SOCKS5 请求会被拒绝。
+> 配置上游时，检查的是本地实际连接的上游端点；应用目标属于上游侧的地址空间，允许与本地监听地址相同。
 > `-allow-public` 只开放代理监听器；统计端点和 Web 面板必须分别通过
 > `-stats-allow-public` 与 `-web-allow-public` 显式开放。
 
@@ -546,7 +549,7 @@ UDP 无连接，`go` 模式以「客户端地址 → 一条到目标的 UDP 连�
 
 - **`-max-conns`**：UDP 下限制**并发会话数**（而非连接数），超限时直接拒绝新客户端并丢弃其首包（UDP 无排队语义），并在 `-log-level debug` 下记录。
 - **`-idle-timeout`**：UDP 下为 `0` 会**回退为默认 60s**，即回收空闲超过 60s 的会话（TCP 下 `0` 表示不启用）。
-- TCP/UDP 目标若解析到当前 forward 监听器会在启动阶段被拒绝；TCP 建连后还会再次检查实际对端，避免 DNS 变化形成递归连接或数据包风暴。
+- 直连 TCP/UDP 目标若解析到当前 forward 监听器会在启动阶段被拒绝；直连 TCP 建连后还会再次检查实际对端，避免 DNS 变化形成递归连接或数据包风暴。SSH 转发的目标属于远端地址空间，不与本地监听器比较。
 
 ## 可观测性
 
@@ -740,9 +743,11 @@ CI 见 `.github/workflows/ci.yml`：在 Linux/macOS 上运行 `go vet` 与
     │   ├── server.go                # 监听、首字节协议探测、连接分发
     │   ├── socks5.go                # SOCKS5 握手与 CONNECT
     │   ├── http.go                  # HTTP 代理与 CONNECT 转发
-    │   ├── dialer.go                # 忽略环境代理的直连拨号器
-    │   ├── upstream.go              # SOCKS5/HTTP/SSH 上游拨号
+    │   ├── upstream.go              # 共用传输层的兼容入口
     │   └── proxy_test.go            # proxy 单元测试
+    ├── upstream                     # forward/proxy 共用的出站传输
+    │   ├── dialer.go                # 忽略环境代理的直连拨号器
+    │   └── upstream.go              # SOCKS5/HTTP/SSH 上游拨号
     ├── netutil                      # forward/proxy 共用的双向转发与空闲超时
     │   └── netutil.go               # Relay / RelayReader / IdleConn
     ├── stats                        # 统计、事件、JSON 与 Prometheus 输出
