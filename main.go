@@ -252,10 +252,6 @@ func runForward(argv []string) error {
 		return err
 	}
 
-	if err := prepareForwardUpstream(&opt); err != nil {
-		return err
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

@@ -79,7 +79,13 @@ upstream_keepalive_max_failures: 4
 			if err := applyForwardConfig(&opt, top.Forward[0], nil); err != nil {
 				t.Fatal(err)
 			}
-			if opt.listenPort != 10024 || opt.upstreamIdentity != "~/example_key" || opt.upstreamIdentityPassphrase != "fixture-passphrase" || opt.upstreamKnownHosts != "~/example_hosts" || !opt.upstreamInsecure || opt.upstreamAgent || opt.upstreamAgentSocket != "~/example_socket" || opt.upstreamKeepalive != -time.Second || opt.upstreamKeepaliveMaxFailures != 4 {
+			want := upstreamOptions{
+				upstream: "ssh://user@server.example", upstreamIdentity: "~/example_key",
+				upstreamIdentityPassphrase: "fixture-passphrase", upstreamKnownHosts: "~/example_hosts",
+				upstreamInsecure: true, upstreamAgent: false, upstreamAgentSocket: "~/example_socket",
+				upstreamKeepalive: -time.Second, upstreamKeepaliveMaxFailures: 4,
+			}
+			if opt.listenPort != 10024 || opt.upstreamOptions != want {
 				t.Fatalf("upstream fields were not merged")
 			}
 			legacy, err := loadForwardConfig(path)
@@ -98,11 +104,12 @@ upstream_keepalive_max_failures: 4
 			opt.upstreamKeepalive = 0
 			opt.upstreamKeepaliveMaxFailures = 0
 			opt.upstream = ""
+			want = opt.upstreamOptions
 			explicit := map[string]bool{"upstream-agent": true, "upstream-insecure": true, "upstream-keepalive": true, "upstream-keepalive-max-failures": true, "upstream": true}
 			if err := applyForwardConfig(&opt, top.Forward[0], explicit); err != nil {
 				t.Fatal(err)
 			}
-			if !opt.upstreamAgent || opt.upstreamInsecure || opt.upstreamKeepalive != 0 || opt.upstreamKeepaliveMaxFailures != 0 || opt.upstream != "" {
+			if opt.upstreamOptions != want {
 				t.Fatal("explicit zero/false/empty CLI values lost")
 			}
 		})
@@ -155,7 +162,12 @@ func TestPrepareForwardSSHCredentialsAndRedaction(t *testing.T) {
 	if err := prepareForwardUpstream(&opt); err != nil || opt.preparedUpstream != u {
 		t.Fatal("preparation is not idempotent")
 	}
-	opt = defaultForwardOptions()
+}
+
+func TestPrepareForwardSSHPasswordAndInvalidURL(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "")
+	t.Setenv("PORTMAP_UPSTREAM_PASSWORD", "env-password")
+	opt := defaultForwardOptions()
 	opt.upstream = "ssh://user@server.example"
 	if err := prepareForwardUpstream(&opt); err != nil {
 		t.Fatal(err)

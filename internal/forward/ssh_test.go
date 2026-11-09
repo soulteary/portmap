@@ -79,16 +79,7 @@ func TestSSHForwardHTTPAndConcurrentChannels(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			resp, err := client.Get("http://" + addr + "/")
-			if err != nil {
-				t.Error(err)
-				return
-			}
-			defer func() { _ = resp.Body.Close() }()
-			body, err := io.ReadAll(resp.Body)
-			if err != nil || string(body) != "remote application" {
-				t.Errorf("response=%q err=%v", body, err)
-			}
+			assertForwardHTTPResponse(t, client, addr)
 		}()
 	}
 	wg.Wait()
@@ -479,5 +470,19 @@ func TestSSHForwardPendingHandshakeStopsOnCancellation(t *testing.T) {
 	_ = raw.SetReadDeadline(time.Now().Add(time.Second))
 	if _, err := io.ReadAll(raw); err != nil {
 		t.Fatalf("handshake socket not released: %v", err)
+	}
+}
+
+func assertForwardHTTPResponse(t *testing.T, client *http.Client, addr string) {
+	t.Helper()
+	resp, err := client.Get("http://" + addr + "/")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || string(body) != "remote application" {
+		t.Errorf("response=%q err=%v", body, err)
 	}
 }
