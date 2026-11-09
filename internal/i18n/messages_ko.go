@@ -15,12 +15,17 @@
 package i18n
 
 var messagesKO = map[string]string{
+	KeyFlagForwardUpstream:   "TCP 전달용 SSH 업스트림 URL, 예: ssh://user@server.example:22 (비워 두면 직접 연결)",
+	KeyErrForwardSSHMode:     "SSH 업스트림에는 -mode go 및 -proto tcp가 필요합니다",
+	KeyErrForwardSSHOnly:     "forward는 TCP ssh:// 업스트림만 지원합니다",
+	KeyErrForwardSSHFailures: "SSH 연결 유지 실패 횟수는 음수일 수 없습니다",
+
 	KeyUsageTitle:  "portmap - TCP/UDP 포트 포워딩 (socat 동등 구현)",
 	KeyUsageLine:   "사용법: %s [flags]\n\n다음과 동등: sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222\n\nflags:",
 	KeyVersionLine: "portmap %s (commit %s, built %s)",
 
 	KeyFlagListenPort:       "로컬 수신 포트",
-	KeyFlagListenHost:       "로컬 수신 주소 (기본값: 모든 인터페이스)",
+	KeyFlagListenHost:       "로컬 수신 주소 (기본값: SSH 업스트림은 루프백, 그 외에는 모든 인터페이스)",
 	KeyFlagTarget:           "전달 대상 주소 host:port",
 	KeyFlagMode:             "전달 모드: go(순수 Go 구현) 또는 socat(시스템 socat 호출)",
 	KeyFlagProto:            "전달 프로토콜: tcp 또는 udp",

@@ -72,3 +72,11 @@ const (
 	KeyErrSocatNotFound   = "err.socat-not-found"
 	KeyErrSocatInvalidStr = "err.socat-invalid-str"
 )
+
+const (
+	KeyErrForwardSSHMode     = "err.forward_ssh_mode"
+	KeyErrForwardSSHOnly     = "err.forward_ssh_only"
+	KeyErrForwardSSHFailures = "err.forward_ssh_failures"
+)
+
+const KeyFlagForwardUpstream = "flag.forward_upstream"

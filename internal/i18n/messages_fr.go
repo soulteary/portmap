@@ -15,12 +15,17 @@
 package i18n
 
 var messagesFR = map[string]string{
+	KeyFlagForwardUpstream:   "URL SSH amont pour le transfert TCP, ex. ssh://user@server.example:22 (vide : connexion directe)",
+	KeyErrForwardSSHMode:     "Un amont SSH nécessite -mode go et -proto tcp",
+	KeyErrForwardSSHOnly:     "forward accepte uniquement les amonts ssh:// sur TCP",
+	KeyErrForwardSSHFailures: "Le nombre d’échecs keepalive SSH ne peut pas être négatif",
+
 	KeyUsageTitle:  "portmap - redirection de ports TCP/UDP (équivalent socat)",
 	KeyUsageLine:   "Utilisation : %s [flags]\n\nÉquivalent à : sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222\n\nflags :",
 	KeyVersionLine: "portmap %s (commit %s, built %s)",
 
 	KeyFlagListenPort:       "port d'écoute local",
-	KeyFlagListenHost:       "adresse d'écoute locale (par défaut : toutes les interfaces)",
+	KeyFlagListenHost:       "adresse locale (par défaut : boucle locale avec SSH, toutes les interfaces sinon)",
 	KeyFlagTarget:           "adresse cible de redirection host:port",
 	KeyFlagMode:             "mode de redirection : go (implémentation Go pure) ou socat (invoque le socat système)",
 	KeyFlagProto:            "protocole de redirection : tcp ou udp",

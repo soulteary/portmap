@@ -15,12 +15,17 @@
 package i18n
 
 var messagesDE = map[string]string{
+	KeyFlagForwardUpstream:   "SSH-Upstream-URL für TCP-Weiterleitung, z. B. ssh://user@server.example:22 (leer: direkt)",
+	KeyErrForwardSSHMode:     "SSH-Upstream erfordert -mode go und -proto tcp",
+	KeyErrForwardSSHOnly:     "forward unterstützt nur ssh://-Upstreams über TCP",
+	KeyErrForwardSSHFailures: "Die SSH-Keepalive-Fehleranzahl darf nicht negativ sein",
+
 	KeyUsageTitle:  "portmap - TCP/UDP-Portweiterleitung (socat-Äquivalent)",
 	KeyUsageLine:   "Verwendung: %s [flags]\n\nEntspricht: sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222\n\nflags:",
 	KeyVersionLine: "portmap %s (commit %s, built %s)",
 
 	KeyFlagListenPort:       "lokaler Lausch-Port",
-	KeyFlagListenHost:       "lokale Lausch-Adresse (Standard: alle Schnittstellen)",
+	KeyFlagListenHost:       "lokale Listen-Adresse (Standard: Loopback bei SSH-Upstream, sonst alle Schnittstellen)",
 	KeyFlagTarget:           "Weiterleitungsziel host:port",
 	KeyFlagMode:             "Weiterleitungsmodus: go (reine Go-Implementierung) oder socat (System-socat aufrufen)",
 	KeyFlagProto:            "Weiterleitungsprotokoll: tcp oder udp",

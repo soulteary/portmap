@@ -15,12 +15,17 @@
 package i18n
 
 var messagesEN = map[string]string{
+	KeyFlagForwardUpstream:   "SSH upstream URL for TCP forwarding, e.g. ssh://user@server.example:22 (empty means direct)",
+	KeyErrForwardSSHMode:     "SSH upstream requires -mode go and -proto tcp",
+	KeyErrForwardSSHOnly:     "forward supports only ssh:// upstreams over TCP",
+	KeyErrForwardSSHFailures: "SSH keepalive failure count must not be negative",
+
 	KeyUsageTitle:  "portmap - TCP/UDP port forwarding (socat-equivalent)",
 	KeyUsageLine:   "Usage: %s [flags]\n\nEquivalent to: sudo socat TCP-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:2222\n\nflags:",
 	KeyVersionLine: "portmap %s (commit %s, built %s)",
 
 	KeyFlagListenPort:       "local listen port",
-	KeyFlagListenHost:       "local listen address (default: all interfaces)",
+	KeyFlagListenHost:       "local listen address (default: loopback with SSH upstream, all interfaces otherwise)",
 	KeyFlagTarget:           "forward target address host:port",
 	KeyFlagMode:             "forward mode: go (pure Go) or socat (invoke system socat)",
 	KeyFlagProto:            "forward protocol: tcp or udp",

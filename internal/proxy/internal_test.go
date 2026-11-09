@@ -17,7 +17,6 @@ package proxy
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"errors"
 	"net"
 	"syscall"
@@ -131,124 +130,6 @@ func TestSocksReplyForDialError(t *testing.T) {
 	if got := socksReplyForDialError(errors.New("boom")); got != socksRepGeneralFailure {
 		t.Errorf("普通错误应映射 GeneralFailure，实际 %d", got)
 	}
-}
-
-// TestUpstreamDescribe 验证 describe 拼出 scheme://addr 且不含凭据。
-func TestUpstreamDescribe(t *testing.T) {
-	cfg := &UpstreamConfig{Scheme: "socks5", Addr: "127.0.0.1:1080", Username: "u", Password: "p"}
-	if got := cfg.describe(); got != "socks5://127.0.0.1:1080" {
-		t.Fatalf("describe()=%q", got)
-	}
-}
-
-// TestDefaultUpstreamPort 覆盖各协议默认端口及已带端口时原样返回。
-func TestDefaultUpstreamPort(t *testing.T) {
-	cases := []struct {
-		scheme, host, want string
-	}{
-		{UpstreamSchemeSOCKS5, "host", "host:1080"},
-		{UpstreamSchemeHTTP, "host", "host:3128"},
-		{UpstreamSchemeSSH, "host", "host:22"},
-		{UpstreamSchemeSOCKS5, "host:9050", "host:9050"},
-		{"other", "host", "host"},
-	}
-	for _, c := range cases {
-		if got := defaultUpstreamPort(c.scheme, c.host); got != c.want {
-			t.Errorf("defaultUpstreamPort(%q,%q)=%q，期望 %q", c.scheme, c.host, got, c.want)
-		}
-	}
-}
-
-// TestPrefixConn 验证 prefixConn 先吐出预读前缀再读取底层连接。
-func TestPrefixConn(t *testing.T) {
-	server, client := net.Pipe()
-	defer func() { _ = server.Close() }()
-	defer func() { _ = client.Close() }()
-
-	pc := &prefixConn{Conn: client, prefix: []byte("HELLO")}
-
-	// 先从前缀读取。
-	buf := make([]byte, 3)
-	n, err := pc.Read(buf)
-	if err != nil || n != 3 || string(buf[:n]) != "HEL" {
-		t.Fatalf("前缀首次读取=%q,%d,%v", buf[:n], n, err)
-	}
-	n, err = pc.Read(buf)
-	if err != nil || string(buf[:n]) != "LO" {
-		t.Fatalf("前缀剩余读取=%q,%v", buf[:n], err)
-	}
-
-	// 前缀耗尽后应读到底层连接的数据。
-	go func() { _, _ = server.Write([]byte("WORLD")) }()
-	got := make([]byte, 5)
-	if _, err := readFull(pc, got); err != nil {
-		t.Fatalf("底层读取失败: %v", err)
-	}
-	if string(got) != "WORLD" {
-		t.Fatalf("底层读取=%q，期望 WORLD", got)
-	}
-}
-
-func readFull(c net.Conn, buf []byte) (int, error) {
-	_ = c.SetReadDeadline(time.Now().Add(time.Second))
-	total := 0
-	for total < len(buf) {
-		n, err := c.Read(buf[total:])
-		total += n
-		if err != nil {
-			return total, err
-		}
-	}
-	return total, nil
-}
-
-// TestBasicAuth 验证 Basic 认证编码正确。
-func TestBasicAuth(t *testing.T) {
-	// "alice:secret" 的 base64 是 YWxpY2U6c2VjcmV0。
-	if got := basicAuth("alice", "secret"); got != "YWxpY2U6c2VjcmV0" {
-		t.Fatalf("basicAuth=%q", got)
-	}
-}
-
-// TestContextDialerFallbackDial 验证当底层 proxy.Dialer 仅实现 Dial（无
-// ContextDialer）时，contextDialer 走回退分支并能正常返回连接。
-func TestContextDialerFallbackDial(t *testing.T) {
-	backendAddr, stopBackend := startBackend(t)
-	defer stopBackend()
-
-	cd := &contextDialer{d: plainDialer{}}
-	conn, err := cd.DialContext(context.Background(), "tcp", backendAddr)
-	if err != nil {
-		t.Fatalf("回退拨号失败: %v", err)
-	}
-	_ = conn.Close()
-}
-
-// TestContextDialerFallbackCancel 验证回退分支遵守 ctx 取消。
-func TestContextDialerFallbackCancel(t *testing.T) {
-	cd := &contextDialer{d: blockingPlainDialer{release: make(chan struct{})}}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err := cd.DialContext(ctx, "tcp", "127.0.0.1:1"); err == nil {
-		t.Fatal("已取消的 ctx 应返回错误")
-	}
-}
-
-// plainDialer 仅实现 proxy.Dialer.Dial（不实现 ContextDialer）。
-type plainDialer struct{}
-
-func (plainDialer) Dial(network, addr string) (net.Conn, error) {
-	return net.Dial(network, addr)
-}
-
-// blockingPlainDialer 的 Dial 阻塞直到 release 关闭，用于验证 ctx 取消。
-type blockingPlainDialer struct {
-	release chan struct{}
-}
-
-func (b blockingPlainDialer) Dial(network, addr string) (net.Conn, error) {
-	<-b.release
-	return nil, errors.New("released")
 }
 
 // TestIsLoopbackListener 覆盖回环与非回环判定。
@@ -446,4 +327,16 @@ func TestServerAlreadyServing(t *testing.T) {
 	if err := srv.ListenAndServe(); !errors.Is(err, errServerAlreadyServing) {
 		t.Fatalf("重复服务应返回 already serving，实际 %v", err)
 	}
+}
+func readFull(c net.Conn, buf []byte) (int, error) {
+	_ = c.SetReadDeadline(time.Now().Add(time.Second))
+	total := 0
+	for total < len(buf) {
+		n, err := c.Read(buf[total:])
+		total += n
+		if err != nil {
+			return total, err
+		}
+	}
+	return total, nil
 }

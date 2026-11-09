@@ -212,6 +212,66 @@ Check the version:
 
 Press `Ctrl+C` to exit gracefully; it waits for in-flight connections to finish.
 
+### Forward a local TCP port through SSH
+
+`forward` can connect to a fixed remote target through an SSH upstream. Clients
+use the local port directly; no browser proxy settings are required.
+
+```bash
+portmap forward \
+  -listen-port 10024 \
+  -target 127.0.0.1:10024 \
+  -upstream ssh://user@server.example:22
+```
+
+Open `http://localhost:10024/`, or test without using an environment proxy:
+
+```bash
+curl --noproxy '*' http://127.0.0.1:10024/
+```
+
+The target is reached from the SSH server. Its loopback address refers to that
+server, and target hostnames are resolved there. SSH must allow TCP forwarding,
+and the remote service must be listening on the target address.
+
+When `-listen-host` is omitted, SSH forwarding listens on `127.0.0.1`. An explicit
+address, including an empty address or `0.0.0.0`, is honored. Direct forwarding
+retains its existing default of listening on all interfaces.
+
+This mode requires `-mode go -proto tcp`; UDP, `socat`, and non-SSH upstreams are
+rejected. A failed SSH connection never falls back to a direct connection.
+
+The SSH authentication and host-key options are the same as for `proxy`:
+`-upstream-identity`, `-upstream-known-hosts`, `-upstream-agent`,
+`-upstream-agent-socket`, and `-upstream-insecure`. Keepalives use
+`-upstream-keepalive` and `-upstream-keepalive-max-failures`. SSH agent
+authentication is enabled by default. Private-key passphrases and login passwords
+use the same environment variables and terminal prompts as `proxy`; passphrases
+have no command-line flag. Host keys are verified by default.
+
+Equivalent YAML:
+
+```yaml
+forward:
+  listen_port: 10024
+  target: 127.0.0.1:10024
+  upstream: ssh://user@server.example:22
+  upstream_agent: true
+```
+
+The matching `upstream_*` fields are supported in nested and legacy flat forward
+configurations, including `upstream_identity_passphrase`. Explicit CLI flags take
+precedence over YAML for a single instance. In a multi-instance configuration,
+upstream settings belong to each instance; per-instance CLI flags are ignored
+with the existing warning.
+
+The SSH transport is established on the first local connection. A listening
+message does not confirm remote authentication or target availability. Concurrent
+connections share a transport, but each uses a separate channel. Reconnection
+supports later connections; interrupted application streams are not replayed.
+Local and remote ports may be identical. If the SSH server is the local machine,
+ensure the remote target does not point back to the forwarder's listener.
+
 ## SOCKS5 + HTTP Proxy
 
 The `proxy` subcommand serves SOCKS5 and HTTP/HTTPS proxy clients on one port.

@@ -583,7 +583,7 @@ func (s *Server) initializeDialer() error {
 		return err
 	}
 	if s.Upstream != nil {
-		s.logf(i18n.T(i18n.KeyLogProxyUpstreamEnabled), s.Upstream.Scheme, s.Upstream.describe())
+		s.logf(i18n.T(i18n.KeyLogProxyUpstreamEnabled), s.Upstream.Scheme, s.Upstream.Describe())
 	}
 	return nil
 }
