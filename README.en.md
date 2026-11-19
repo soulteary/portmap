@@ -43,7 +43,7 @@ For an existing installation, run `brew update` and `brew upgrade soulteary/tap/
 
 ### Build from source
 
-Requires Go 1.27.3 or newer; [go.mod](go.mod) records the requirement.
+Requires Go 1.27.4 or newer; [go.mod](go.mod) records the requirement.
 
 ```bash
 git clone https://github.com/soulteary/portmap.git
