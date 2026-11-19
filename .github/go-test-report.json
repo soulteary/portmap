@@ -1,38 +1,38 @@
 {
   "schema_version": "1.0",
   "tests": {
-    "total": 336,
-    "passed": 336,
+    "total": 367,
+    "passed": 367,
     "failed": 0,
     "skipped": 0
   },
   "coverage": {
-    "covered_statements": 3166,
-    "total_statements": 3329,
-    "percentage": 95.1,
+    "covered_statements": 3575,
+    "total_statements": 3759,
+    "percentage": 95.11,
     "threshold": 95
   },
   "packages": [
     {
       "name": ".",
       "status": "pass",
-      "tests": 67,
+      "tests": 77,
       "failed": 0,
-      "coverage": 96.69
+      "coverage": 96.43
     },
     {
       "name": "cmd/loadtest",
       "status": "pass",
       "tests": 31,
       "failed": 0,
-      "coverage": 95.03
+      "coverage": 95.22
     },
     {
       "name": "internal/forward",
       "status": "pass",
-      "tests": 47,
+      "tests": 50,
       "failed": 0,
-      "coverage": 92.31
+      "coverage": 92.04
     },
     {
       "name": "internal/i18n",
@@ -44,16 +44,16 @@
     {
       "name": "internal/netutil",
       "status": "pass",
-      "tests": 23,
+      "tests": 25,
       "failed": 0,
-      "coverage": 97.92
+      "coverage": 98.13
     },
     {
       "name": "internal/proxy",
       "status": "pass",
-      "tests": 61,
+      "tests": 64,
       "failed": 0,
-      "coverage": 95.44
+      "coverage": 95.39
     },
     {
       "name": "internal/socat",
@@ -65,9 +65,16 @@
     {
       "name": "internal/stats",
       "status": "pass",
-      "tests": 19,
+      "tests": 20,
       "failed": 0,
-      "coverage": 96.12
+      "coverage": 96.58
+    },
+    {
+      "name": "internal/telemetry",
+      "status": "pass",
+      "tests": 12,
+      "failed": 0,
+      "coverage": 94.98
     },
     {
       "name": "internal/upstream",
