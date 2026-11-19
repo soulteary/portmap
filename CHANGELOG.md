@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-20
+
 ### Added
 
 - Add `portmap stats` and optional per-process reporting over Unix sockets or TCP,
@@ -18,7 +20,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - Update TCP relay byte counters while connections remain open. Counted relays
   use pooled userspace copies instead of the raw TCP/Linux splice fast path.
 - Require Go 1.27.4 and update golang.org/x/crypto to 0.59.0,
-  golang.org/x/net to 0.63.0, and golang.org/x/term to 0.48.0.
+  golang.org/x/net to 0.63.0, golang.org/x/sys to 0.50.0, and
+  golang.org/x/term to 0.48.0.
 
 ## [1.4.0] - 2026-11-10
 
