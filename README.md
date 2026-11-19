@@ -283,6 +283,26 @@ proxy:
 portmap forward -config config.yaml -listen-port 10025
 ```
 
+
+## 集中统计
+
+`portmap`、`portmap forward` 和 `portmap proxy` 在连接未关闭时更新上下行字节计数。
+通过 `-stats-endpoint unix:///绝对路径/stats.sock` 启用上报，每秒向 `portmap stats`
+发送一批累计快照；也支持持久 TCP 连接。统计服务缺席、接收缓慢或断线不影响业务转发。
+现有本地统计接口和 Web 面板继续可用。
+
+收集端示例：`portmap stats -listen unix:///绝对路径/stats.sock -journal ./history.journal`。
+配置项为 `forward` 或 `proxy` 段中的 `stats_endpoint`；多实例共享一个上报任务。
+默认查询面板为 `http://127.0.0.1:9080/`，支持 `/stats`、`/metrics`、`/api/logs`、
+`/api/sources` 和最近 1000 批的 `/api/history`。
+
+累计快照与事件保存到追加日志，重启时恢复去重基线。日志暂不自动压缩或轮转；
+转发进程没有本地持久化，退出前尚未上报的流量可能丢失。断线补报能恢复总量，
+无法还原精确的逐秒分布。实时计数使用用户态复制，原本可用的 Linux splice 快速路径
+不再用于计量转发，因此不宣称性能提升。
+
+完整命令、存储限制和故障语义见 [Central statistics](docs/stats.md)。
+
 ## 模式差异（go vs socat）
 
 两种模式支持的能力不同，请按需选择：

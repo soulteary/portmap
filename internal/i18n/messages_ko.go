@@ -15,6 +15,13 @@
 package i18n
 
 var messagesKO = map[string]string{
+	KeyLogCollectorStarted: "통계 수집 주소 %s; 저널=%s; HTTP=%s",
+	KeyFlagStatsEndpoint:   "수집 주소: unix:///절대경로 또는 tcp://호스트:포트 (비우면 비활성화)",
+	KeyFlagStatsListen:     "통계 수신 주소 (TCP는 기본적으로 루프백 IP만 허용)",
+	KeyFlagStatsJournal:    "추가 전용 통계 저널 경로",
+	KeyErrTelemetry:        "통계: %v",
+	KeyErrTelemetrySocat:   "통계 보고에는 Go 모드가 필요합니다",
+
 	KeyFlagForwardUpstream:   "TCP 전달용 SSH 업스트림 URL, 예: ssh://user@server.example:22 (비워 두면 직접 연결)",
 	KeyErrForwardSSHMode:     "SSH 업스트림에는 -mode go 및 -proto tcp가 필요합니다",
 	KeyErrForwardSSHOnly:     "forward는 TCP ssh:// 업스트림만 지원합니다",
@@ -134,7 +141,7 @@ var messagesKO = map[string]string{
 	KeyErrSocatNotFound:   "PATH에서 %q를 찾을 수 없습니다: %w",
 	KeyErrSocatInvalidStr: "<잘못된 socat 옵션>",
 
-	KeyUsageSubcommands: "하위 명령:\n  forward   TCP/UDP 포트 포워딩 (기본값)\n  proxy     단일 포트 SOCKS5 + HTTP 프록시\n  version   버전 정보 출력",
+	KeyUsageSubcommands: "하위 명령:\n  forward   TCP/UDP 포트 포워딩 (기본값)\n  proxy     단일 포트 SOCKS5 + HTTP 프록시\n  stats     통계 수집 및 조회\n  version   버전 정보 출력",
 	KeyErrUnknownSub:    "알 수 없는 하위 명령: %q (forward, proxy 또는 version 선택)",
 
 	KeyProxyUsageTitle: "portmap proxy - 단일 포트 SOCKS5 + HTTP 프록시",

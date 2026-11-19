@@ -226,3 +226,41 @@ func (c *IdleConn) CloseWrite() error {
 	}
 	return c.SetReadDeadline(time.Now())
 }
+
+// progressWriter counts successful writes without exposing ReaderFrom, which
+// would bypass accounting. The relay retains one total for its close event.
+type progressWriter struct {
+	w   io.Writer
+	add func(int64)
+}
+
+func (w progressWriter) Write(p []byte) (int, error) {
+	n, err := w.w.Write(p)
+	if n > 0 && w.add != nil {
+		w.add(int64(n))
+	}
+	return n, err
+}
+
+// CopyAndCloseWriteProgress reports bytes while the stream is open. Counting
+// requires userspace writes; unlike CopyAndCloseWrite this cannot use splice.
+func CopyAndCloseWriteProgress(dst net.Conn, src io.Reader, add func(int64)) (int64, error) {
+	buf := copyBufPool.Get().(*[]byte)
+	// Hide WriterTo as well so every transfer passes through the pooled buffer.
+	n, err := io.CopyBuffer(progressWriter{dst, add}, struct{ io.Reader }{src}, *buf)
+	copyBufPool.Put(buf)
+	closeWrite(dst)
+	return n, err
+}
+
+// RelayReaderProgress preserves buffered client bytes and half-close behavior.
+func RelayReaderProgress(client net.Conn, reader io.Reader, remote net.Conn, addUp, addDown func(int64)) (up, down int64) {
+	done := make(chan struct{})
+	go func() {
+		up, _ = CopyAndCloseWriteProgress(remote, reader, addUp)
+		close(done)
+	}()
+	down, _ = CopyAndCloseWriteProgress(client, remote, addDown)
+	<-done
+	return up, down
+}

@@ -15,6 +15,13 @@
 package i18n
 
 var messagesJA = map[string]string{
+	KeyLogCollectorStarted: "統計収集先 %s；ジャーナル=%s；HTTP=%s",
+	KeyFlagStatsEndpoint:   "収集先：unix:///絶対パス または tcp://ホスト:ポート（空で無効）",
+	KeyFlagStatsListen:     "統計受信先（TCP は既定でループバック IP のみ）",
+	KeyFlagStatsJournal:    "追記型統計ジャーナルのパス",
+	KeyErrTelemetry:        "統計：%v",
+	KeyErrTelemetrySocat:   "統計送信には Go モードが必要です",
+
 	KeyFlagForwardUpstream:   "TCP 転送用 SSH 上流 URL（例: ssh://user@server.example:22、空欄は直接接続）",
 	KeyErrForwardSSHMode:     "SSH 上流には -mode go と -proto tcp が必要です",
 	KeyErrForwardSSHOnly:     "forward は TCP の ssh:// 上流のみ対応しています",
@@ -134,7 +141,7 @@ var messagesJA = map[string]string{
 	KeyErrSocatNotFound:   "%q が PATH に見つかりません: %w",
 	KeyErrSocatInvalidStr: "<不正な socat オプション>",
 
-	KeyUsageSubcommands: "サブコマンド:\n  forward   TCP/UDP ポートフォワーディング（既定）\n  proxy     単一ポートの SOCKS5 + HTTP プロキシ\n  version   バージョン情報を表示",
+	KeyUsageSubcommands: "サブコマンド:\n  forward   TCP/UDP ポートフォワーディング（既定）\n  proxy     単一ポートの SOCKS5 + HTTP プロキシ\n  stats     統計の収集と照会\n  version   バージョン情報を表示",
 	KeyErrUnknownSub:    "不明なサブコマンド: %q（forward、proxy または version を選択）",
 
 	KeyProxyUsageTitle: "portmap proxy - 単一ポートの SOCKS5 + HTTP プロキシ",

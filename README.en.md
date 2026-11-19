@@ -417,3 +417,15 @@ Forward needs a running target service; proxy needs the client to use its proxy 
 ## License
 
 [Apache License 2.0](LICENSE), Copyright (c) 2026 soulteary.
+
+
+## Central statistics
+
+`portmap`, `portmap forward`, and `portmap proxy` now update byte counters while
+connections remain open. Use `-stats-endpoint unix:///absolute/path/stats.sock`
+to report cumulative snapshots once per second to `portmap stats`; persistent
+TCP connections are also supported. Reporting failures do not stop forwarding.
+Existing local statistics and Web endpoints remain available.
+
+See [Central statistics](docs/stats.md) for startup commands, configuration,
+queries, storage, failure semantics, and the userspace-copy performance tradeoff.

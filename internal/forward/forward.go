@@ -321,15 +321,12 @@ func (s *Server) handle(ctx context.Context, src net.Conn, listenAddr net.Addr, 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		upBytes = s.pipe(connID, "dst<-src", dst, src)
+		upBytes = s.pipe(connID, "dst<-src", dst, src, s.stats.AddUp)
 	}()
 	// The handler itself copies the reverse direction. Wait synchronizes the
 	// byte counts without atomics and preserves bidirectional half-close.
-	downBytes := s.pipe(connID, "src<-dst", src, dst)
+	downBytes := s.pipe(connID, "src<-dst", src, dst, s.stats.AddDown)
 	wg.Wait()
-
-	s.stats.AddUp(upBytes)
-	s.stats.AddDown(downBytes)
 
 	s.infof(i18n.T(i18n.KeyLogConnClose),
 		connID, src.RemoteAddr(), target,
@@ -367,8 +364,8 @@ func (s *Server) tunnelConns(src, dst net.Conn) (net.Conn, net.Conn) {
 
 // pipe 将 src 的数据拷贝到 dst，返回拷贝的字节数；
 // 结束后尝试半关闭 dst 的写方向，以便对端感知 EOF。
-func (s *Server) pipe(connID int64, dir string, dst, src net.Conn) int64 {
-	n, err := netutil.CopyAndCloseWrite(dst, src)
+func (s *Server) pipe(connID int64, dir string, dst, src net.Conn, add func(int64)) int64 {
+	n, err := netutil.CopyAndCloseWriteProgress(dst, src, add)
 	if err != nil && !isNormalClose(err) {
 		s.debugf(i18n.T(i18n.KeyLogPipeError), connID, dir, err)
 	}
@@ -417,4 +414,9 @@ func (s *Server) closeDialer() {
 	if closer, ok := s.dialer.(io.Closer); ok {
 		_ = closer.Close()
 	}
+}
+
+// StatsLabel identifies a forwarding instance without exposing upstream credentials.
+func (s *Server) StatsLabel() string {
+	return "forward " + s.cfg.Network + "://" + s.cfg.Listen + " -> " + s.cfg.Target
 }

@@ -166,3 +166,10 @@ lang: en
 # upstream_identity, upstream_identity_passphrase, upstream_known_hosts,
 # upstream_agent_socket, upstream_insecure, upstream_keepalive, and
 # upstream_keepalive_max_failures. Do not store real credentials in examples.
+
+# 集中统计 / Central statistics (Go mode):
+# Add stats_endpoint to a forward or proxy instance. CLI -stats-endpoint overrides it.
+# stats_endpoint: unix:///absolute/private/directory/stats.sock
+# Start the receiver separately:
+# portmap stats -listen unix:///absolute/private/directory/stats.sock -journal ./history.journal
+# Reporting defaults to disabled; missing collectors never block forwarding.
