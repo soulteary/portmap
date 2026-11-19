@@ -1,13 +1,14 @@
-# Central statistics
+# 集中统计
 
-`portmap`, `portmap forward`, and `portmap proxy` count successfully forwarded
-bytes locally while connections remain open. An optional reporter sends one batch
-per process every second over a persistent connection. The collector never polls
-forwarders. Existing `-stats-addr` and `-web-addr` endpoints remain available.
+[中文](stats.md) | [English](stats.en.md)
 
-## Unix socket (same machine)
+`portmap`、`portmap forward` 和 `portmap proxy` 在连接未关闭时，按实际成功写出的字节更新本地计数。
+启用上报后，每个进程通过一条持久连接，每秒主动发送一批累计快照。收集端不会轮询转发进程。
+现有 `-stats-addr`、`-web-addr` 本地查询服务继续可用。
 
-Create a private directory and start the collector:
+## 同机使用 Unix socket
+
+先创建私有目录，再启动收集端：
 
 ```sh
 mkdir -p .portmap-stats
@@ -17,7 +18,7 @@ endpoint="unix://$(pwd)/.portmap-stats/stats.sock"
   -journal ./.portmap-stats/history.journal -http-addr 127.0.0.1:9080
 ```
 
-In the forwarder shell, set `endpoint` to the same absolute URL, then use any of:
+在转发进程所在终端，将 `endpoint` 设置为同一个绝对路径 URL，再按需运行以下命令之一：
 
 ```sh
 ./portmap forward -listen-host 127.0.0.1 -listen-port 31008 \
@@ -26,18 +27,14 @@ In the forwarder shell, set `endpoint` to the same absolute URL, then use any of
 sudo ./portmap -config ./config.yaml -stats-endpoint "$endpoint"
 ```
 
-These are separate example commands. SSH upstream forwarding uses the same
-reporter. `socat` mode does not support reporting and rejects this option.
+三条命令是独立示例，目标服务或配置文件需提前准备。SSH 上游转发使用相同的上报机制。
+`socat` 模式不支持上报，`stats_endpoint` 或 `-stats-endpoint` 非空时会返回错误。
 
-Without `-listen`, the collector creates a private per-user directory under the OS
-temporary directory and prints its socket address at startup. Reporters always
-require an explicit endpoint. A Unix socket is mode `0600`; use the same account
-(or root) to connect. Custom socket parent directories must already exist. An
-existing socket is never removed automatically on startup. After a crash, verify
-that no collector is listening before removing a stale socket file.
+未指定 `-listen` 时，收集端在系统临时目录下创建当前用户的私有目录，并在启动日志中打印 socket 地址。
+转发进程始终需要显式配置收集端地址。Unix socket 权限为 `0600`，应使用同一账户或 root 连接。
+自定义 socket 的父目录需提前创建。启动时不会自动删除已有 socket；崩溃后应先确认没有收集端监听，再删除残留文件。
 
-Configuration uses `stats_endpoint` inside `forward` or `proxy` (also supported in
-legacy flat forward configurations):
+`stats_endpoint` 写在 `forward` 或 `proxy` 段内，旧版平铺 forward 配置也支持该字段：
 
 ```yaml
 forward:
@@ -49,13 +46,12 @@ proxy:
   stats_endpoint: unix:///absolute/private/directory/stats.sock
 ```
 
-For multi-instance configurations, reporting is process-wide. Nonempty endpoints
-must agree; one batch includes all instances. The explicit CLI flag overrides
-instance configuration, including `-stats-endpoint=''` to disable reporting.
-Instance IDs are list positions within a process lifetime; labels include the
-listener and, for forwarding, the target. A new process boot ID separates restarts.
+多实例上报是进程级设置：非空地址必须一致，一个批次包含全部实例。
+显式 CLI 参数覆盖实例配置；`-stats-endpoint=''` 可禁用上报。
+实例 ID 是本次进程运行中的列表位置，标签包含监听地址，forward 标签还包含目标地址。
+进程重启后使用新的 boot ID，避免与上一次运行的计数混淆。
 
-## TCP
+## 使用 TCP
 
 ```sh
 ./portmap stats -listen tcp://127.0.0.1:9190 \
@@ -63,61 +59,61 @@ listener and, for forwarding, the target. A new process boot ID separates restar
 ./portmap proxy -config ./config.yaml -stats-endpoint tcp://127.0.0.1:9190
 ```
 
-The collector requires a loopback IP by default. `-allow-public` explicitly permits
-other TCP bind addresses for a trusted network or separately secured tunnel. The
-transport has protocol-version negotiation but no authentication or encryption;
-port reachability is not proof of identity. The HTTP query listener always requires
-a loopback IP. `-http-addr=''` disables it.
+收集端默认要求 TCP 监听地址为回环 IP。跨机器使用时，`-allow-public` 显式允许其他监听地址，
+应部署在可信网络中或通过另行保护的隧道访问。协议会协商版本，但没有内置身份认证或加密；
+端口可达不代表对端身份可信。HTTP 查询监听器始终要求回环 IP，`-http-addr=''` 可关闭查询服务。
 
-## Queries and storage
+## 命令参数
 
-Open `http://127.0.0.1:9080/` for the existing monitoring panel. The same listener
-provides:
+用 `portmap stats -help` 查看已安装版本的选项。统计服务只接受命令行参数，
+不读取 `-config` 或 YAML 中的 `stats:` 段。
 
-- `/stats` and `/api/stats`: aggregate counters.
-- `/metrics`: aggregate Prometheus metrics.
-- `/api/logs`: the most recent 1000 connection events.
-- `/api/sources`: the last batch for each process, with receiver timestamps.
-- `/api/history`: the most recent 1000 accepted batches, excluding event payloads.
+- `-listen`：上报接收 URL，默认是系统临时目录下的每用户私有 Unix socket。
+- `-journal`：追加日志文件，默认是工作目录下的 `portmap-stats.journal`，父目录必须存在。
+- `-http-addr`：查询地址，默认 `127.0.0.1:9080`，留空关闭。
+- `-allow-public`：允许非回环 TCP 上报接收地址，不会开放 HTTP 查询监听器。
+- `-lang`：帮助和日志使用的语言。
 
-A source older than three seconds is excluded from the aggregate active-connection
-gauge; its cumulative counters remain included. Source records retain their last
-reported gauges, so consumers must check `received_at` before treating them as live.
+`-stats-endpoint` 属于转发或代理进程；`-stats-addr`、`-web-addr` 用于提供这些进程的本地查询服务，
+不能用来设置集中收集端。
 
-The journal stores length-prefixed JSON records. It is append-only, locked against
-concurrent collectors, and synced before each acknowledgement. Restart replays the
-journal to restore sequence numbers, cumulative totals, recent history, and events.
-An incomplete final frame is discarded; malformed frames and invalid snapshots stop startup. Duplicate
-or older sequences do not append records. Decreasing cumulative counters within
-one process boot are rejected. The collector sums the latest cumulative snapshot
-per process rather than summing every batch.
+## 查询和存储
 
-This version does not compact or rotate the journal. Plan disk retention and stop
-the collector before archiving or replacing it. Starting with an empty journal
-resets collector history. At most 10,000 process lifetimes are retained per journal;
-each batch supports up to 1024 instances. Receiver concurrency and frame size are
-also bounded (128 connections, 4 MiB per frame).
+在浏览器打开 `http://127.0.0.1:9080/`。同一 HTTP 监听器提供：
 
-## Failure and accounting semantics
+- `/stats`、`/api/stats`：聚合计数。
+- `/metrics`：聚合 Prometheus 指标。
+- `/api/logs`：最近 1000 条连接事件。
+- `/api/sources`：每个进程最后收到的批次，包含接收端时间戳。
+- `/api/history`：最近 1000 个已接受批次，不包含事件内容。
 
-- Forwarding does not wait for collection. Missing, slow, incompatible, or
-  disconnected collectors cause background retries with exponential backoff and
-  jitter (up to approximately 38 seconds between attempts, plus dial and handshake time).
-- Only the latest cumulative snapshot is needed after an outage. A later snapshot
-  fills the total without reconstructing the per-second distribution of bytes.
-- Events share the bounded local event log (`web_log_max`, default 1000). Each
-  report includes at most 1000 pending events; overflow is reflected in
-  `events_dropped`. Delivery is best effort. After an unacknowledged batch, this
-  count can conservatively include events already persisted by the collector.
-- Forwarders do not persist locally or wait for a final report during shutdown.
-  Bytes after the last accepted sample can be lost if the process exits. Under
-  normal operation the reporting window is about one second; outages extend it.
-- Event client and target fields and instance labels are limited to 256 bytes on
-  the reporting path. Local logs retain their existing values. Collector events
-  include a process `source` ID because connection IDs are only unique per process.
-- Byte counters describe successful forwarding writes, including partial writes.
-  They exclude SSH framing/encryption and TCP/IP overhead. Proxy negotiation replies
-  are outside tunnel payload accounting. Plain HTTP counts its rewritten messages.
-- Real-time counting uses pooled 32 KiB userspace copy buffers. This disables the
-  raw TCP `io.Copy`/Linux splice fast path for counted relays, including when idle
-  timeouts are disabled. No throughput improvement is claimed by this change.
+超过三秒没有更新的来源，不再计入聚合活跃连接数，但其累计计数继续保留。
+来源记录保留最后上报的活跃连接数，读取 `/api/sources` 时应检查 `received_at`，再判断数据是否仍有效。
+
+追加日志使用带长度前缀的 JSON 记录，并加锁防止多个收集端同时使用同一文件。
+每个批次持久化并同步到磁盘后才发送确认。重启时重放日志，恢复序号、累计基线、最近历史和事件。
+末尾不完整的帧会被丢弃，格式错误的帧或无效快照会阻止启动。
+重复或更旧的序号不会追加记录，同一次进程启动内累计计数下降会被拒绝。
+收集端对各进程最新累计快照求和，不会将每个批次的累计值重复相加。
+
+当前不自动压缩或轮转日志。需规划磁盘保留策略，并在归档或替换文件前停止收集端。
+使用空日志重新启动会重置收集端历史。每份日志最多保留 10,000 次进程运行，
+每批最多支持 1024 个实例；接收端最多同时处理 128 条连接，每帧上限为 4 MiB。
+
+## 故障和计量范围
+
+- 转发不等待收集端。收集端缺席、缓慢、版本不兼容或断线时，在后台按指数退避加随机抖动重试。
+  重试间隔最多约 38 秒，另计拨号和握手时间。
+- 断线后只需发送最新累计快照，就能补齐总量；无法据此重建断线期间精确的逐秒流量分布。
+- 连接事件共享有界本地日志，容量由 `web_log_max` 控制，默认 1000 条。每批最多发送 1000 条待上报事件，
+  超出部分计入 `events_dropped`。事件为尽力交付；确认丢失时，该丢弃数可能保守地包含已被收集端保存的事件。
+- 转发进程不做本地持久化，退出时也不等待最后一次上报。进程退出可能丢失最后一次已接受采样之后的流量；
+  正常情况下这个窗口约为一秒，收集端故障时可能更长。
+- 上报中的客户端地址、目标地址和实例标签限制为 256 字节，本地日志保留原值。
+  收集端事件包含进程 `source` ID，因为连接编号只在单个进程内唯一。
+- 字节计数按成功写出的数量累计，包含部分写入。不含 SSH 封装、加密及 TCP/IP 开销。
+  代理协商回复不计入隧道负载，普通 HTTP 统计改写后转发的消息。
+- 实时计数使用复用的 32 KiB 用户态复制缓冲。计量转发不再使用原生 TCP `io.Copy` / Linux splice 快速路径，
+  即使关闭空闲超时也是如此；本改动不宣称提升吞吐量。
+
+[返回使用说明](../README.md)

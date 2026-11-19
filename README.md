@@ -10,13 +10,13 @@
   <img src=".github/workflows/assets/portmap-logo.png" alt="portmap Logo" width="160"/>
 </p>
 
-`portmap` 提供 TCP/UDP 端口转发和单端口 SOCKS5/HTTP 代理。支持 Linux、macOS 的 amd64 与 arm64；默认使用 Go 实现，只有 `-mode socat` 需要系统安装 `socat`。
+`portmap` 提供 TCP/UDP 端口转发、单端口 SOCKS5/HTTP 代理和可选的集中统计。支持 Linux、macOS 的 amd64 与 arm64；默认使用 Go 实现，只有 `-mode socat` 需要系统安装 `socat`。
 
 <p align="center">
   <img src=".github/workflows/assets/portmap-banner.jpg" alt="portmap Banner" width="720"/>
 </p>
 
-本文说明当前源码的用法。已安装版本的参数以 `portmap forward -help` 和 `portmap proxy -help` 为准；发行包可能尚未包含 `main` 分支的新功能。
+本文说明当前源码的用法。已安装版本的参数以 `portmap forward -help`、`portmap proxy -help` 和 `portmap stats -help` 为准；发行包可能尚未包含 `main` 分支的新功能。
 
 - [安装](#安装)
 - [本地转发](#本地转发)
@@ -24,6 +24,7 @@
 - [使用 SOCKS5 或 HTTP 代理](#使用-socks5-或-http-代理)
 - [SSH 认证](#ssh-认证)
 - [配置文件](#配置文件)
+- [集中统计](#集中统计)
 - [可观测性](#可观测性)
 - [排查问题](#排查问题)
 - [性能压测](docs/performance.md)
@@ -104,6 +105,7 @@ portmap forward -proto udp -listen-host 127.0.0.1 -listen-port 10024 -target 127
 ```bash
 portmap forward -help
 portmap proxy -help
+portmap stats -help
 portmap version
 ```
 
@@ -271,8 +273,8 @@ proxy:
 ```
 
 - 各实例并发运行；收到退出信号（`Ctrl+C` / `SIGTERM`）时按各自的关闭流程退出，任一实例发生致命错误会触发整体退出。
-- 多实例**只能在配置文件中表达**；CLI 仍是单实例语义（如 `portmap proxy -addr ... -upstream ...`）。多实例场景下命令行的 per-instance flag（`-listen-port`/`-addr`/`-upstream` 等）无法一一对应，会被忽略并在日志中提示；`-config`/`-lang` 仍生效。forward 的 `-stats-addr`、`-web-addr` 与 `-web-log-max` 属于聚合端点的全局参数，显式设置时会覆盖实例配置。
-- proxy 的 `-stats-addr`、`-stats-allow-public`、`-web-addr`、`-web-allow-public` 与 `-web-log-max` 同样是全局管理端点参数。
+- 多实例**只能在配置文件中表达**；CLI 仍是单实例语义（如 `portmap proxy -addr ... -upstream ...`）。多实例场景下命令行的 per-instance flag（`-listen-port`/`-addr`/`-upstream` 等）无法一一对应，会被忽略并在日志中提示；`-config`/`-lang` 仍生效。forward 的 `-stats-endpoint`、`-stats-addr`、`-web-addr` 与 `-web-log-max` 属于聚合端点的全局参数，显式设置时会覆盖实例配置。
+- proxy 的 `-stats-endpoint`、`-stats-addr`、`-stats-allow-public`、`-web-addr`、`-web-allow-public` 与 `-web-log-max` 同样是全局管理端点参数。
 - forward 多实例当前仅支持 `mode: go`；`mode: socat` 会在启动前返回明确错误。同一地址可分别由 TCP 与 UDP 实例监听，但相同协议与地址的重复实例会被拒绝。
 - proxy 实例不能使用重复的监听地址。不同实例启用的管理端点需使用一致的地址及访问设置；冲突会在启动时返回错误。
 - 单对象写法与旧版平铺布局完全兼容，视为 1 个实例，行为不变。
@@ -301,7 +303,7 @@ portmap forward -config config.yaml -listen-port 10025
 无法还原精确的逐秒分布。实时计数使用用户态复制，原本可用的 Linux splice 快速路径
 不再用于计量转发，因此不宣称性能提升。
 
-完整命令、存储限制和故障语义见 [Central statistics](docs/stats.md)。
+完整命令、存储限制和故障语义见 [集中统计指南](docs/stats.md)。
 
 ## 模式差异（go vs socat）
 
@@ -317,6 +319,7 @@ portmap forward -config config.yaml -listen-port 10025
 | `-log-level` | 支持 | **不支持**（忽略并提示） |
 | `-quiet` | 支持 | **不支持**（忽略并提示） |
 | SSH 上游 | 仅 TCP，使用 `-upstream ssh://…` | 不支持，配置时返回错误 |
+| 统计上报（`-stats-endpoint`） | 支持 | 不支持，配置时返回错误 |
 | `SIGUSR1` 状态打印 | 支持（见下） | 不适用（由 socat 进程接管） |
 
 - **`-listen-host` 在 socat 下的行为**：非空时会在监听地址上追加 `bind=<host>`，
@@ -389,6 +392,7 @@ type -a portmap
 portmap version
 portmap forward -help
 portmap proxy -help
+portmap stats -help
 ```
 
 确认执行的是预期路径中的二进制。旧版本可能不包含当前源码的参数或子命令；需要新功能时从当前源码构建。
@@ -425,11 +429,12 @@ forward 需要有目标服务；proxy 需要客户端实际使用代理。用前
 
 ## 项目结构
 
-- `main.go`、`config.go`：命令入口、参数合并和多实例启动。
+- `main.go`、`config.go`、`stats_command.go`：命令入口、参数合并和多实例启动。
 - `internal/forward`：TCP/UDP 固定目标转发。
 - `internal/proxy`：SOCKS5、HTTP 请求处理和连接生命周期。
 - `internal/upstream`：直连、SOCKS5、HTTP CONNECT、SSH 出站传输。
 - `internal/netutil`：数据复制、半关闭和空闲超时。
+- `internal/telemetry`：异步上报、集中接收和日志存储。
 - `internal/stats`、`internal/web`：统计与只读监控页面。
 - `internal/socat`、`internal/i18n`：socat 调用与多语言消息。
 - `cmd/loadtest`：回显压测工具。

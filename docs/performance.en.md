@@ -53,6 +53,11 @@ not disable `-duration`. The run therefore ends at the duration deadline even wh
 the target continuously fails to dial, times out, or returns errors. Repeated
 failures also use a short backoff to avoid a busy loop against an unreachable target.
 
+An I/O operation already in progress still counts as an error if it fails at the
+global deadline. Inspect timing when interpreting timeouts at the end of short
+runs. Setting `-requests` so the request budget finishes before the deadline can
+help distinguish shutdown-boundary errors from sustained failures.
+
 The report has three blocks: **Host / Runtime** (GOOS/GOARCH, CPU count, Go version, hostname, memory allocation), **Config**, and **Results** (throughput in MB/s and Gbps, req/s, conns/s in connrate mode, latency min/p50/p95/p99/max, error rate with per-category counts, and a reliability check that `ActiveConns()` returned to zero after the run). RTTs use bounded reservoir sampling so memory does not grow with request count; `-format json` provides machine-readable output.
 
 Example output format (illustrative values):
@@ -79,5 +84,88 @@ Example output format (illustrative values):
   active conns : 0 (returned to zero) OK
 =================================================================
 ```
+
+## Compare reporting overhead
+
+The default self-contained workload starts an in-process forwarder without a
+reporter. Use `-external` to compare separate forwarder processes from the same
+build with reporting disabled, reporting enabled, and the collector unavailable.
+
+Start a TCP echo target in a separate terminal (Python 3 required):
+
+```bash
+python3 - <<'PYTHON'
+import socketserver
+
+class Echo(socketserver.BaseRequestHandler):
+    def handle(self):
+        while True:
+            data = self.request.recv(65536)
+            if not data:
+                return
+            self.request.sendall(data)
+
+class Server(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+with Server(("127.0.0.1", 18080), Echo) as server:
+    server.serve_forever()
+PYTHON
+```
+
+For the first case, start a forwarder without reporting in another terminal:
+
+```bash
+./portmap forward -listen-host 127.0.0.1 -listen-port 13000 \
+  -target 127.0.0.1:18080
+```
+
+For the second case, stop that forwarder, keep the echo service running, and start
+the collector:
+
+```bash
+mkdir -p .portmap-stats
+chmod 700 .portmap-stats
+endpoint="unix://$(pwd)/.portmap-stats/stats.sock"
+./portmap stats -listen "$endpoint" \
+  -journal ./.portmap-stats/performance.journal -http-addr 127.0.0.1:9080
+```
+
+In another terminal, set `endpoint` to the same absolute URL and start reporting:
+
+```bash
+./portmap forward -listen-host 127.0.0.1 -listen-port 13000 \
+  -target 127.0.0.1:18080 -stats-endpoint "$endpoint"
+```
+
+Run the same load command for each case, saving each result separately:
+
+```bash
+go run ./cmd/loadtest -external 127.0.0.1:13000 -proto tcp \
+  -conns 100 -payload 32768 -warmup 2s -duration 30s -format json
+```
+
+For the third case, leave the reporting forwarder running and stop the collector
+during the workload. Verify that the existing long-lived connections continue
+transferring data. Also test starting a run while the collector is absent. To
+compare TCP transport, change both collector and reporter URLs to
+`tcp://127.0.0.1:9190` and keep the other settings unchanged.
+
+Compare throughput, errors, and RTT percentiles. Use OS tools to record CPU and
+RSS separately for the forwarder and collector, and record journal growth. Runtime
+memory in the load-test report belongs to the load generator, not an external
+forwarder. The example echo service and load generator also consume CPU; rule
+out either becoming the bottleneck when measuring forwarding capacity.
+Repeat each case at least three times with the same host, workload,
+idle timeout, and logging settings. Connection logging can affect short-connection
+workloads and should be accounted for separately.
+
+This compares reporting overhead within one build. To measure the real-time
+accounting change itself, build the relevant commits separately and distinguish
+Linux raw TCP fast paths from userspace copying. Disabling `-stats-endpoint` does
+not restore the previous copy path. These instructions are not benchmark results
+and do not assume a particular overhead percentage. See [Central statistics](stats.en.md)
+for storage and failure limits.
 
 [Back to the usage guide](../README.en.md)
