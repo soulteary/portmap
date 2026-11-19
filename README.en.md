@@ -10,13 +10,13 @@
   <img src=".github/workflows/assets/portmap-logo.png" alt="portmap Logo" width="160"/>
 </p>
 
-`portmap` provides TCP/UDP port forwarding and a single-port SOCKS5/HTTP proxy. It supports Linux and macOS on amd64 and arm64. The default Go mode needs no system `socat`; only `-mode socat` requires it.
+`portmap` provides TCP/UDP port forwarding, a single-port SOCKS5/HTTP proxy, and optional central statistics. It supports Linux and macOS on amd64 and arm64. The default Go mode needs no system `socat`; only `-mode socat` requires it.
 
 <p align="center">
   <img src=".github/workflows/assets/portmap-banner.jpg" alt="portmap Banner" width="720"/>
 </p>
 
-This guide describes the current source. Check `portmap forward -help` and `portmap proxy -help` for the installed binary; published packages may not include every feature on `main`.
+This guide describes the current source. Check `portmap forward -help`, `portmap proxy -help`, and `portmap stats -help` for the installed binary; published packages may not include every feature on `main`.
 
 - [Install](#install)
 - [Forward a local port](#forward-a-local-port)
@@ -24,6 +24,7 @@ This guide describes the current source. Check `portmap forward -help` and `port
 - [Use SOCKS5 or HTTP proxying](#use-socks5-or-http-proxying)
 - [SSH authentication](#ssh-authentication)
 - [Config file](#config-file)
+- [Central statistics](#central-statistics)
 - [Observability](#observability)
 - [Troubleshooting](#troubleshooting)
 - [Performance testing](docs/performance.en.md)
@@ -104,6 +105,7 @@ A call with flags but no subcommand selects `forward`. A call with no arguments 
 ```bash
 portmap forward -help
 portmap proxy -help
+portmap stats -help
 portmap version
 ```
 
@@ -277,11 +279,22 @@ proxy:
 ```
 
 - Instances run concurrently and follow their shutdown procedures on `Ctrl+C` or `SIGTERM`. A fatal error in any instance triggers overall shutdown.
-- Multi-instance can **only be expressed in the config file**; the CLI stays single-instance (e.g. `portmap proxy -addr ... -upstream ...`). In the multi-instance case, per-instance CLI flags (`-listen-port`/`-addr`/`-upstream`, etc.) cannot map to a specific instance and are ignored with a notice; `-config`/`-lang` still take effect. For forward, `-stats-addr`, `-web-addr`, and `-web-log-max` are global aggregate-endpoint options and override instance values when explicitly set.
-- Proxy admin flags (`-stats-addr`, `-stats-allow-public`, `-web-addr`, `-web-allow-public`, `-web-log-max`) are also global aggregate-endpoint overrides.
+- Multi-instance can **only be expressed in the config file**; the CLI stays single-instance (e.g. `portmap proxy -addr ... -upstream ...`). In the multi-instance case, per-instance CLI flags (`-listen-port`/`-addr`/`-upstream`, etc.) cannot map to a specific instance and are ignored with a notice; `-config`/`-lang` still take effect. For forward, `-stats-endpoint`, `-stats-addr`, `-web-addr`, and `-web-log-max` are global aggregate-endpoint options and override instance values when explicitly set.
+- Proxy admin flags (`-stats-endpoint`, `-stats-addr`, `-stats-allow-public`, `-web-addr`, `-web-allow-public`, `-web-log-max`) are also global aggregate-endpoint overrides.
 - Forward multi-instance currently supports only `mode: go`; `mode: socat` fails explicitly before startup. TCP and UDP instances may share an address, while duplicate instances using the same protocol and address are rejected.
 - Proxy instances cannot use duplicate listen addresses. Instances enabling admin endpoints must agree on their addresses and access settings; conflicts fail at startup.
 - The single-object form and the legacy flat layout remain fully compatible, treated as one instance with unchanged behavior.
+
+## Central statistics
+
+`portmap`, `portmap forward`, and `portmap proxy` now update byte counters while
+connections remain open. Use `-stats-endpoint unix:///absolute/path/stats.sock`
+to report cumulative snapshots once per second to `portmap stats`; persistent
+TCP connections are also supported. Reporting failures do not stop forwarding.
+Existing local statistics and Web endpoints remain available.
+
+See [Central statistics](docs/stats.en.md) for startup commands, configuration,
+queries, storage, failure semantics, and the userspace-copy performance tradeoff.
 
 ## Mode Differences (go vs socat)
 
@@ -297,6 +310,7 @@ The two modes support different capabilities; choose based on your needs:
 | `-log-level` | Supported | **Not supported** (ignored with a notice) |
 | `-quiet` | Supported | **Not supported** (ignored with a notice) |
 | SSH upstream | TCP only, via `-upstream ssh://…` | Rejected |
+| Statistics reporting (`-stats-endpoint`) | Supported | Rejected |
 | `SIGUSR1` status print | Supported (see below) | Not applicable (handled by the socat process) |
 
 - **Behavior of `-listen-host` under socat**: when non-empty, `bind=<host>` is appended to the listen address,
@@ -369,6 +383,7 @@ type -a portmap
 portmap version
 portmap forward -help
 portmap proxy -help
+portmap stats -help
 ```
 
 Confirm that the command resolves to the intended binary. Older releases may lack subcommands or flags described here; build the current source when those features are needed.
@@ -405,11 +420,12 @@ Forward needs a running target service; proxy needs the client to use its proxy 
 
 ## Project Structure
 
-- `main.go`, `config.go`: command dispatch, option merging, and multi-instance startup.
+- `main.go`, `config.go`, `stats_command.go`: command dispatch, option merging, and multi-instance startup.
 - `internal/forward`: fixed-target TCP/UDP forwarding.
 - `internal/proxy`: SOCKS5/HTTP handling and connection lifecycle.
 - `internal/upstream`: direct, SOCKS5, HTTP CONNECT, and SSH transports.
 - `internal/netutil`: copying, half-close, and idle timeouts.
+- `internal/telemetry`: asynchronous reporting, collection, and journal storage.
 - `internal/stats`, `internal/web`: counters and read-only monitoring.
 - `internal/socat`, `internal/i18n`: socat execution and localized messages.
 - `cmd/loadtest`: echo load-test tool.
@@ -417,15 +433,3 @@ Forward needs a running target service; proxy needs the client to use its proxy 
 ## License
 
 [Apache License 2.0](LICENSE), Copyright (c) 2026 soulteary.
-
-
-## Central statistics
-
-`portmap`, `portmap forward`, and `portmap proxy` now update byte counters while
-connections remain open. Use `-stats-endpoint unix:///absolute/path/stats.sock`
-to report cumulative snapshots once per second to `portmap stats`; persistent
-TCP connections are also supported. Reporting failures do not stop forwarding.
-Existing local statistics and Web endpoints remain available.
-
-See [Central statistics](docs/stats.md) for startup commands, configuration,
-queries, storage, failure semantics, and the userspace-copy performance tradeoff.

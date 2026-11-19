@@ -17,7 +17,8 @@ Before you start, please read our [Code of Conduct](CODE_OF_CONDUCT.md).
   with a clear description and reproduction steps.
 - **Suggest features** — open an issue describing the use case and motivation.
 - **Improve docs** — fix typos, clarify wording, or translate. Docs are bilingual
-  (`README.md` / `README.en.md`); please keep both in sync when relevant.
+  (`README.md` / `README.en.md`); keep both in sync when relevant. The statistics
+  and performance guides in `docs/` also have Chinese and English versions.
 - **Submit code** — fix a bug or implement a feature via a pull request.
 
 ### Prerequisites
@@ -124,11 +125,12 @@ message:
 
 See [Project Structure](README.en.md#project-structure) for the package map:
 
-- top-level `*.go` — CLI entry, config loading, signal handling.
+- top-level `*.go` — CLI entry (including `stats_command.go`), config loading, signal handling.
 - `internal/forward` — the pure-Go TCP/UDP forwarder.
 - `internal/proxy` — SOCKS5/HTTP request handling and lifecycle.
 - `internal/upstream` — shared direct and upstream transports.
 - `internal/netutil` — relay, half-close, and idle timeouts.
+- `internal/telemetry` — asynchronous reporting, collection, and journal storage.
 - `internal/stats`, `internal/web` — counters and read-only monitoring.
 - `cmd/loadtest` — TCP/UDP echo workloads.
 - `internal/socat` — the system-`socat` fallback.
@@ -149,7 +151,8 @@ project's [Apache License 2.0](LICENSE).
   附上清晰的描述和复现步骤。
 - **提出建议** —— 提交 issue，说明使用场景与动机。
 - **完善文档** —— 修正错别字、优化措辞或补充翻译。文档为中英双语
-  （`README.md` / `README.en.md`），涉及内容改动时请尽量保持两份同步。
+  （`README.md` / `README.en.md`），涉及内容改动时保持两份同步。`docs/` 下的
+  统计和性能指南也分别提供中英文版本。
 - **提交代码** —— 通过 Pull Request 修复缺陷或实现功能。
 
 ### 环境准备
@@ -250,11 +253,12 @@ CI 会在 Linux、macOS 上运行 `go vet` 与 `go test -race`，并单独运行
 
 包结构见 [README 的「项目结构」章节](README.md#项目结构)：
 
-- 顶层 `*.go` —— 命令行入口、配置加载、信号处理。
+- 顶层 `*.go` —— 命令行入口（含 `stats_command.go`）、配置加载、信号处理。
 - `internal/forward` —— 纯 Go 的 TCP/UDP 转发器。
 - `internal/proxy` —— SOCKS5/HTTP 请求处理和生命周期。
 - `internal/upstream` —— 共用的直连与上游传输。
 - `internal/netutil` —— 转发、半关闭和空闲超时。
+- `internal/telemetry` —— 异步上报、集中接收和日志存储。
 - `internal/stats`、`internal/web` —— 统计和只读监控。
 - `cmd/loadtest` —— TCP/UDP 回显压测。
 - `internal/socat` —— 调用系统 `socat` 的 fallback。
