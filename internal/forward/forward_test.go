@@ -733,11 +733,11 @@ func TestIdleTimeoutUsesSharedTunnelActivity(t *testing.T) {
 	clientConn, targetConn := srv.tunnelConns(client, target)
 	done := make(chan struct{}, 2)
 	go func() {
-		srv.pipe(1, "target<-client", targetConn, clientConn)
+		srv.pipe(1, "target<-client", targetConn, clientConn, srv.Stats().AddUp)
 		done <- struct{}{}
 	}()
 	go func() {
-		srv.pipe(1, "client<-target", clientConn, targetConn)
+		srv.pipe(1, "client<-target", clientConn, targetConn, srv.Stats().AddDown)
 		done <- struct{}{}
 	}()
 

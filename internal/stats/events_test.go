@@ -105,3 +105,26 @@ func TestNewEventLogDefaultCapacity(t *testing.T) {
 		t.Errorf("newest ConnID=%d, want 1499", snap[len(snap)-1].ConnID)
 	}
 }
+
+func TestEventLogCursor(t *testing.T) {
+	var disabled *EventLog
+	if events, next, lost := disabled.ReadSince(4); len(events) != 0 || next != 4 || lost != 0 {
+		t.Fatal(events, next, lost)
+	}
+	log := NewEventLog(2)
+	for range 4 {
+		log.Append(Event{Kind: "open"})
+	}
+	events, next, lost := log.ReadSince(0)
+	if len(events) != 2 || next != 4 || lost != 2 {
+		t.Fatal(events, next, lost)
+	}
+	events, next, lost = log.ReadSince(3)
+	if len(events) != 1 || next != 4 || lost != 0 {
+		t.Fatal(events, next, lost)
+	}
+	events, next, lost = log.ReadSince(4)
+	if len(events) != 0 || next != 4 || lost != 0 {
+		t.Fatal(events, next, lost)
+	}
+}

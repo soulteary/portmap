@@ -166,9 +166,7 @@ func (s *Server) handleConnect(ctx context.Context, conn net.Conn, reader *bufio
 
 	s.logf(i18n.T(i18n.KeyLogProxyHTTPConnect), conn.RemoteAddr(), target)
 	start := time.Now()
-	up, down := netutil.RelayReaderCount(conn, reader, remote)
-	s.Stats().AddUp(up)
-	s.Stats().AddDown(down)
+	up, down := netutil.RelayReaderProgress(conn, reader, remote, s.Stats().AddUp, s.Stats().AddDown)
 	s.logEvent("close", "http", conn.RemoteAddr().String(), target, up, down, time.Since(start).Milliseconds(), connIDFromContext(ctx))
 	return nil
 }
@@ -225,21 +223,17 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 	// expectation unchanged would deadlock when the origin sends the interim response.
 	// A proxy may answer the expectation itself: acknowledge it immediately and remove
 	// the header so the origin reads the subsequently forwarded body normally.
-	downCounter := &countingWriter{w: conn}
+	downCounter := &countingWriter{w: conn, add: s.Stats().AddDown}
 	if requestCanContinue(req) && removeHeaderToken(req.Header, "Expect", "100-continue") {
 		if _, err := io.WriteString(downCounter, "HTTP/1.1 100 Continue\r\n\r\n"); err != nil {
-			s.Stats().AddDown(downCounter.n)
 			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), err)
 		}
 	}
 
-	upCounter := &countingWriter{w: remote}
+	upCounter := &countingWriter{w: remote, add: s.Stats().AddUp}
 	if err := req.Write(upCounter); err != nil {
-		s.Stats().AddUp(upCounter.n)
-		s.Stats().AddDown(downCounter.n)
 		return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPForward), host, err)
 	}
-	s.Stats().AddUp(upCounter.n)
 
 	s.logf(i18n.T(i18n.KeyLogProxyHTTPPlain), req.Method, conn.RemoteAddr(), host)
 
@@ -247,21 +241,24 @@ func (s *Server) handlePlainHTTP(ctx context.Context, conn net.Conn, reader *buf
 		return err
 	}
 
-	s.Stats().AddDown(downCounter.n)
 	s.logEvent("close", "http", conn.RemoteAddr().String(), host, upCounter.n, downCounter.n, time.Since(start).Milliseconds(), connIDFromContext(ctx))
 	return nil
 }
 
 // countingWriter 包装一个 io.Writer 并累计成功写出的字节数，用于明文 HTTP
-// 代理路径统计上/下行流量（该路径不经 netutil.RelayReaderCount）。
+// 代理路径统计上/下行流量（该路径不经 netutil.RelayReaderProgress）。
 type countingWriter struct {
-	w io.Writer
-	n int64
+	w   io.Writer
+	n   int64
+	add func(int64)
 }
 
 func (c *countingWriter) Write(p []byte) (int, error) {
 	n, err := c.w.Write(p)
 	c.n += int64(n)
+	if n > 0 && c.add != nil {
+		c.add(int64(n))
+	}
 	return n, err
 }
 
@@ -524,7 +521,6 @@ func (s *Server) relayHTTPResponses(remote net.Conn, req *http.Request, downCoun
 	for {
 		resp, connectionOptions, err := remoteReader.read(req)
 		if err != nil {
-			s.Stats().AddDown(downCounter.n)
 			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), err)
 		}
 		for _, key := range connectionOptions {
@@ -546,7 +542,6 @@ func (s *Server) relayHTTPResponses(remote net.Conn, req *http.Request, downCoun
 		writeErr := resp.Write(downCounter)
 		_ = resp.Body.Close()
 		if writeErr != nil {
-			s.Stats().AddDown(downCounter.n)
 			return fmt.Errorf(i18n.T(i18n.KeyErrProxyHTTPRelayResp), writeErr)
 		}
 		if !informational {

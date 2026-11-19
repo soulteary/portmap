@@ -15,6 +15,13 @@
 package i18n
 
 var messagesDE = map[string]string{
+	KeyLogCollectorStarted: "Statistikempfang auf %s; Journal=%s; HTTP=%s",
+	KeyFlagStatsEndpoint:   "Collector-Adresse: unix:///absoluter/pfad oder tcp://host:port (leer deaktiviert Meldungen)",
+	KeyFlagStatsListen:     "Statistikempfang (TCP standardmäßig nur über Loopback-IP)",
+	KeyFlagStatsJournal:    "Pfad des Statistikjournals mit fortlaufender Ergänzung",
+	KeyErrTelemetry:        "Statistik: %v",
+	KeyErrTelemetrySocat:   "Statistikmeldungen erfordern den Go-Modus",
+
 	KeyFlagForwardUpstream:   "SSH-Upstream-URL für TCP-Weiterleitung, z. B. ssh://user@server.example:22 (leer: direkt)",
 	KeyErrForwardSSHMode:     "SSH-Upstream erfordert -mode go und -proto tcp",
 	KeyErrForwardSSHOnly:     "forward unterstützt nur ssh://-Upstreams über TCP",
@@ -134,7 +141,7 @@ var messagesDE = map[string]string{
 	KeyErrSocatNotFound:   "%q nicht im PATH gefunden: %w",
 	KeyErrSocatInvalidStr: "<ungültige socat-Optionen>",
 
-	KeyUsageSubcommands: "Unterbefehle:\n  forward   TCP/UDP-Portweiterleitung (Standard)\n  proxy     SOCKS5- + HTTP-Proxy auf einem einzigen Port\n  version   Versionsinformationen ausgeben",
+	KeyUsageSubcommands: "Unterbefehle:\n  forward   TCP/UDP-Portweiterleitung (Standard)\n  proxy     SOCKS5- + HTTP-Proxy auf einem einzigen Port\n  stats     Statistiken sammeln und abfragen\n  version   Versionsinformationen ausgeben",
 	KeyErrUnknownSub:    "unbekannter Unterbefehl: %q (forward, proxy oder version wählen)",
 
 	KeyProxyUsageTitle: "portmap proxy - SOCKS5- + HTTP-Proxy auf einem einzigen Port",

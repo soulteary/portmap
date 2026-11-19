@@ -15,6 +15,13 @@
 package i18n
 
 var messagesEN = map[string]string{
+	KeyLogCollectorStarted: "statistics collector listening on %s; journal=%s; HTTP=%s",
+	KeyFlagStatsEndpoint:   "collector endpoint: unix:///absolute/path or tcp://host:port (empty disables reporting)",
+	KeyFlagStatsListen:     "collector ingest endpoint (TCP defaults to loopback IPs)",
+	KeyFlagStatsJournal:    "append-only statistics journal path",
+	KeyErrTelemetry:        "statistics: %v",
+	KeyErrTelemetrySocat:   "statistics reporting requires Go mode",
+
 	KeyFlagForwardUpstream:   "SSH upstream URL for TCP forwarding, e.g. ssh://user@server.example:22 (empty means direct)",
 	KeyErrForwardSSHMode:     "SSH upstream requires -mode go and -proto tcp",
 	KeyErrForwardSSHOnly:     "forward supports only ssh:// upstreams over TCP",
@@ -134,7 +141,7 @@ var messagesEN = map[string]string{
 	KeyErrSocatNotFound:   "%q not found in PATH: %w",
 	KeyErrSocatInvalidStr: "<invalid socat options>",
 
-	KeyUsageSubcommands: "subcommands:\n  forward   TCP/UDP port forwarding (default)\n  proxy     SOCKS5 + HTTP proxy on a single port\n  version   print version info",
+	KeyUsageSubcommands: "subcommands:\n  forward   TCP/UDP port forwarding (default)\n  proxy     SOCKS5 + HTTP proxy on a single port\n  stats     collect and query statistics\n  version   print version info",
 	KeyErrUnknownSub:    "unknown subcommand: %q (choose forward, proxy or version)",
 
 	KeyProxyUsageTitle: "portmap proxy - SOCKS5 + HTTP proxy on a single port",

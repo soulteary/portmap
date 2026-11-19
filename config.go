@@ -141,21 +141,22 @@ type ForwardConfig struct {
 	UpstreamKeepalive            *string `yaml:"upstream_keepalive"`
 	UpstreamKeepaliveMaxFailures *int    `yaml:"upstream_keepalive_max_failures"`
 
-	ListenPort  *int    `yaml:"listen_port"`
-	ListenHost  *string `yaml:"listen_host"`
-	Target      *string `yaml:"target"`
-	Mode        *string `yaml:"mode"`
-	Proto       *string `yaml:"proto"`
-	ReuseAddr   *bool   `yaml:"reuseaddr"`
-	Sudo        *bool   `yaml:"sudo"`
-	DialTimeout *string `yaml:"dial_timeout"`
-	MaxConns    *int    `yaml:"max_conns"`
-	IdleTimeout *string `yaml:"idle_timeout"`
-	LogLevel    *string `yaml:"log_level"`
-	Quiet       *bool   `yaml:"quiet"`
-	StatsAddr   *string `yaml:"stats_addr"`
-	WebAddr     *string `yaml:"web_addr"`
-	WebLogMax   *int    `yaml:"web_log_max"`
+	ListenPort    *int    `yaml:"listen_port"`
+	ListenHost    *string `yaml:"listen_host"`
+	Target        *string `yaml:"target"`
+	Mode          *string `yaml:"mode"`
+	Proto         *string `yaml:"proto"`
+	ReuseAddr     *bool   `yaml:"reuseaddr"`
+	Sudo          *bool   `yaml:"sudo"`
+	DialTimeout   *string `yaml:"dial_timeout"`
+	MaxConns      *int    `yaml:"max_conns"`
+	IdleTimeout   *string `yaml:"idle_timeout"`
+	LogLevel      *string `yaml:"log_level"`
+	Quiet         *bool   `yaml:"quiet"`
+	StatsEndpoint *string `yaml:"stats_endpoint"`
+	StatsAddr     *string `yaml:"stats_addr"`
+	WebAddr       *string `yaml:"web_addr"`
+	WebLogMax     *int    `yaml:"web_log_max"`
 }
 
 // ProxyConfig 是 proxy 子命令的配置段，字段与 proxy flag 一一对应。
@@ -176,6 +177,7 @@ type ProxyConfig struct {
 
 	UpstreamKeepalive            *string `yaml:"upstream_keepalive"`
 	UpstreamKeepaliveMaxFailures *int    `yaml:"upstream_keepalive_max_failures"`
+	StatsEndpoint                *string `yaml:"stats_endpoint"`
 	StatsAddr                    *string `yaml:"stats_addr"`
 	StatsAllowPublic             *bool   `yaml:"stats_allow_public"`
 	WebAddr                      *string `yaml:"web_addr"`
@@ -202,22 +204,23 @@ type fileConfig struct {
 	UpstreamKeepalive            *string `yaml:"upstream_keepalive"`
 	UpstreamKeepaliveMaxFailures *int    `yaml:"upstream_keepalive_max_failures"`
 
-	ListenPort  *int    `yaml:"listen_port"`
-	ListenHost  *string `yaml:"listen_host"`
-	Target      *string `yaml:"target"`
-	Mode        *string `yaml:"mode"`
-	Proto       *string `yaml:"proto"`
-	ReuseAddr   *bool   `yaml:"reuseaddr"`
-	Sudo        *bool   `yaml:"sudo"`
-	DialTimeout *string `yaml:"dial_timeout"`
-	MaxConns    *int    `yaml:"max_conns"`
-	IdleTimeout *string `yaml:"idle_timeout"`
-	LogLevel    *string `yaml:"log_level"`
-	Quiet       *bool   `yaml:"quiet"`
-	StatsAddr   *string `yaml:"stats_addr"`
-	WebAddr     *string `yaml:"web_addr"`
-	WebLogMax   *int    `yaml:"web_log_max"`
-	Lang        *string `yaml:"lang"`
+	ListenPort    *int    `yaml:"listen_port"`
+	ListenHost    *string `yaml:"listen_host"`
+	Target        *string `yaml:"target"`
+	Mode          *string `yaml:"mode"`
+	Proto         *string `yaml:"proto"`
+	ReuseAddr     *bool   `yaml:"reuseaddr"`
+	Sudo          *bool   `yaml:"sudo"`
+	DialTimeout   *string `yaml:"dial_timeout"`
+	MaxConns      *int    `yaml:"max_conns"`
+	IdleTimeout   *string `yaml:"idle_timeout"`
+	LogLevel      *string `yaml:"log_level"`
+	Quiet         *bool   `yaml:"quiet"`
+	StatsEndpoint *string `yaml:"stats_endpoint"`
+	StatsAddr     *string `yaml:"stats_addr"`
+	WebAddr       *string `yaml:"web_addr"`
+	WebLogMax     *int    `yaml:"web_log_max"`
+	Lang          *string `yaml:"lang"`
 }
 
 // nestedTopKeys 是新版嵌套布局的顶层字段名集合。
@@ -302,20 +305,21 @@ func loadTopConfig(path string) (*Config, error) {
 		UpstreamKeepalive:            flat.UpstreamKeepalive,
 		UpstreamKeepaliveMaxFailures: flat.UpstreamKeepaliveMaxFailures,
 
-		ListenHost:  flat.ListenHost,
-		Target:      flat.Target,
-		Mode:        flat.Mode,
-		Proto:       flat.Proto,
-		ReuseAddr:   flat.ReuseAddr,
-		Sudo:        flat.Sudo,
-		DialTimeout: flat.DialTimeout,
-		MaxConns:    flat.MaxConns,
-		IdleTimeout: flat.IdleTimeout,
-		LogLevel:    flat.LogLevel,
-		Quiet:       flat.Quiet,
-		StatsAddr:   flat.StatsAddr,
-		WebAddr:     flat.WebAddr,
-		WebLogMax:   flat.WebLogMax,
+		ListenHost:    flat.ListenHost,
+		Target:        flat.Target,
+		Mode:          flat.Mode,
+		Proto:         flat.Proto,
+		ReuseAddr:     flat.ReuseAddr,
+		Sudo:          flat.Sudo,
+		DialTimeout:   flat.DialTimeout,
+		MaxConns:      flat.MaxConns,
+		IdleTimeout:   flat.IdleTimeout,
+		LogLevel:      flat.LogLevel,
+		Quiet:         flat.Quiet,
+		StatsEndpoint: flat.StatsEndpoint,
+		StatsAddr:     flat.StatsAddr,
+		WebAddr:       flat.WebAddr,
+		WebLogMax:     flat.WebLogMax,
 	}}
 	return cfg, nil
 }
@@ -356,6 +360,7 @@ func loadForwardConfig(path string) (*fileConfig, error) {
 		out.IdleTimeout = fw.IdleTimeout
 		out.LogLevel = fw.LogLevel
 		out.Quiet = fw.Quiet
+		out.StatsEndpoint = fw.StatsEndpoint
 		out.StatsAddr = fw.StatsAddr
 		out.WebAddr = fw.WebAddr
 		out.WebLogMax = fw.WebLogMax
@@ -414,6 +419,7 @@ func applyProxyConfig(opt *proxyOptions, pc *ProxyConfig, setFlags map[string]bo
 		return err
 	}
 	applyConfigValue(&opt.upstreamKeepaliveMaxFailures, pc.UpstreamKeepaliveMaxFailures, setFlags, "upstream-keepalive-max-failures")
+	applyConfigValue(&opt.statsEndpoint, pc.StatsEndpoint, setFlags, "stats-endpoint")
 	applyConfigValue(&opt.statsAddr, pc.StatsAddr, setFlags, "stats-addr")
 	applyConfigValue(&opt.statsAllowPublic, pc.StatsAllowPublic, setFlags, "stats-allow-public")
 	applyConfigValue(&opt.webAddr, pc.WebAddr, setFlags, "web-addr")
@@ -470,6 +476,7 @@ func mergeConfig(opt *options, cfg *fileConfig, setFlags map[string]bool) error 
 	applyConfigValue(&opt.maxConns, cfg.MaxConns, setFlags, "max-conns")
 	applyConfigValue(&opt.logLevel, cfg.LogLevel, setFlags, "log-level")
 	applyConfigValue(&opt.quiet, cfg.Quiet, setFlags, "quiet")
+	applyConfigValue(&opt.statsEndpoint, cfg.StatsEndpoint, setFlags, "stats-endpoint")
 	applyConfigValue(&opt.statsAddr, cfg.StatsAddr, setFlags, "stats-addr")
 	applyConfigValue(&opt.webAddr, cfg.WebAddr, setFlags, "web-addr")
 	applyConfigValue(&opt.webLogMax, cfg.WebLogMax, setFlags, "web-log-max")
@@ -519,6 +526,7 @@ func applyForwardConfig(opt *options, fc *ForwardConfig, setFlags map[string]boo
 	applyConfigValue(&opt.maxConns, fc.MaxConns, setFlags, "max-conns")
 	applyConfigValue(&opt.logLevel, fc.LogLevel, setFlags, "log-level")
 	applyConfigValue(&opt.quiet, fc.Quiet, setFlags, "quiet")
+	applyConfigValue(&opt.statsEndpoint, fc.StatsEndpoint, setFlags, "stats-endpoint")
 	applyConfigValue(&opt.statsAddr, fc.StatsAddr, setFlags, "stats-addr")
 	applyConfigValue(&opt.webAddr, fc.WebAddr, setFlags, "web-addr")
 	applyConfigValue(&opt.webLogMax, fc.WebLogMax, setFlags, "web-log-max")

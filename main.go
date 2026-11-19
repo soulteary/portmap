@@ -87,6 +87,7 @@ type options struct {
 	showVersion      bool
 	configPath       string
 	lang             string
+	statsEndpoint    string
 	statsAddr        string
 	webAddr          string
 	webLogMax        int
@@ -127,6 +128,8 @@ func run(argv []string) error {
 		return runForward(rest)
 	case "proxy":
 		return runProxy(rest)
+	case "stats":
+		return runStats(rest)
 	case "version":
 		fmt.Println(i18n.T(i18n.KeyVersionLine, version, commit, date))
 		return nil
@@ -140,6 +143,7 @@ var subcommands = map[string]bool{
 	"forward": true,
 	"proxy":   true,
 	"version": true,
+	"stats":   true,
 }
 
 // splitSubcommand 从 argv 中解析子命令：
@@ -180,6 +184,7 @@ func runForward(argv []string) error {
 	fs.BoolVar(&opt.showVersion, "version", false, i18n.T(i18n.KeyFlagVersion))
 	fs.StringVar(&opt.configPath, "config", "", i18n.T(i18n.KeyFlagConfig))
 	fs.StringVar(&opt.lang, "lang", "", i18n.T(i18n.KeyFlagLang, strings.Join(i18n.Codes(), "/")))
+	fs.StringVar(&opt.statsEndpoint, "stats-endpoint", "", i18n.T(i18n.KeyFlagStatsEndpoint))
 	fs.StringVar(&opt.statsAddr, "stats-addr", "", i18n.T(i18n.KeyFlagStatsAddr))
 	fs.StringVar(&opt.webAddr, "web-addr", "", i18n.T(i18n.KeyFlagWebAddr))
 	fs.IntVar(&opt.webLogMax, "web-log-max", 1000, i18n.T(i18n.KeyFlagWebLogMax))
@@ -294,13 +299,13 @@ func runGo(ctx context.Context, opt options) error {
 		return err
 	}
 	log.Print(i18n.T(i18n.KeyLogEffectiveConfig, opt))
-	// 仅当启用 Web 面板（-web-addr 非空）时创建事件日志并注入 forward，
-	// 未启用时保持 nil，避免无谓的内存与插桩开销。
+	// Retain bounded events when either the local panel or reporting needs them.
 	var events *stats.EventLog
-	if strings.TrimSpace(opt.webAddr) != "" {
+	if strings.TrimSpace(opt.webAddr) != "" || opt.statsEndpoint != "" {
 		events = stats.NewEventLog(opt.webLogMax)
 	}
 	srv := newForwardServer(opt, events)
+	defer startReporter(ctx, opt.statsEndpoint, events, srv)()
 	watchStatusSignal(ctx, srv)
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -435,6 +440,9 @@ func forwardInstanceKey(opt options) string {
 // applyForwardGlobalFlags 将多实例下仍具备全局语义的 CLI 参数应用到每个实例，
 // 供后续聚合端点读取。显式 CLI 值优先于各实例配置。
 func applyForwardGlobalFlags(opt *options, base options, setFlags map[string]bool) {
+	if setFlags["stats-endpoint"] {
+		opt.statsEndpoint = base.statsEndpoint
+	}
 	if setFlags["stats-addr"] {
 		opt.statsAddr = base.statsAddr
 	}
@@ -534,7 +542,7 @@ func startForwardInstances(ctx context.Context, instances []options) error {
 	var wg sync.WaitGroup
 	providers := make([]stats.Provider, 0, len(instances))
 	var events *stats.EventLog
-	if admin.webAddr != "" {
+	if admin.webAddr != "" || admin.statsEndpoint != "" {
 		events = stats.NewEventLog(admin.webLogMax)
 	}
 	for i := range instances {
@@ -562,6 +570,7 @@ func startForwardInstances(ctx context.Context, instances []options) error {
 		}()
 	}
 
+	defer startReporter(ctx, admin.statsEndpoint, events, providers...)()
 	statsWait, statsErrCh := startStatsEndpoint(ctx, cancel, admin.statsAddr, false, providers...)
 	webWait, webErrCh := startWebEndpoint(ctx, cancel, admin.webAddr, false, events, providers...)
 
@@ -582,9 +591,10 @@ func startForwardInstances(ctx context.Context, instances []options) error {
 }
 
 type forwardAdminOptions struct {
-	statsAddr string
-	webAddr   string
-	webLogMax int
+	statsEndpoint string
+	statsAddr     string
+	webAddr       string
+	webLogMax     int
 }
 
 // collectForwardAdminOptions 将实例配置收敛为唯一的聚合管理端点。多个不同的
@@ -595,6 +605,9 @@ func collectForwardAdminOptions(instances []options) (forwardAdminOptions, error
 	webLogMaxConflict := false
 	conflictingWebLogMax := 0
 	for _, opt := range instances {
+		if err := mergeStatsEndpoint(&out.statsEndpoint, opt.statsEndpoint); err != nil {
+			return out, err
+		}
 		if addr := strings.TrimSpace(opt.statsAddr); addr != "" {
 			if out.statsAddr != "" && out.statsAddr != addr {
 				return out, errors.New(i18n.T(i18n.KeyErrConflictingMultiOption, "stats_addr", out.statsAddr, addr))
@@ -643,6 +656,7 @@ type proxyOptions struct {
 	showVersion                  bool
 	configPath                   string
 	lang                         string
+	statsEndpoint                string
 	statsAddr                    string
 	statsAllowPublic             bool
 	webAddr                      string
@@ -673,6 +687,7 @@ func runProxy(argv []string) error {
 	fs.BoolVar(&opt.showVersion, "version", false, i18n.T(i18n.KeyFlagVersion))
 	fs.StringVar(&opt.configPath, "config", "", i18n.T(i18n.KeyFlagConfig))
 	fs.StringVar(&opt.lang, "lang", "", i18n.T(i18n.KeyFlagLang, strings.Join(i18n.Codes(), "/")))
+	fs.StringVar(&opt.statsEndpoint, "stats-endpoint", "", i18n.T(i18n.KeyFlagStatsEndpoint))
 	fs.StringVar(&opt.statsAddr, "stats-addr", "", i18n.T(i18n.KeyFlagStatsAddr))
 	fs.BoolVar(&opt.statsAllowPublic, "stats-allow-public", false, i18n.T(i18n.KeyFlagStatsAllowPublic))
 	fs.StringVar(&opt.webAddr, "web-addr", "", i18n.T(i18n.KeyFlagWebAddr))
@@ -731,18 +746,22 @@ func runProxy(argv []string) error {
 	defer stop()
 
 	srv := newProxyServer(opt, upstream)
-	// 仅当启用 Web 面板时创建事件日志并注入 proxy 服务。
+	// Local monitoring and reporting share the bounded event log.
 	var events *stats.EventLog
-	if strings.TrimSpace(opt.webAddr) != "" {
+	if strings.TrimSpace(opt.webAddr) != "" || opt.statsEndpoint != "" {
 		events = stats.NewEventLog(opt.webLogMax)
 		srv.Events = events
 	}
+	defer startReporter(ctx, opt.statsEndpoint, events, srv)()
 	return serveProxy(ctx, srv, opt.statsAddr, opt.statsAllowPublic, opt.webAddr, opt.webAllowPublic, events)
 }
 
 // validateProxyOptions 校验单个 proxy 实例的运行参数（地址非空、各超时非负、
 // max-conns 非负），与单实例路径规则一致。
 func validateProxyOptions(opt *proxyOptions) error {
+	if err := validateStatsEndpoint(opt.statsEndpoint); err != nil {
+		return err
+	}
 	if strings.TrimSpace(opt.addr) == "" {
 		return errors.New(i18n.T(i18n.KeyErrTargetEmpty))
 	}
@@ -1039,6 +1058,7 @@ func defaultProxyOptions() proxyOptions {
 }
 
 type proxyAdminOptions struct {
+	statsEndpoint    string
 	statsAddr        string
 	statsAllowPublic bool
 	webAddr          string
@@ -1058,6 +1078,9 @@ func collectProxyAdminOptions(instances []proxyOptions) (proxyAdminOptions, erro
 	webLogMaxConflict := false
 	conflictingWebLogMax := 0
 	for _, opt := range instances {
+		if err := mergeStatsEndpoint(&out.statsEndpoint, opt.statsEndpoint); err != nil {
+			return out, err
+		}
 		if err := mergeProxyAdminEndpoint(&out.statsAddr, &out.statsAllowPublic, &statsSet, opt.statsAddr, opt.statsAllowPublic, "stats"); err != nil {
 			return out, err
 		}
@@ -1117,7 +1140,7 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 	providers := make([]stats.Provider, 0, len(instances))
 	// All instances share one validated admin surface and one event log.
 	var events *stats.EventLog
-	if admin.webAddr != "" {
+	if admin.webAddr != "" || admin.statsEndpoint != "" {
 		events = stats.NewEventLog(admin.webLogMax)
 	}
 	for i, inst := range instances {
@@ -1139,6 +1162,7 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 		}()
 	}
 
+	defer startReporter(ctx, admin.statsEndpoint, events, providers...)()
 	statsWait, statsErrCh := startStatsEndpoint(ctx, cancel, admin.statsAddr, admin.statsAllowPublic, providers...)
 	webWait, webErrCh := startWebEndpoint(ctx, cancel, admin.webAddr, admin.webAllowPublic, events, providers...)
 
@@ -1159,6 +1183,12 @@ func runProxyMulti(base proxyOptions, cfg *Config, setFlags map[string]bool) err
 }
 
 func validateForwardOptions(opt *options) error {
+	if err := validateStatsEndpoint(opt.statsEndpoint); err != nil {
+		return err
+	}
+	if opt.statsEndpoint != "" && strings.EqualFold(strings.TrimSpace(opt.mode), "socat") {
+		return errors.New(i18n.T(i18n.KeyErrTelemetrySocat))
+	}
 	return normalizeForwardOptions(opt)
 }
 
@@ -1238,6 +1268,9 @@ func buildProxyInstances(base proxyOptions, cfg *Config, setFlags map[string]boo
 }
 
 func applyProxyAdminFlags(opt *proxyOptions, base proxyOptions, setFlags map[string]bool) {
+	if setFlags["stats-endpoint"] {
+		opt.statsEndpoint = base.statsEndpoint
+	}
 	if setFlags["stats-addr"] {
 		opt.statsAddr = base.statsAddr
 	}

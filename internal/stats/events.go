@@ -20,6 +20,8 @@ import "sync"
 // 与 atomic 计数器不同，Event 记录单次连接的明细（客户端、目标、字节数、
 // 时长等），用于事件流/日志视图。
 type Event struct {
+	// Source is the process boot ID when received by a collector.
+	Source string `json:"source,omitempty"`
 	// Time 事件发生时间，格式化为 "2006-01-02 15:04:05" 便于阅读。
 	Time string `json:"time"`
 	// Kind 事件类型，取值 "open"、"close"、"reject"、"dial-error" 之一。
@@ -44,9 +46,10 @@ type Event struct {
 // 通过 sync.RWMutex 保护并发读写；当条数超过 max 时丢弃最旧的记录，仅保留
 // 最新的 max 条。适合为 Web 面板提供“最近事件”这类有界内存的展示数据。
 type EventLog struct {
-	mu      sync.RWMutex
-	entries []Event
-	max     int
+	mu       sync.RWMutex
+	entries  []Event
+	max      int
+	sequence uint64
 }
 
 // NewEventLog 创建一个容量上限为 max 的事件缓冲区。max <= 0 时默认取 1000。
@@ -65,6 +68,7 @@ func (l *EventLog) Append(e Event) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.sequence++
 	l.entries = append(l.entries, e)
 	if len(l.entries) > l.max {
 		l.entries = l.entries[len(l.entries)-l.max:]
@@ -79,4 +83,25 @@ func (l *EventLog) Snapshot() []Event {
 	out := make([]Event, len(l.entries))
 	copy(out, l.entries)
 	return out
+}
+
+// ReadSince returns the retained events after a cursor, the new cursor and the
+// number overwritten before delivery. A nil log represents disabled events.
+func (l *EventLog) ReadSince(cursor uint64) ([]Event, uint64, uint64) {
+	if l == nil {
+		return nil, cursor, 0
+	}
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if cursor >= l.sequence {
+		return nil, l.sequence, 0
+	}
+	first := l.sequence - uint64(len(l.entries))
+	var lost uint64
+	if cursor < first {
+		lost = first - cursor
+		cursor = first
+	}
+	out := append([]Event(nil), l.entries[cursor-first:]...)
+	return out, l.sequence, lost
 }

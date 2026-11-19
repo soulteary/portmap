@@ -108,9 +108,7 @@ func (s *Server) handleSOCKS5WithReader(ctx context.Context, conn net.Conn, read
 
 	s.logf(i18n.T(i18n.KeyLogProxySOCKS5Relay), conn.RemoteAddr(), target)
 	start := time.Now()
-	up, down := netutil.RelayReaderCount(conn, reader, remote)
-	s.Stats().AddUp(up)
-	s.Stats().AddDown(down)
+	up, down := netutil.RelayReaderProgress(conn, reader, remote, s.Stats().AddUp, s.Stats().AddDown)
 	s.logEvent("close", "socks5", conn.RemoteAddr().String(), target, up, down, time.Since(start).Milliseconds(), connIDFromContext(ctx))
 	return nil
 }

@@ -637,3 +637,6 @@ func (s *Server) acceptConnections(ln net.Listener) error {
 		}()
 	}
 }
+
+// StatsLabel identifies the listener in collector snapshots.
+func (s *Server) StatsLabel() string { return "proxy " + s.Addr }

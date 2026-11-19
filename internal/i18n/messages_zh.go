@@ -15,6 +15,13 @@
 package i18n
 
 var messagesZH = map[string]string{
+	KeyLogCollectorStarted: "统计收集端监听 %s；日志=%s；HTTP=%s",
+	KeyFlagStatsEndpoint:   "收集端地址：unix:///绝对路径 或 tcp://主机:端口（留空禁用上报）",
+	KeyFlagStatsListen:     "统计接收地址（TCP 默认仅允许回环 IP）",
+	KeyFlagStatsJournal:    "追加式统计日志路径",
+	KeyErrTelemetry:        "统计：%v",
+	KeyErrTelemetrySocat:   "统计上报需要 Go 模式",
+
 	KeyFlagForwardUpstream:   "TCP 转发使用的 SSH 上游 URL，例如 ssh://user@server.example:22（留空表示直连）",
 	KeyErrForwardSSHMode:     "SSH 上游要求 -mode go 和 -proto tcp",
 	KeyErrForwardSSHOnly:     "forward 仅支持 TCP 的 ssh:// 上游",
@@ -134,7 +141,7 @@ var messagesZH = map[string]string{
 	KeyErrSocatNotFound:   "在 PATH 中未找到 %q: %w",
 	KeyErrSocatInvalidStr: "<非法的 socat 选项>",
 
-	KeyUsageSubcommands: "子命令:\n  forward   TCP/UDP 端口转发（默认）\n  proxy     单端口 SOCKS5 + HTTP 代理\n  version   打印版本信息",
+	KeyUsageSubcommands: "子命令:\n  forward   TCP/UDP 端口转发（默认）\n  proxy     单端口 SOCKS5 + HTTP 代理\n  stats     集中接收统计并提供查询\n  version   打印版本信息",
 	KeyErrUnknownSub:    "未知子命令: %q（可选 forward、proxy 或 version）",
 
 	KeyProxyUsageTitle: "portmap proxy - 单端口 SOCKS5 + HTTP 代理",

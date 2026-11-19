@@ -15,6 +15,13 @@
 package i18n
 
 var messagesFR = map[string]string{
+	KeyLogCollectorStarted: "collecteur statistique sur %s ; journal=%s ; HTTP=%s",
+	KeyFlagStatsEndpoint:   "adresse du collecteur : unix:///chemin/absolu ou tcp://hôte:port (vide pour désactiver)",
+	KeyFlagStatsListen:     "adresse de réception (TCP limité par défaut aux IP de bouclage)",
+	KeyFlagStatsJournal:    "chemin du journal statistique en ajout seul",
+	KeyErrTelemetry:        "statistiques : %v",
+	KeyErrTelemetrySocat:   "la transmission des statistiques nécessite le mode Go",
+
 	KeyFlagForwardUpstream:   "URL SSH amont pour le transfert TCP, ex. ssh://user@server.example:22 (vide : connexion directe)",
 	KeyErrForwardSSHMode:     "Un amont SSH nécessite -mode go et -proto tcp",
 	KeyErrForwardSSHOnly:     "forward accepte uniquement les amonts ssh:// sur TCP",
@@ -134,7 +141,7 @@ var messagesFR = map[string]string{
 	KeyErrSocatNotFound:   "%q introuvable dans le PATH : %w",
 	KeyErrSocatInvalidStr: "<options socat invalides>",
 
-	KeyUsageSubcommands: "actions disponibles :\n  forward   redirection de ports TCP/UDP (par défaut)\n  proxy     proxy SOCKS5 + HTTP sur un seul port\n  version   afficher les informations de version",
+	KeyUsageSubcommands: "actions disponibles :\n  forward   redirection de ports TCP/UDP (par défaut)\n  proxy     proxy SOCKS5 + HTTP sur un seul port\n  stats     collecter et consulter les statistiques\n  version   afficher les informations de version",
 	KeyErrUnknownSub:    "sous-commande inconnue : %q (choisir forward, proxy ou version)",
 
 	KeyProxyUsageTitle: "portmap proxy - proxy SOCKS5 + HTTP sur un seul port",

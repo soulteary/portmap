@@ -108,3 +108,13 @@ var messages = map[Lang]map[string]string{
 	French:   messagesFR,
 	German:   messagesDE,
 }
+
+const (
+	KeyFlagStatsEndpoint = "stats.flag-endpoint"
+	KeyFlagStatsListen   = "stats.flag-listen"
+	KeyFlagStatsJournal  = "stats.flag-journal"
+	KeyErrTelemetry      = "stats.error"
+	KeyErrTelemetrySocat = "stats.socat"
+)
+
+const KeyLogCollectorStarted = "stats.started"
