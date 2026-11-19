@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Require Go 1.27.4 and update golang.org/x/crypto to 0.59.0,
+  golang.org/x/net to 0.63.0, and golang.org/x/term to 0.48.0.
+
 ## [1.4.0] - 2026-11-10
 
 ### Added

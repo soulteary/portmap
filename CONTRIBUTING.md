@@ -22,7 +22,7 @@ Before you start, please read our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ### Prerequisites
 
-- **Go 1.27.3+** (the exact version is pinned in [`go.mod`](go.mod)).
+- **Go 1.27.4+** (the exact version is pinned in [`go.mod`](go.mod)).
 - **make** — used to drive common build/test/lint tasks.
 - **golangci-lint** `v2.14.0` — matches the version used in CI
   (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
@@ -154,7 +154,7 @@ project's [Apache License 2.0](LICENSE).
 
 ### 环境准备
 
-- **Go 1.27.3+**（准确版本以 [`go.mod`](go.mod) 为准）。
+- **Go 1.27.4+**（准确版本以 [`go.mod`](go.mod) 为准）。
 - **make** —— 用于驱动常用的构建/测试/检查任务。
 - **golangci-lint** `v2.14.0` —— 与 CI 使用的版本一致
   （见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)）。

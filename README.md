@@ -43,7 +43,7 @@ portmap version
 
 ### 从源码构建
 
-需要 Go 1.27.3 或更新版本，具体要求见 [go.mod](go.mod)。
+需要 Go 1.27.4 或更新版本，具体要求见 [go.mod](go.mod)。
 
 ```bash
 git clone https://github.com/soulteary/portmap.git
