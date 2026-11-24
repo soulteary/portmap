@@ -91,6 +91,43 @@ func TestTCPStreamDialFailure(t *testing.T) {
 	}
 }
 
+func TestRoundTripWriteFailuresAreRecorded(t *testing.T) {
+	check := func(t *testing.T, s *stats, rtt time.Duration, ok bool) {
+		t.Helper()
+		if ok || rtt != 0 {
+			t.Fatalf("closed connection returned success=%v, RTT=%s", ok, rtt)
+		}
+		if s.errWrite.Load() != 1 || s.errRead.Load() != 0 || s.errMismatch.Load() != 0 {
+			t.Fatalf("incorrect error classification: write=%d read=%d mismatch=%d", s.errWrite.Load(), s.errRead.Load(), s.errMismatch.Load())
+		}
+		if s.requests.Load() != 0 || s.bytes.Load() != 0 {
+			t.Fatal("failed write was counted as successful traffic")
+		}
+	}
+	t.Run("tcp", func(t *testing.T) {
+		conn, peer := net.Pipe()
+		defer func() { _ = conn.Close() }()
+		if err := peer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		s := &stats{}
+		rtt, ok := tcpRoundTrip(context.Background(), conn, []byte("x"), make([]byte, 1), s)
+		check(t, s, rtt, ok)
+	})
+	t.Run("udp", func(t *testing.T) {
+		conn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 9})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+		s := &stats{}
+		rtt, ok := udpRoundTrip(context.Background(), conn, []byte("x"), make([]byte, 1), s)
+		check(t, s, rtt, ok)
+	})
+}
+
 func TestUDPRoundTripRejectsCorruptReply(t *testing.T) {
 	server, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
