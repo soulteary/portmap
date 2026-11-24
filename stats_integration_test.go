@@ -66,8 +66,8 @@ func startStatsCLI(t *testing.T, args []string) {
 			}
 		case <-time.After(5 * time.Second):
 			_ = cmd.Process.Kill()
-			<-done
-			t.Error("CLI shutdown timed out")
+			err := <-done
+			t.Errorf("CLI shutdown timed out: %v", err)
 		}
 	})
 }

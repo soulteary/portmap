@@ -262,7 +262,10 @@ func TestHTTPProxyRejectsOversizedRequestHeaders(t *testing.T) {
 		t.Fatalf("状态码=%d，期望 %d", resp.StatusCode, http.StatusRequestHeaderFieldsTooLarge)
 	}
 	select {
-	case <-writeDone:
+	case err := <-writeDone:
+		if err != nil && !errors.Is(err, io.ErrClosedPipe) {
+			t.Fatalf("请求被拒绝后写入返回异常: %v", err)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("请求写入未在拒绝后退出")
 	}
@@ -468,8 +471,8 @@ func TestCloseClosesOutboundRelay(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		_ = targetConn.Close()
-		<-done
-		t.Fatal("Close 未关闭出站连接，仍在等待反向中继")
+		err := <-done
+		t.Fatalf("Close 未关闭出站连接，仍在等待反向中继: %v", err)
 	}
 	select {
 	case <-handlerDone:
