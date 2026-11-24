@@ -135,7 +135,7 @@ jobs:
       - name: verify go.mod and go.sum
         run: go mod tidy -diff
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
 
   lint:
     runs-on: ubuntu-latest
